@@ -536,6 +536,186 @@ def training_delete(entry_id: int, request: Request, db: DbDep) -> Response:
     return RedirectResponse("/training", status_code=status.HTTP_303_SEE_OTHER)
 
 
+# ---------------------------------------------------------------------------
+# Products (Shopify mirror) — design preview, hard-coded sample data
+# ---------------------------------------------------------------------------
+
+_SAMPLE_PRODUCTS = [
+    {
+        "id": 1,
+        "title": "Linen Crossbody Bag",
+        "status": "active",
+        "image_url": None,
+        "price_range": "$48.00",
+        "variant_count": 3,
+        "collections": ["Bags", "New arrivals", "Summer 2026"],
+    },
+    {
+        "id": 2,
+        "title": "Merino Wool Beanie",
+        "status": "active",
+        "image_url": None,
+        "price_range": "$28.00 – $34.00",
+        "variant_count": 4,
+        "collections": ["Accessories", "Cold weather"],
+    },
+    {
+        "id": 3,
+        "title": "Hand-poured Soy Candle (12 oz)",
+        "status": "active",
+        "image_url": None,
+        "price_range": "$32.00",
+        "variant_count": 6,
+        "collections": ["Home", "Gifts under $50", "Bestsellers"],
+    },
+    {
+        "id": 4,
+        "title": "Recycled Cotton T-Shirt",
+        "status": "active",
+        "image_url": None,
+        "price_range": "$24.00",
+        "variant_count": 8,
+        "collections": ["Apparel", "Basics"],
+    },
+    {
+        "id": 5,
+        "title": "Ceramic Pour-Over Set",
+        "status": "draft",
+        "image_url": None,
+        "price_range": "$78.00",
+        "variant_count": 1,
+        "collections": ["Home", "Kitchen"],
+    },
+    {
+        "id": 6,
+        "title": "Leather Card Holder (discontinued)",
+        "status": "archived",
+        "image_url": None,
+        "price_range": "$36.00",
+        "variant_count": 2,
+        "collections": ["Accessories"],
+    },
+]
+
+_SAMPLE_COLLECTIONS = [
+    {"handle": "bags", "title": "Bags", "product_count": 8},
+    {"handle": "accessories", "title": "Accessories", "product_count": 14},
+    {"handle": "home", "title": "Home", "product_count": 19},
+    {"handle": "apparel", "title": "Apparel", "product_count": 22},
+    {"handle": "bestsellers", "title": "Bestsellers", "product_count": 12},
+]
+
+
+@app.get("/products", response_class=HTMLResponse)
+def products_page(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    q = (request.query_params.get("q") or "").strip().lower()
+    status_filter = request.query_params.get("status") or ""
+    collection_filter = request.query_params.get("collection") or ""
+
+    items = list(_SAMPLE_PRODUCTS)
+    if q:
+        items = [p for p in items if q in p["title"].lower()]
+    if status_filter:
+        items = [p for p in items if p["status"] == status_filter]
+    if collection_filter:
+        items = [p for p in items if collection_filter in [c.lower() for c in p["collections"]]]
+
+    shopify_config = integrations_svc.get_config(db, "shopify")
+    shopify_connected = integrations_svc.is_configured(
+        shopify_config, integrations_svc.required_keys("shopify")
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "products.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "products": items,
+            "collections": _SAMPLE_COLLECTIONS,
+            "total_count": len(_SAMPLE_PRODUCTS),
+            "active_count": sum(1 for p in _SAMPLE_PRODUCTS if p["status"] == "active"),
+            "collection_count": len(_SAMPLE_COLLECTIONS),
+            "last_synced": None,
+            "query": q,
+            "status_filter": status_filter,
+            "collection_filter": collection_filter,
+            "page": 1,
+            "total_pages": 1,
+            "qs_prev": "",
+            "qs_next": "",
+            "shopify_connected": shopify_connected,
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/products/sync")
+def products_sync(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    _flash(
+        request,
+        "Sync backend not built yet — this preview uses sample data.",
+        "info",
+    )
+    return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/products/{product_id}", response_class=HTMLResponse)
+def product_detail_page(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    base = next((p for p in _SAMPLE_PRODUCTS if p["id"] == product_id), None)
+    if base is None:
+        raise HTTPException(status_code=404)
+
+    product = {
+        **base,
+        "vendor": "Atelier Brecx",
+        "product_type": "Accessory" if "Bag" in base["title"] or "Holder" in base["title"] else "Apparel",
+        "total_inventory": 124,
+        "created_at": "2025-11-14",
+        "updated_at": "2026-04-22",
+        "description_html": (
+            "<p>This is a sample product description shown for the design preview. "
+            "Once Shopify sync is wired up, the real product description (HTML) "
+            "renders here verbatim.</p>"
+        ),
+        "shopify_admin_url": "#",
+        "variants": [
+            {
+                "sku": f"SKU-{product_id}{i}",
+                "title": f"Variant {i}",
+                "price": "29.00",
+                "inventory_quantity": 25 + i * 4,
+                "options": [f"Color {i}", "Size M"],
+            }
+            for i in range(1, base["variant_count"] + 1)
+        ],
+        "ads_performance": None,
+    }
+
+    return templates.TemplateResponse(
+        request,
+        "product_detail.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "product": product,
+        },
+    )
+
+
 @app.get("/status", response_class=HTMLResponse)
 def status_page(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)

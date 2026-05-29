@@ -1,0 +1,135 @@
+{% extends "layout.html" %}
+
+{% block title %}Products — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Products</h1>
+    <p class="page-subtitle">
+      Your Shopify catalog mirrored here. Synced every 6 hours, or on demand.
+    </p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/products/sync" class="inline-form">
+      <button type="submit" class="btn-primary">Sync now</button>
+    </form>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}
+  <div class="flash flash-{{ f.level }}">{{ f.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<section class="panel sync-bar">
+  <div class="sync-info">
+    <div class="sync-stat">
+      <span class="sync-label">Last sync</span>
+      <span class="sync-value">{{ last_synced or 'Never' }}</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-label">Total products</span>
+      <span class="sync-value">{{ total_count }}</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-label">Active</span>
+      <span class="sync-value">{{ active_count }}</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-label">Collections</span>
+      <span class="sync-value">{{ collection_count }}</span>
+    </div>
+  </div>
+</section>
+
+<section class="panel filter-bar">
+  <form method="get" action="/products" class="filter-form">
+    <input
+      type="search"
+      name="q"
+      value="{{ query }}"
+      placeholder="Search products by title…"
+      class="filter-search"
+    />
+    <select name="status" class="filter-select">
+      <option value="" {{ 'selected' if not status_filter }}>All statuses</option>
+      <option value="active" {{ 'selected' if status_filter == 'active' }}>Active</option>
+      <option value="draft" {{ 'selected' if status_filter == 'draft' }}>Draft</option>
+      <option value="archived" {{ 'selected' if status_filter == 'archived' }}>Archived</option>
+    </select>
+    <select name="collection" class="filter-select">
+      <option value="">All collections</option>
+      {% for c in collections %}
+      <option value="{{ c.handle }}" {{ 'selected' if collection_filter == c.handle }}>
+        {{ c.title }} ({{ c.product_count }})
+      </option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-ghost">Apply</button>
+  </form>
+</section>
+
+{% if products %}
+<div class="product-grid">
+  {% for p in products %}
+  <a href="/products/{{ p.id }}" class="product-card">
+    <div class="product-thumb">
+      {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="{{ p.title }}" />
+      {% else %}
+      <div class="product-thumb-placeholder">{{ p.title[0]|upper }}</div>
+      {% endif %}
+      <span class="product-status status-{{ p.status }}">{{ p.status }}</span>
+    </div>
+    <div class="product-body">
+      <div class="product-title">{{ p.title }}</div>
+      <div class="product-meta">
+        <span>{{ p.price_range }}</span>
+        <span>·</span>
+        <span>{{ p.variant_count }} variant{{ '' if p.variant_count == 1 else 's' }}</span>
+      </div>
+      {% if p.collections %}
+      <div class="product-tags">
+        {% for col in p.collections[:3] %}
+        <span class="tag">{{ col }}</span>
+        {% endfor %}
+        {% if p.collections|length > 3 %}
+        <span class="tag tag-more">+{{ p.collections|length - 3 }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?{{ qs_prev }}" class="btn-ghost">← Previous</a>
+  {% endif %}
+  <span class="pagination-info">Page {{ page }} of {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="?{{ qs_next }}" class="btn-ghost">Next →</a>
+  {% endif %}
+</div>
+{% else %}
+<section class="panel">
+  <div class="empty-state" style="padding:40px 4px;">
+    {% if shopify_connected %}
+    <p><strong>No products synced yet.</strong></p>
+    <p class="empty-sub">Click <strong>Sync now</strong> above to pull your catalog from Shopify.</p>
+    {% else %}
+    <p><strong>Shopify isn't connected.</strong></p>
+    <p class="empty-sub">
+      Go to <a href="/connections" class="muted-link">Connections</a> and add your
+      Shopify store domain + admin API token first.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

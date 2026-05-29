@@ -312,6 +312,16 @@ def connections_disconnect(route: str, request: Request, db: DbDep) -> Response:
     return RedirectResponse("/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 
+# Backwards-compat: earlier templates posted to /connections/{route} without
+# the /save suffix. Keep this alias so any stale page in a user's browser
+# still works.
+@app.post("/connections/{route}")
+async def connections_save_alias(route: str, request: Request, db: DbDep) -> Response:
+    if route not in _INTEGRATION_ROUTE_TO_NAME:
+        raise HTTPException(status_code=404)
+    return await connections_save(route, request, db)
+
+
 TRAINING_CATEGORIES = [
     {
         "slug": "voice",

@@ -2,6 +2,7 @@ from gglads.models.base import Base
 from gglads.models.integration import Integration
 from gglads.models.shopify_product import (
     ShopifyCollection,
+    ShopifyInventorySnapshot,
     ShopifyProduct,
     ShopifyProductCollection,
     ShopifyProductPublication,
@@ -16,6 +17,7 @@ __all__ = [
     "User",
     "Integration",
     "ShopifyCollection",
+    "ShopifyInventorySnapshot",
     "ShopifyProduct",
     "ShopifyProductCollection",
     "ShopifyProductPublication",

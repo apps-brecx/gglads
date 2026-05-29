@@ -144,7 +144,17 @@
         {% if 'sold' in cols %}<div><span class="meta-key">Sold</span> {{ p.units_sold_90d }}</div>{% endif %}
         {% if 'customers' in cols %}<div><span class="meta-key">Customers</span> {{ p.unique_customers_90d }}</div>{% endif %}
         {% if 'sku' in cols %}<div><span class="meta-key">SKU</span> {{ p.sku }}</div>{% endif %}
-        {% if 'inventory' in cols %}<div><span class="meta-key">Inventory</span> {{ p.inventory }}</div>{% endif %}
+        {% if 'inventory' in cols %}<div><span class="meta-key">Stock now</span> {{ p.inventory }}</div>{% endif %}
+        {% if 'stock_history' in cols %}
+        <div>
+          <span class="meta-key">Stock days</span>
+          {% if p.stock_total_days > 0 %}
+            {{ p.stock_in_days }} in · {{ p.stock_out_days }} out / {{ p.stock_total_days }}d
+          {% else %}
+            no data yet
+          {% endif %}
+        </div>
+        {% endif %}
         {% if 'vendor' in cols %}<div><span class="meta-key">Vendor</span> {{ p.vendor }}</div>{% endif %}
         {% if 'type' in cols %}<div><span class="meta-key">Type</span> {{ p.product_type }}</div>{% endif %}
         {% if 'variants' in cols %}<div><span class="meta-key">Variants</span> {{ p.variant_count }}</div>{% endif %}
@@ -181,7 +191,8 @@
         {% if 'sold' in cols %}<th class="num">Sold (90d)</th>{% endif %}
         {% if 'customers' in cols %}<th class="num">Customers (90d)</th>{% endif %}
         {% if 'sku' in cols %}<th>SKU</th>{% endif %}
-        {% if 'inventory' in cols %}<th class="num">Inventory</th>{% endif %}
+        {% if 'inventory' in cols %}<th class="num">Stock now</th>{% endif %}
+        {% if 'stock_history' in cols %}<th>Stock days (30d)</th>{% endif %}
         {% if 'vendor' in cols %}<th>Vendor</th>{% endif %}
         {% if 'type' in cols %}<th>Type</th>{% endif %}
         {% if 'variants' in cols %}<th class="num">Variants</th>{% endif %}
@@ -210,6 +221,17 @@
         {% if 'customers' in cols %}<td class="num">{{ p.unique_customers_90d }}</td>{% endif %}
         {% if 'sku' in cols %}<td>{{ p.sku }}</td>{% endif %}
         {% if 'inventory' in cols %}<td class="num">{{ p.inventory }}</td>{% endif %}
+        {% if 'stock_history' in cols %}
+        <td>
+          {% if p.stock_total_days > 0 %}
+            <span class="tag" style="color:var(--ok);border-color:rgba(74,222,128,0.3);background:rgba(74,222,128,0.06);">In {{ p.stock_in_days }}d</span>
+            <span class="tag" style="color:var(--fail);border-color:rgba(248,113,113,0.3);background:rgba(248,113,113,0.06);">Out {{ p.stock_out_days }}d</span>
+            <span class="tag">/ {{ p.stock_total_days }}d</span>
+          {% else %}
+            <span class="conn-desc" style="font-size:12px;">no data yet</span>
+          {% endif %}
+        </td>
+        {% endif %}
         {% if 'vendor' in cols %}<td>{{ p.vendor }}</td>{% endif %}
         {% if 'type' in cols %}<td>{{ p.product_type }}</td>{% endif %}
         {% if 'variants' in cols %}<td class="num">{{ p.variant_count }}</td>{% endif %}

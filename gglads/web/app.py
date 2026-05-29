@@ -1,6 +1,6 @@
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import EmailStr, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -22,6 +22,7 @@ from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
 from gglads.models.shopify_product import (
     ShopifyCollection,
+    ShopifyInventorySnapshot,
     ShopifyProduct,
     ShopifyProductCollection,
     ShopifyProductPublication,
@@ -555,7 +556,8 @@ PRODUCT_COLUMNS = [
     ("sold", "Units sold (90d)"),
     ("customers", "Customers (90d)"),
     ("sku", "SKU"),
-    ("inventory", "Inventory"),
+    ("inventory", "Stock now"),
+    ("stock_history", "Stock days (30d)"),
     ("vendor", "Vendor"),
     ("type", "Product type"),
     ("variants", "Variants"),
@@ -564,7 +566,16 @@ PRODUCT_COLUMNS = [
     ("status", "Status"),
 ]
 
-DEFAULT_COLUMNS = {"image", "price", "sold", "customers", "collections", "status"}
+DEFAULT_COLUMNS = {
+    "image",
+    "price",
+    "sold",
+    "customers",
+    "inventory",
+    "stock_history",
+    "collections",
+    "status",
+}
 
 # These slugs are merged into a single virtual "online" channel filter.
 ONLINE_SLUGS = {"online_store", "shop"}
@@ -601,7 +612,9 @@ def _product_to_dict(
     p: ShopifyProduct,
     collection_titles: list[str],
     channel_names: list[str],
+    stock_history: tuple[int, int, int],
 ) -> dict:
+    in_days, out_days, total_days = stock_history
     return {
         "id": p.id,
         "title": p.title,
@@ -615,9 +628,39 @@ def _product_to_dict(
         "variant_count": p.variant_count,
         "units_sold_90d": p.units_sold_90d,
         "unique_customers_90d": p.unique_customers_90d,
+        "stock_in_days": in_days,
+        "stock_out_days": out_days,
+        "stock_total_days": total_days,
         "collection_titles": collection_titles,
         "channel_names": channel_names,
     }
+
+
+def _stock_history(
+    db: Session, product_ids: list[int]
+) -> dict[int, tuple[int, int, int]]:
+    """Return {product_id: (in_stock_days, out_of_stock_days, total_days)} for last 30 days."""
+    if not product_ids:
+        return {}
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=30)
+    rows = db.execute(
+        select(
+            ShopifyInventorySnapshot.product_id,
+            func.sum(
+                case((ShopifyInventorySnapshot.is_in_stock, 1), else_=0)
+            ).label("in_days"),
+            func.count().label("total"),
+        )
+        .where(ShopifyInventorySnapshot.product_id.in_(product_ids))
+        .where(ShopifyInventorySnapshot.snapshot_date >= cutoff)
+        .group_by(ShopifyInventorySnapshot.product_id)
+    ).all()
+    out: dict[int, tuple[int, int, int]] = {pid: (0, 0, 0) for pid in product_ids}
+    for pid, in_days, total in rows:
+        in_days = int(in_days or 0)
+        total = int(total or 0)
+        out[pid] = (in_days, total - in_days, total)
+    return out
 
 
 def _collections_summary(db: Session) -> list[dict]:
@@ -755,8 +798,14 @@ def _render_products_list(
     pids = [p.id for p in products]
     titles_by_pid = _product_collection_titles(db, pids)
     channels_by_pid = _product_channel_names(db, pids)
+    stock_by_pid = _stock_history(db, pids)
     items = [
-        _product_to_dict(p, titles_by_pid.get(p.id, []), channels_by_pid.get(p.id, []))
+        _product_to_dict(
+            p,
+            titles_by_pid.get(p.id, []),
+            channels_by_pid.get(p.id, []),
+            stock_by_pid.get(p.id, (0, 0, 0)),
+        )
         for p in products
     ]
     total_count = db.scalar(select(func.count(ShopifyProduct.id))) or 0
@@ -924,6 +973,7 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
 
     collection_titles = _product_collection_titles(db, [p.id]).get(p.id, [])
     channel_names = _product_channel_names(db, [p.id]).get(p.id, [])
+    in_days, out_days, total_days = _stock_history(db, [p.id]).get(p.id, (0, 0, 0))
 
     product = {
         "id": p.id,
@@ -955,6 +1005,9 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
         "ads_performance": None,
         "collections": collection_titles,
         "channels": channel_names,
+        "stock_in_days": in_days,
+        "stock_out_days": out_days,
+        "stock_total_days": total_days,
     }
 
     return templates.TemplateResponse(

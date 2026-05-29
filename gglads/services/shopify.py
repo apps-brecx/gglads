@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from gglads.models.shopify_product import (
     ShopifyCollection,
+    ShopifyInventorySnapshot,
     ShopifyProduct,
     ShopifyProductCollection,
     ShopifyProductPublication,
@@ -287,6 +288,34 @@ def _upsert_product(
     return pid
 
 
+def _record_inventory_snapshots(db: Session) -> int:
+    """Write today's inventory snapshot for every product. Upserts by date."""
+    today = datetime.now(timezone.utc).date()
+    products = db.execute(
+        select(ShopifyProduct.id, ShopifyProduct.total_inventory)
+    ).all()
+    if not products:
+        return 0
+    # Remove any prior snapshot for today (cheap idempotency)
+    db.execute(
+        delete(ShopifyInventorySnapshot).where(
+            ShopifyInventorySnapshot.snapshot_date == today
+        )
+    )
+    for pid, inv in products:
+        inv_int = int(inv or 0)
+        db.add(
+            ShopifyInventorySnapshot(
+                product_id=pid,
+                snapshot_date=today,
+                inventory=inv_int,
+                is_in_stock=(inv_int > 0),
+            )
+        )
+    db.commit()
+    return len(products)
+
+
 def _sync_orders(
     client: httpx.Client,
     url: str,
@@ -436,7 +465,10 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
                     break
                 cursor = page["pageInfo"]["endCursor"]
 
-            # 4) Orders (sales aggregates, last 90 days) — best-effort
+            # 4) Daily inventory snapshot (used for 30-day stock history)
+            _record_inventory_snapshots(db)
+
+            # 5) Orders (sales aggregates, last 90 days) — best-effort
             orders_count = 0
             try:
                 orders_count = _sync_orders(client, url, headers, db)
@@ -450,7 +482,8 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
         run.orders_count = orders_count
         run.detail = (
             f"Synced {product_count} products, {collection_count} collections, "
-            f"and {orders_count} orders (last {SALES_WINDOW_DAYS} days)."
+            f"and {orders_count} orders (last {SALES_WINDOW_DAYS} days). "
+            f"Inventory snapshot recorded for today."
         )
         db.commit()
         return True, run.detail, {

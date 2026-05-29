@@ -1,15 +1,17 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -122,6 +124,26 @@ class ShopifyProductPublication(Base):
         ForeignKey("shopify_publications.id", ondelete="CASCADE"),
         primary_key=True,
     )
+
+
+class ShopifyInventorySnapshot(Base):
+    __tablename__ = "shopify_inventory_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id", "snapshot_date", name="uq_inventory_snapshot_product_date"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    inventory: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_in_stock: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
 
 class ShopifySyncRun(Base):

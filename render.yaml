@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: gglads
+    runtime: python
+    plan: starter
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: uvicorn gglads.web.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false

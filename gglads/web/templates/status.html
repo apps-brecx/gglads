@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gglads — deploy status</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="status">
+    <header>
+      <h1>gglads</h1>
+      <p class="subtitle">Deploy verification page (temporary — the real portal comes next)</p>
+    </header>
+
+    <section class="card">
+      <h2>System checks</h2>
+      <ul class="checks">
+        {% for label, ok, detail in checks %}
+        <li class="check {{ 'ok' if ok else 'fail' }}">
+          <span class="indicator">{{ 'OK' if ok else 'WAIT' }}</span>
+          <span class="label">{{ label }}</span>
+          <span class="detail">{{ detail }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Runtime</h2>
+      <dl class="meta">
+        <dt>Version</dt><dd>{{ version }}</dd>
+        <dt>Environment</dt><dd>{{ app_env }}</dd>
+        <dt>Dry run</dt><dd>{{ 'on' if dry_run else 'off' }}</dd>
+        <dt>Autonomous mode</dt><dd>{{ 'on' if autonomous_mode else 'off' }}</dd>
+      </dl>
+    </section>
+
+    <footer>
+      <p>If both <strong>Web service</strong> and <strong>Database</strong> are OK, the pipeline is working. The rest will be configured page by page.</p>
+    </footer>
+  </main>
+</body>
+</html>

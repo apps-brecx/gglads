@@ -1,0 +1,132 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161a22;
+  --border: #232a36;
+  --text: #e8ecf3;
+  --muted: #8a93a4;
+  --ok: #4ade80;
+  --wait: #fbbf24;
+  --fail: #f87171;
+  --accent: #7c9cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.status {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 4px 0 32px;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.check:last-child {
+  border-bottom: none;
+}
+
+.check .indicator {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.check.ok .indicator {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--ok);
+}
+
+.check.fail .indicator {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--wait);
+}
+
+.check .label {
+  font-weight: 500;
+}
+
+.check .detail {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.meta dt {
+  color: var(--muted);
+}
+
+.meta dd {
+  margin: 0;
+}
+
+footer {
+  margin-top: 32px;
+  font-size: 13px;
+  color: var(--muted);
+}

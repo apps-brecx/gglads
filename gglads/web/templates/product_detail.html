@@ -36,7 +36,25 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head"><h2>Collections</h2></div>
+    <div class="panel-head"><h2>Sales · last 90 days</h2></div>
+    <dl class="meta">
+      <dt>Units sold</dt><dd>{{ product.units_sold_90d }}</dd>
+      <dt>Unique customers</dt><dd>{{ product.unique_customers_90d }}</dd>
+      <dt>Last sale</dt><dd>{{ product.last_sale_at }}</dd>
+    </dl>
+
+    <div class="panel-head" style="margin-top:18px;"><h2>Channels</h2></div>
+    {% if product.channels %}
+    <div class="tag-cloud">
+      {% for ch in product.channels %}
+      <span class="tag">{{ ch }}</span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="conn-desc">Not published to any channel.</p>
+    {% endif %}
+
+    <div class="panel-head" style="margin-top:18px;"><h2>Collections</h2></div>
     {% if product.collections %}
     <div class="tag-cloud">
       {% for c in product.collections %}

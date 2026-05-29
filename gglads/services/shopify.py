@@ -7,24 +7,29 @@ the DB via the GraphQL Admin API. Pagination handled with cursors.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from gglads.models.shopify_product import (
     ShopifyCollection,
     ShopifyProduct,
     ShopifyProductCollection,
+    ShopifyProductPublication,
+    ShopifyPublication,
     ShopifySyncRun,
     ShopifyVariant,
 )
 from gglads.services import integrations as integrations_svc
 
 logger = logging.getLogger("gglads.shopify")
+
+SALES_WINDOW_DAYS = 90
 
 
 _COLLECTIONS_QUERY = """
@@ -80,10 +85,60 @@ query ($cursor: String) {
       collections(first: 100) {
         nodes { id legacyResourceId }
       }
+      resourcePublications(first: 50) {
+        nodes {
+          isPublished
+          publication { id name }
+        }
+      }
     }
   }
 }
 """
+
+
+_PUBLICATIONS_QUERY = """
+query ($cursor: String) {
+  publications(first: 100, after: $cursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes { id name }
+  }
+}
+"""
+
+
+_ORDERS_QUERY = """
+query ($cursor: String, $q: String) {
+  orders(first: 50, after: $cursor, query: $q) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id
+      createdAt
+      cancelledAt
+      customer { id }
+      lineItems(first: 100) {
+        nodes {
+          quantity
+          product { legacyResourceId }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "unknown"
+
+
+def _legacy_id_from_gid(gid: str | None) -> int | None:
+    if not gid:
+        return None
+    try:
+        return int(gid.rsplit("/", 1)[-1])
+    except (ValueError, AttributeError):
+        return None
 
 
 def _normalize_domain(domain: str) -> str:
@@ -134,8 +189,26 @@ def _upsert_collection(db: Session, node: dict) -> int:
     return cid
 
 
+def _upsert_publication(db: Session, node: dict) -> int | None:
+    legacy = _legacy_id_from_gid(node.get("id"))
+    if legacy is None:
+        return None
+    existing = db.get(ShopifyPublication, legacy)
+    if existing is None:
+        existing = ShopifyPublication(id=legacy)
+        db.add(existing)
+    existing.name = node.get("name") or "Unknown"
+    existing.slug = _slugify(existing.name)
+    existing.synced_at = datetime.now(timezone.utc)
+    return legacy
+
+
 def _upsert_product(
-    db: Session, node: dict, domain: str, collection_gid_to_id: dict[str, int]
+    db: Session,
+    node: dict,
+    domain: str,
+    collection_legacy_ids: set[int],
+    publication_legacy_ids: set[int],
 ) -> int:
     pid = int(node["legacyResourceId"])
     existing = db.get(ShopifyProduct, pid)
@@ -194,11 +267,93 @@ def _upsert_product(
     )
     for c in (node.get("collections") or {}).get("nodes") or []:
         cid_legacy = int(c["legacyResourceId"])
-        # Only insert if the collection exists in our DB (we synced collections first)
-        if cid_legacy in collection_gid_to_id.values():
+        if cid_legacy in collection_legacy_ids:
             db.add(ShopifyProductCollection(product_id=pid, collection_id=cid_legacy))
 
+    # Publication memberships — only "isPublished" ones, replace wholesale
+    db.execute(
+        delete(ShopifyProductPublication).where(ShopifyProductPublication.product_id == pid)
+    )
+    for rp in (node.get("resourcePublications") or {}).get("nodes") or []:
+        if not rp.get("isPublished"):
+            continue
+        pub = rp.get("publication") or {}
+        pub_legacy = _legacy_id_from_gid(pub.get("id"))
+        if pub_legacy is not None and pub_legacy in publication_legacy_ids:
+            db.add(
+                ShopifyProductPublication(product_id=pid, publication_id=pub_legacy)
+            )
+
     return pid
+
+
+def _sync_orders(
+    client: httpx.Client,
+    url: str,
+    headers: dict,
+    db: Session,
+    window_days: int = SALES_WINDOW_DAYS,
+) -> int:
+    """Pull orders in the time window, aggregate sales per product, write."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    q = f"created_at:>={cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
+    # Reset all product counters first
+    db.execute(
+        update(ShopifyProduct).values(
+            units_sold_90d=0, unique_customers_90d=0, last_sale_at=None
+        )
+    )
+    db.commit()
+
+    agg: dict[int, dict] = {}
+    cursor: str | None = None
+    orders_seen = 0
+
+    while True:
+        data = _post_graphql(
+            client, url, headers, _ORDERS_QUERY, {"cursor": cursor, "q": q}
+        )
+        page = data["orders"]
+        for order in page["nodes"]:
+            if order.get("cancelledAt"):
+                continue
+            orders_seen += 1
+            order_date = _parse_iso(order.get("createdAt"))
+            customer_id = (order.get("customer") or {}).get("id")
+            for li in (order.get("lineItems") or {}).get("nodes") or []:
+                product_gid = (li.get("product") or {}).get("legacyResourceId")
+                if not product_gid:
+                    continue
+                try:
+                    pid = int(product_gid)
+                except ValueError:
+                    continue
+                qty = li.get("quantity") or 0
+                entry = agg.setdefault(
+                    pid, {"units": 0, "customers": set(), "last_sale": None}
+                )
+                entry["units"] += qty
+                if customer_id:
+                    entry["customers"].add(customer_id)
+                if order_date and (
+                    entry["last_sale"] is None or order_date > entry["last_sale"]
+                ):
+                    entry["last_sale"] = order_date
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        cursor = page["pageInfo"]["endCursor"]
+
+    # Write aggregates
+    for pid, data in agg.items():
+        p = db.get(ShopifyProduct, pid)
+        if p is not None:
+            p.units_sold_90d = data["units"]
+            p.unique_customers_90d = len(data["customers"])
+            p.last_sale_at = data["last_sale"]
+    db.commit()
+
+    return orders_seen
 
 
 def sync_catalog(db: Session) -> tuple[bool, str, dict]:
@@ -219,10 +374,10 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
     db.refresh(run)
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=120.0) as client:
             # 1) Collections
             collection_count = 0
-            collection_gid_to_id: dict[str, int] = {}
+            collection_legacy_ids: set[int] = set()
             cursor: str | None = None
             while True:
                 data = _post_graphql(
@@ -231,14 +386,35 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
                 page = data["collections"]
                 for node in page["nodes"]:
                     cid = _upsert_collection(db, node)
-                    collection_gid_to_id[node["id"]] = cid
+                    collection_legacy_ids.add(cid)
                     collection_count += 1
                 db.commit()
                 if not page["pageInfo"]["hasNextPage"]:
                     break
                 cursor = page["pageInfo"]["endCursor"]
 
-            # 2) Products
+            # 2) Publications (sales channels)
+            publication_legacy_ids: set[int] = set()
+            cursor = None
+            try:
+                while True:
+                    data = _post_graphql(
+                        client, url, headers, _PUBLICATIONS_QUERY, {"cursor": cursor}
+                    )
+                    page = data["publications"]
+                    for node in page["nodes"]:
+                        legacy = _upsert_publication(db, node)
+                        if legacy is not None:
+                            publication_legacy_ids.add(legacy)
+                    db.commit()
+                    if not page["pageInfo"]["hasNextPage"]:
+                        break
+                    cursor = page["pageInfo"]["endCursor"]
+            except RuntimeError as exc:
+                # `read_publications` scope might be missing — log and continue
+                logger.warning("Publications fetch skipped: %s", exc)
+
+            # 3) Products
             product_count = 0
             cursor = None
             while True:
@@ -247,22 +423,40 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
                 )
                 page = data["products"]
                 for node in page["nodes"]:
-                    _upsert_product(db, node, domain, collection_gid_to_id)
+                    _upsert_product(
+                        db,
+                        node,
+                        domain,
+                        collection_legacy_ids,
+                        publication_legacy_ids,
+                    )
                     product_count += 1
                 db.commit()
                 if not page["pageInfo"]["hasNextPage"]:
                     break
                 cursor = page["pageInfo"]["endCursor"]
 
+            # 4) Orders (sales aggregates, last 90 days) — best-effort
+            orders_count = 0
+            try:
+                orders_count = _sync_orders(client, url, headers, db)
+            except RuntimeError as exc:
+                logger.warning("Orders sync skipped: %s", exc)
+
         run.finished_at = datetime.now(timezone.utc)
         run.ok = True
         run.products_count = product_count
         run.collections_count = collection_count
-        run.detail = f"Synced {product_count} products and {collection_count} collections."
+        run.orders_count = orders_count
+        run.detail = (
+            f"Synced {product_count} products, {collection_count} collections, "
+            f"and {orders_count} orders (last {SALES_WINDOW_DAYS} days)."
+        )
         db.commit()
         return True, run.detail, {
             "products": product_count,
             "collections": collection_count,
+            "orders": orders_count,
         }
     except httpx.HTTPError as exc:
         msg = f"Network error: {type(exc).__name__}: {exc}"

@@ -40,7 +40,7 @@
 </div>
 
 <section class="panel filter-bar">
-  <form method="get" class="filter-form">
+  <form method="get" class="filter-form filter-form-4">
     <input
       type="search"
       name="q"
@@ -66,6 +66,14 @@
     {% else %}
     <span></span>
     {% endif %}
+    <select name="channel" class="filter-select">
+      <option value="" {{ 'selected' if not channel_filter }}>All channels</option>
+      {% for ch in channels %}
+      <option value="{{ ch.slug }}" {{ 'selected' if channel_filter == ch.slug }}>
+        {{ ch.label }}
+      </option>
+      {% endfor %}
+    </select>
     <button type="submit" class="btn-ghost">Apply</button>
     {% for key, val in passthrough_qs %}
     <input type="hidden" name="{{ key }}" value="{{ val }}" />
@@ -133,6 +141,8 @@
       <div class="product-title">{{ p.title }}</div>
       <div class="product-meta-lines">
         {% if 'price' in cols %}<div><span class="meta-key">Price</span> {{ p.price_range }}</div>{% endif %}
+        {% if 'sold' in cols %}<div><span class="meta-key">Sold</span> {{ p.units_sold_90d }}</div>{% endif %}
+        {% if 'customers' in cols %}<div><span class="meta-key">Customers</span> {{ p.unique_customers_90d }}</div>{% endif %}
         {% if 'sku' in cols %}<div><span class="meta-key">SKU</span> {{ p.sku }}</div>{% endif %}
         {% if 'inventory' in cols %}<div><span class="meta-key">Inventory</span> {{ p.inventory }}</div>{% endif %}
         {% if 'vendor' in cols %}<div><span class="meta-key">Vendor</span> {{ p.vendor }}</div>{% endif %}
@@ -150,6 +160,11 @@
         {% endif %}
       </div>
       {% endif %}
+      {% if 'channels' in cols and p.channel_names %}
+      <div class="product-tags">
+        {% for ch in p.channel_names %}<span class="tag">{{ ch }}</span>{% endfor %}
+      </div>
+      {% endif %}
     </div>
   </a>
   {% endfor %}
@@ -163,12 +178,15 @@
         {% if 'image' in cols %}<th class="thumb-col"></th>{% endif %}
         <th>Title</th>
         {% if 'price' in cols %}<th class="num">Price</th>{% endif %}
+        {% if 'sold' in cols %}<th class="num">Sold (90d)</th>{% endif %}
+        {% if 'customers' in cols %}<th class="num">Customers (90d)</th>{% endif %}
         {% if 'sku' in cols %}<th>SKU</th>{% endif %}
         {% if 'inventory' in cols %}<th class="num">Inventory</th>{% endif %}
         {% if 'vendor' in cols %}<th>Vendor</th>{% endif %}
         {% if 'type' in cols %}<th>Type</th>{% endif %}
         {% if 'variants' in cols %}<th class="num">Variants</th>{% endif %}
         {% if 'collections' in cols %}<th>Collections</th>{% endif %}
+        {% if 'channels' in cols %}<th>Channels</th>{% endif %}
         {% if 'status' in cols %}<th>Status</th>{% endif %}
       </tr>
     </thead>
@@ -188,6 +206,8 @@
         {% endif %}
         <td><a href="/products/{{ p.id }}" class="row-link">{{ p.title }}</a></td>
         {% if 'price' in cols %}<td class="num">{{ p.price_range }}</td>{% endif %}
+        {% if 'sold' in cols %}<td class="num">{{ p.units_sold_90d }}</td>{% endif %}
+        {% if 'customers' in cols %}<td class="num">{{ p.unique_customers_90d }}</td>{% endif %}
         {% if 'sku' in cols %}<td>{{ p.sku }}</td>{% endif %}
         {% if 'inventory' in cols %}<td class="num">{{ p.inventory }}</td>{% endif %}
         {% if 'vendor' in cols %}<td>{{ p.vendor }}</td>{% endif %}
@@ -196,6 +216,11 @@
         {% if 'collections' in cols %}
         <td>
           {% for col in p.collection_titles %}<span class="tag">{{ col }}</span>{% endfor %}
+        </td>
+        {% endif %}
+        {% if 'channels' in cols %}
+        <td>
+          {% for ch in p.channel_names %}<span class="tag">{{ ch }}</span>{% endfor %}
         </td>
         {% endif %}
         {% if 'status' in cols %}

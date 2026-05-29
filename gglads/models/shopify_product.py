@@ -51,6 +51,11 @@ class ShopifyProduct(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shopify_admin_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    units_sold_90d: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    unique_customers_90d: Mapped[int] = mapped_column(
+        Integer, server_default="0", nullable=False
+    )
+    last_sale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -93,6 +98,32 @@ class ShopifyProductCollection(Base):
     )
 
 
+class ShopifyPublication(Base):
+    __tablename__ = "shopify_publications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ShopifyProductPublication(Base):
+    __tablename__ = "shopify_product_publications"
+
+    product_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_products.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    publication_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_publications.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
 class ShopifySyncRun(Base):
     __tablename__ = "shopify_sync_runs"
 
@@ -104,4 +135,5 @@ class ShopifySyncRun(Base):
     ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     products_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     collections_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    orders_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)

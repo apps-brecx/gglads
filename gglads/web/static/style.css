@@ -1016,6 +1016,10 @@ textarea:focus {
   align-items: center;
 }
 
+.filter-form-4 {
+  grid-template-columns: 1fr 160px 200px 200px auto;
+}
+
 .filter-search {
   background: #0b0d12;
   border: 1px solid var(--border);

@@ -4,6 +4,8 @@ from gglads.models.shopify_product import (
     ShopifyCollection,
     ShopifyProduct,
     ShopifyProductCollection,
+    ShopifyProductPublication,
+    ShopifyPublication,
     ShopifySyncRun,
     ShopifyVariant,
 )
@@ -16,6 +18,8 @@ __all__ = [
     "ShopifyCollection",
     "ShopifyProduct",
     "ShopifyProductCollection",
+    "ShopifyProductPublication",
+    "ShopifyPublication",
     "ShopifySyncRun",
     "ShopifyVariant",
 ]

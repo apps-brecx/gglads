@@ -24,6 +24,8 @@ from gglads.models.shopify_product import (
     ShopifyCollection,
     ShopifyProduct,
     ShopifyProductCollection,
+    ShopifyProductPublication,
+    ShopifyPublication,
     ShopifyVariant,
 )
 from gglads.models.user import User
@@ -550,16 +552,22 @@ def training_delete(entry_id: int, request: Request, db: DbDep) -> Response:
 PRODUCT_COLUMNS = [
     ("image", "Image"),
     ("price", "Price"),
+    ("sold", "Units sold (90d)"),
+    ("customers", "Customers (90d)"),
     ("sku", "SKU"),
     ("inventory", "Inventory"),
     ("vendor", "Vendor"),
     ("type", "Product type"),
     ("variants", "Variants"),
     ("collections", "Collections"),
+    ("channels", "Channels"),
     ("status", "Status"),
 ]
 
-DEFAULT_COLUMNS = {"image", "price", "collections", "status"}
+DEFAULT_COLUMNS = {"image", "price", "sold", "customers", "collections", "status"}
+
+# These slugs are merged into a single virtual "online" channel filter.
+ONLINE_SLUGS = {"online_store", "shop"}
 
 
 def _shopify_status(db: Session) -> bool:
@@ -589,7 +597,11 @@ def _format_price(p: ShopifyProduct) -> str:
     return f"{currency_symbol}{val:.2f}"
 
 
-def _product_to_dict(p: ShopifyProduct, collection_titles: list[str]) -> dict:
+def _product_to_dict(
+    p: ShopifyProduct,
+    collection_titles: list[str],
+    channel_names: list[str],
+) -> dict:
     return {
         "id": p.id,
         "title": p.title,
@@ -601,7 +613,10 @@ def _product_to_dict(p: ShopifyProduct, collection_titles: list[str]) -> dict:
         "vendor": p.vendor or "—",
         "product_type": p.product_type or "—",
         "variant_count": p.variant_count,
+        "units_sold_90d": p.units_sold_90d,
+        "unique_customers_90d": p.unique_customers_90d,
         "collection_titles": collection_titles,
+        "channel_names": channel_names,
     }
 
 
@@ -649,6 +664,51 @@ def _product_collection_titles(db: Session, product_ids: list[int]) -> dict[int,
     return by_pid
 
 
+def _product_channel_names(db: Session, product_ids: list[int]) -> dict[int, list[str]]:
+    """Return channel display names per product, with online_store + shop collapsed."""
+    if not product_ids:
+        return {}
+    rows = db.execute(
+        select(
+            ShopifyProductPublication.product_id,
+            ShopifyPublication.name,
+            ShopifyPublication.slug,
+        )
+        .join(
+            ShopifyPublication,
+            ShopifyPublication.id == ShopifyProductPublication.publication_id,
+        )
+        .where(ShopifyProductPublication.product_id.in_(product_ids))
+        .order_by(ShopifyPublication.name)
+    ).all()
+    by_pid: dict[int, list[str]] = {pid: [] for pid in product_ids}
+    seen_online: dict[int, bool] = {}
+    for pid, name, slug in rows:
+        if slug in ONLINE_SLUGS:
+            if not seen_online.get(pid):
+                by_pid[pid].append("Online")
+                seen_online[pid] = True
+        else:
+            by_pid[pid].append(name)
+    return by_pid
+
+
+def _channel_options(db: Session) -> list[dict]:
+    """Build the channel filter dropdown options."""
+    pubs = db.execute(
+        select(ShopifyPublication).order_by(ShopifyPublication.name)
+    ).scalars().all()
+    options: list[dict] = []
+    has_online = any(p.slug in ONLINE_SLUGS for p in pubs)
+    if has_online:
+        options.append({"slug": "online", "label": "Online (Store + Shop app)"})
+    for p in pubs:
+        if p.slug in ONLINE_SLUGS:
+            continue
+        options.append({"slug": p.slug, "label": p.name})
+    return options
+
+
 @app.get("/products", response_class=HTMLResponse)
 def products_collections(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
@@ -692,8 +752,13 @@ def _render_products_list(
     collection: ShopifyCollection | None,
 ) -> Response:
     view, cols = _parse_view_params(request)
-    titles_by_pid = _product_collection_titles(db, [p.id for p in products])
-    items = [_product_to_dict(p, titles_by_pid.get(p.id, [])) for p in products]
+    pids = [p.id for p in products]
+    titles_by_pid = _product_collection_titles(db, pids)
+    channels_by_pid = _product_channel_names(db, pids)
+    items = [
+        _product_to_dict(p, titles_by_pid.get(p.id, []), channels_by_pid.get(p.id, []))
+        for p in products
+    ]
     total_count = db.scalar(select(func.count(ShopifyProduct.id))) or 0
 
     return templates.TemplateResponse(
@@ -710,9 +775,11 @@ def _render_products_list(
             "items": items,
             "total_count": total_count,
             "collections": _collections_summary(db),
+            "channels": _channel_options(db),
             "query": (request.query_params.get("q") or "").strip(),
             "status_filter": request.query_params.get("status") or "",
             "collection_filter": request.query_params.get("collection") or "",
+            "channel_filter": request.query_params.get("channel") or "",
             "view": view,
             "cols": cols,
             "available_columns": PRODUCT_COLUMNS,
@@ -726,7 +793,12 @@ def _render_products_list(
 
 
 def _apply_filters(
-    db: Session, base_query, q: str, status_filter: str, collection_handle: str | None
+    db: Session,
+    base_query,
+    q: str,
+    status_filter: str,
+    collection_handle: str | None,
+    channel_filter: str | None,
 ):
     if q:
         base_query = base_query.where(ShopifyProduct.title.ilike(f"%{q}%"))
@@ -741,6 +813,19 @@ def _apply_filters(
                 ShopifyProductCollection,
                 ShopifyProductCollection.product_id == ShopifyProduct.id,
             ).where(ShopifyProductCollection.collection_id == coll.id)
+    if channel_filter:
+        if channel_filter == "online":
+            slugs = list(ONLINE_SLUGS)
+        else:
+            slugs = [channel_filter]
+        pub_ids = db.execute(
+            select(ShopifyPublication.id).where(ShopifyPublication.slug.in_(slugs))
+        ).scalars().all()
+        if pub_ids:
+            base_query = base_query.join(
+                ShopifyProductPublication,
+                ShopifyProductPublication.product_id == ShopifyProduct.id,
+            ).where(ShopifyProductPublication.publication_id.in_(pub_ids))
     return base_query
 
 
@@ -753,10 +838,13 @@ def products_all(request: Request, db: DbDep) -> Response:
     q = (request.query_params.get("q") or "").strip()
     status_filter = request.query_params.get("status") or ""
     collection_filter = request.query_params.get("collection") or ""
+    channel_filter = request.query_params.get("channel") or ""
 
-    query = select(ShopifyProduct).order_by(ShopifyProduct.title)
-    query = _apply_filters(db, query, q, status_filter, collection_filter)
-    products = db.execute(query.limit(500)).scalars().all()
+    query = select(ShopifyProduct).order_by(ShopifyProduct.units_sold_90d.desc())
+    query = _apply_filters(
+        db, query, q, status_filter, collection_filter, channel_filter
+    )
+    products = db.execute(query.limit(500)).scalars().unique().all()
 
     return _render_products_list(request, db, user, products, collection=None)
 
@@ -775,6 +863,7 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
 
     q = (request.query_params.get("q") or "").strip()
     status_filter = request.query_params.get("status") or ""
+    channel_filter = request.query_params.get("channel") or ""
 
     query = (
         select(ShopifyProduct)
@@ -783,13 +872,26 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
             ShopifyProductCollection.product_id == ShopifyProduct.id,
         )
         .where(ShopifyProductCollection.collection_id == collection.id)
-        .order_by(ShopifyProduct.title)
+        .order_by(ShopifyProduct.units_sold_90d.desc())
     )
     if q:
         query = query.where(ShopifyProduct.title.ilike(f"%{q}%"))
     if status_filter:
         query = query.where(ShopifyProduct.status == status_filter)
-    products = db.execute(query.limit(500)).scalars().all()
+    if channel_filter:
+        if channel_filter == "online":
+            slugs = list(ONLINE_SLUGS)
+        else:
+            slugs = [channel_filter]
+        pub_ids = db.execute(
+            select(ShopifyPublication.id).where(ShopifyPublication.slug.in_(slugs))
+        ).scalars().all()
+        if pub_ids:
+            query = query.join(
+                ShopifyProductPublication,
+                ShopifyProductPublication.product_id == ShopifyProduct.id,
+            ).where(ShopifyProductPublication.publication_id.in_(pub_ids))
+    products = db.execute(query.limit(500)).scalars().unique().all()
 
     return _render_products_list(request, db, user, products, collection=collection)
 
@@ -821,6 +923,7 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
     ).scalars().all()
 
     collection_titles = _product_collection_titles(db, [p.id]).get(p.id, [])
+    channel_names = _product_channel_names(db, [p.id]).get(p.id, [])
 
     product = {
         "id": p.id,
@@ -832,6 +935,9 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
         "product_type": p.product_type or "—",
         "variant_count": p.variant_count,
         "total_inventory": p.total_inventory,
+        "units_sold_90d": p.units_sold_90d,
+        "unique_customers_90d": p.unique_customers_90d,
+        "last_sale_at": p.last_sale_at.strftime("%Y-%m-%d") if p.last_sale_at else "—",
         "created_at": p.created_at.strftime("%Y-%m-%d") if p.created_at else "—",
         "updated_at": p.updated_at.strftime("%Y-%m-%d") if p.updated_at else "—",
         "description_html": p.description_html or "",
@@ -848,6 +954,7 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
         ],
         "ads_performance": None,
         "collections": collection_titles,
+        "channels": channel_names,
     }
 
     return templates.TemplateResponse(

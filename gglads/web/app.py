@@ -78,6 +78,27 @@ def status_page(request: Request) -> Response:
     )
 
 
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"version": __version__, "error": None},
+    )
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login_submit(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "version": __version__,
+            "error": "Sign-in backend not built yet — this is a design preview.",
+        },
+    )
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> PlainTextResponse:
     tb = traceback.format_exc()

@@ -214,6 +214,37 @@ def dashboard(request: Request, db: DbDep) -> Response:
     )
 
 
+def _require_admin(request: Request, db: Session) -> tuple[User | None, Response | None]:
+    user = _current_user(request, db)
+    if user is None:
+        return None, RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role != "admin":
+        return None, PlainTextResponse("Forbidden", status_code=403)
+    return user, None
+
+
+@app.get("/connections", response_class=HTMLResponse)
+def connections_page(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    return templates.TemplateResponse(
+        request,
+        "connections.html",
+        {"version": __version__, "user": user, "active": "connections"},
+    )
+
+
+@app.post("/connections/anthropic")
+@app.post("/connections/shopify")
+@app.post("/connections/google-ads")
+def connections_save_placeholder(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    return RedirectResponse("/connections", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/status", response_class=HTMLResponse)
 def status_page(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)

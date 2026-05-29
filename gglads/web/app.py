@@ -208,7 +208,9 @@ def dashboard(request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
-        request, "dashboard.html", {"version": __version__, "user": user}
+        request,
+        "dashboard.html",
+        {"version": __version__, "user": user, "active": "dashboard"},
     )
 
 
@@ -251,6 +253,8 @@ def status_page(request: Request, db: DbDep) -> Response:
             "dry_run": settings.dry_run,
             "autonomous_mode": settings.autonomous_mode,
             "checks": checks,
+            "user": user,
+            "active": "status",
         },
     )
 

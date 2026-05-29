@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}gglads{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="app-body">
+  <header class="app-header">
+    <a href="/" class="app-logo">gglads</a>
+    <div class="app-header-right">
+      <div class="app-user">
+        <span class="app-user-name">{{ user.name or user.email }}</span>
+        <span class="app-user-role">{{ user.role }}</span>
+      </div>
+      <a href="/logout" class="app-logout">Log out</a>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="app-nav">
+      <nav>
+        <div class="nav-section">
+          <a href="/" class="nav-item {% if active == 'dashboard' %}is-active{% endif %}">
+            Dashboard
+          </a>
+          <a href="/training" class="nav-item {% if active == 'training' %}is-active{% endif %}">
+            Training
+            <span class="nav-badge">Soon</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-heading">Data</div>
+          <a href="/products" class="nav-item {% if active == 'products' %}is-active{% endif %}">
+            Products
+            <span class="nav-badge">Soon</span>
+          </a>
+          <a href="/campaigns" class="nav-item {% if active == 'campaigns' %}is-active{% endif %}">
+            Campaigns
+            <span class="nav-badge">Soon</span>
+          </a>
+          <a href="/search-terms" class="nav-item {% if active == 'search-terms' %}is-active{% endif %}">
+            Search terms
+            <span class="nav-badge">Soon</span>
+          </a>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-heading">Decisions</div>
+          <a href="/approvals" class="nav-item {% if active == 'approvals' %}is-active{% endif %}">
+            Approvals
+            <span class="nav-badge">Soon</span>
+          </a>
+          <a href="/policies" class="nav-item {% if active == 'policies' %}is-active{% endif %}">
+            Policies
+            <span class="nav-badge">Soon</span>
+          </a>
+          <a href="/feedback" class="nav-item {% if active == 'feedback' %}is-active{% endif %}">
+            Feedback log
+            <span class="nav-badge">Soon</span>
+          </a>
+        </div>
+
+        {% if user.role == 'admin' %}
+        <div class="nav-section">
+          <div class="nav-heading">Admin</div>
+          <a href="/connections" class="nav-item {% if active == 'connections' %}is-active{% endif %}">
+            Connections
+            <span class="nav-badge">Soon</span>
+          </a>
+          <a href="/users" class="nav-item {% if active == 'users' %}is-active{% endif %}">
+            Users
+            <span class="nav-badge">Soon</span>
+          </a>
+          <a href="/status" class="nav-item {% if active == 'status' %}is-active{% endif %}">
+            System status
+          </a>
+        </div>
+        {% endif %}
+      </nav>
+    </aside>
+
+    <main class="app-main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

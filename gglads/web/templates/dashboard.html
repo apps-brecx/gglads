@@ -1,35 +1,101 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard — gglads</title>
-  <link rel="stylesheet" href="/static/style.css" />
-</head>
-<body>
-  <main class="status">
-    <header>
-      <h1>gglads</h1>
-      <p class="subtitle">
-        Signed in as <strong>{{ user.email }}</strong>
-        · role: <strong>{{ user.role }}</strong>
-        · <a href="/logout" class="muted-link">log out</a>
-      </p>
-    </header>
+{% extends "layout.html" %}
 
-    <section class="card">
-      <h2>Dashboard</h2>
-      <p style="margin:0;color:var(--muted);font-size:14px;">
-        Login is working. The real dashboard design is approved next.
-      </p>
-    </section>
+{% block title %}Dashboard — gglads{% endblock %}
 
-    <section class="card">
-      <h2>Quick links</h2>
-      <p style="margin:0;font-size:14px;">
-        <a href="/status" class="muted-link">System status</a>
-      </p>
-    </section>
-  </main>
-</body>
-</html>
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">Welcome back, {{ user.name or user.email }}.</p>
+  </div>
+  <div class="page-actions">
+    <span class="pill pill-warn">Autonomous: off</span>
+    <span class="pill pill-info">Dry run: on</span>
+  </div>
+</div>
+
+<section class="banner">
+  <div class="banner-icon">⏸</div>
+  <div class="banner-body">
+    <strong>Claude isn't watching yet.</strong>
+    <span>Connect Shopify, Google Ads, and Anthropic to start the monitoring loop.</span>
+  </div>
+  <a href="/connections" class="banner-cta">Set up integrations →</a>
+</section>
+
+<section class="metric-row">
+  <div class="metric">
+    <div class="metric-label">Spend · 24h</div>
+    <div class="metric-value">$0.00</div>
+    <div class="metric-foot">No data yet</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Conversions · 24h</div>
+    <div class="metric-value">0</div>
+    <div class="metric-foot">No data yet</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">CPA · 24h</div>
+    <div class="metric-value">—</div>
+    <div class="metric-foot">No data yet</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Search terms reviewed</div>
+    <div class="metric-value">0</div>
+    <div class="metric-foot">Last sweep: never</div>
+  </div>
+  <div class="metric metric-accent">
+    <div class="metric-label">Pending approvals</div>
+    <div class="metric-value">0</div>
+    <div class="metric-foot"><a href="/approvals" class="muted-link">Open queue →</a></div>
+  </div>
+</section>
+
+<section class="two-col">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Pending approvals</h2>
+      <a href="/approvals" class="muted-link">View all</a>
+    </div>
+    <div class="empty-state">
+      <p>Nothing waiting on you.</p>
+      <p class="empty-sub">Claude's recommendations will land here once the monitoring loop is running.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Recent activity</h2>
+      <a href="/feedback" class="muted-link">Full log</a>
+    </div>
+    <div class="empty-state">
+      <p>No activity yet.</p>
+      <p class="empty-sub">Every action Claude proposes or takes will appear here.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Integrations</h2>
+    <a href="/connections" class="muted-link">Configure</a>
+  </div>
+  <div class="integration-row">
+    <div class="integration">
+      <div class="integration-dot dot-off"></div>
+      <div class="integration-name">Shopify</div>
+      <div class="integration-status">Not connected</div>
+    </div>
+    <div class="integration">
+      <div class="integration-dot dot-off"></div>
+      <div class="integration-name">Google Ads</div>
+      <div class="integration-status">Not connected</div>
+    </div>
+    <div class="integration">
+      <div class="integration-dot dot-off"></div>
+      <div class="integration-name">Anthropic</div>
+      <div class="integration-status">Not connected</div>
+    </div>
+  </div>
+</section>
+{% endblock %}

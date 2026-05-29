@@ -20,8 +20,15 @@ from gglads.auth.password import hash_password, verify_password
 from gglads.config import get_settings
 from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
+from gglads.models.shopify_product import (
+    ShopifyCollection,
+    ShopifyProduct,
+    ShopifyProductCollection,
+    ShopifyVariant,
+)
 from gglads.models.user import User
 from gglads.services import integration_tests, integrations as integrations_svc
+from gglads.services import shopify as shopify_svc
 
 logger = logging.getLogger("gglads.web")
 
@@ -537,86 +544,8 @@ def training_delete(entry_id: int, request: Request, db: DbDep) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# Products (Shopify mirror) — design preview, hard-coded sample data
+# Products (Shopify mirror)
 # ---------------------------------------------------------------------------
-
-_SAMPLE_COLLECTIONS = [
-    {"handle": "bestsellers", "title": "Bestsellers", "product_count": 4,
-     "image_url": None, "description": "Most popular this month"},
-    {"handle": "new-arrivals", "title": "New arrivals", "product_count": 3,
-     "image_url": None, "description": "Added in the last 30 days"},
-    {"handle": "bags", "title": "Bags", "product_count": 2,
-     "image_url": None, "description": ""},
-    {"handle": "accessories", "title": "Accessories", "product_count": 3,
-     "image_url": None, "description": ""},
-    {"handle": "home", "title": "Home & Kitchen", "product_count": 2,
-     "image_url": None, "description": ""},
-    {"handle": "apparel", "title": "Apparel", "product_count": 2,
-     "image_url": None, "description": "Soft basics and seasonal cuts"},
-    {"handle": "basics", "title": "Basics", "product_count": 1,
-     "image_url": None, "description": ""},
-    {"handle": "gifts-under-50", "title": "Gifts under $50", "product_count": 2,
-     "image_url": None, "description": ""},
-]
-
-
-_SAMPLE_PRODUCTS = [
-    {
-        "id": 1, "title": "Linen Crossbody Bag", "status": "active", "image_url": None,
-        "price_range": "$48.00", "sku": "BAG-LIN-001", "inventory": 42,
-        "vendor": "Atelier Brecx", "product_type": "Bag", "variant_count": 3,
-        "collection_handles": ["bags", "new-arrivals"],
-    },
-    {
-        "id": 2, "title": "Merino Wool Beanie", "status": "active", "image_url": None,
-        "price_range": "$28.00 – $34.00", "sku": "ACC-MER-002", "inventory": 88,
-        "vendor": "Atelier Brecx", "product_type": "Accessory", "variant_count": 4,
-        "collection_handles": ["accessories"],
-    },
-    {
-        "id": 3, "title": "Hand-poured Soy Candle (12 oz)", "status": "active", "image_url": None,
-        "price_range": "$32.00", "sku": "HME-CDL-003", "inventory": 156,
-        "vendor": "North Studio", "product_type": "Home", "variant_count": 6,
-        "collection_handles": ["home", "gifts-under-50", "bestsellers"],
-    },
-    {
-        "id": 4, "title": "Recycled Cotton T-Shirt", "status": "active", "image_url": None,
-        "price_range": "$24.00", "sku": "APP-TEE-004", "inventory": 320,
-        "vendor": "Atelier Brecx", "product_type": "Apparel", "variant_count": 8,
-        "collection_handles": ["apparel", "basics", "bestsellers"],
-    },
-    {
-        "id": 5, "title": "Ceramic Pour-Over Set", "status": "draft", "image_url": None,
-        "price_range": "$78.00", "sku": "HME-POV-005", "inventory": 12,
-        "vendor": "North Studio", "product_type": "Home", "variant_count": 1,
-        "collection_handles": ["home", "new-arrivals"],
-    },
-    {
-        "id": 6, "title": "Leather Card Holder", "status": "archived", "image_url": None,
-        "price_range": "$36.00", "sku": "ACC-LCH-006", "inventory": 0,
-        "vendor": "Atelier Brecx", "product_type": "Accessory", "variant_count": 2,
-        "collection_handles": ["accessories"],
-    },
-    {
-        "id": 7, "title": "Canvas Tote Bag", "status": "active", "image_url": None,
-        "price_range": "$22.00", "sku": "BAG-CNV-007", "inventory": 64,
-        "vendor": "Atelier Brecx", "product_type": "Bag", "variant_count": 2,
-        "collection_handles": ["bags", "bestsellers", "gifts-under-50"],
-    },
-    {
-        "id": 8, "title": "Silk Hair Scrunchie", "status": "active", "image_url": None,
-        "price_range": "$14.00", "sku": "ACC-SHS-008", "inventory": 210,
-        "vendor": "Atelier Brecx", "product_type": "Accessory", "variant_count": 5,
-        "collection_handles": ["accessories", "new-arrivals", "bestsellers"],
-    },
-    {
-        "id": 9, "title": "Heavyweight Hoodie", "status": "active", "image_url": None,
-        "price_range": "$78.00", "sku": "APP-HOD-009", "inventory": 47,
-        "vendor": "Atelier Brecx", "product_type": "Apparel", "variant_count": 6,
-        "collection_handles": ["apparel"],
-    },
-]
-
 
 PRODUCT_COLUMNS = [
     ("image", "Image"),
@@ -631,17 +560,6 @@ PRODUCT_COLUMNS = [
 ]
 
 DEFAULT_COLUMNS = {"image", "price", "collections", "status"}
-
-
-def _collection_title(handle: str) -> str:
-    for c in _SAMPLE_COLLECTIONS:
-        if c["handle"] == handle:
-            return c["title"]
-    return handle
-
-
-def _enrich(p: dict) -> dict:
-    return {**p, "collection_titles": [_collection_title(h) for h in p["collection_handles"]]}
 
 
 def _shopify_status(db: Session) -> bool:
@@ -661,6 +579,76 @@ def _parse_view_params(request: Request) -> tuple[str, set[str]]:
     return view, cols
 
 
+def _format_price(p: ShopifyProduct) -> str:
+    if p.price_min is None and p.price_max is None:
+        return "—"
+    currency_symbol = "$" if (p.currency in (None, "USD")) else ""
+    if p.price_min is not None and p.price_max is not None and p.price_min != p.price_max:
+        return f"{currency_symbol}{p.price_min:.2f} – {currency_symbol}{p.price_max:.2f}"
+    val = p.price_min if p.price_min is not None else p.price_max
+    return f"{currency_symbol}{val:.2f}"
+
+
+def _product_to_dict(p: ShopifyProduct, collection_titles: list[str]) -> dict:
+    return {
+        "id": p.id,
+        "title": p.title,
+        "status": p.status,
+        "image_url": p.image_url,
+        "price_range": _format_price(p),
+        "sku": p.first_sku or "—",
+        "inventory": p.total_inventory,
+        "vendor": p.vendor or "—",
+        "product_type": p.product_type or "—",
+        "variant_count": p.variant_count,
+        "collection_titles": collection_titles,
+    }
+
+
+def _collections_summary(db: Session) -> list[dict]:
+    rows = db.execute(
+        select(ShopifyCollection).order_by(ShopifyCollection.title)
+    ).scalars().all()
+    return [
+        {
+            "handle": c.handle,
+            "title": c.title,
+            "description": c.description or "",
+            "image_url": c.image_url,
+            "product_count": c.product_count,
+        }
+        for c in rows
+    ]
+
+
+def _last_sync_display(db: Session) -> str | None:
+    run = shopify_svc.last_sync_run(db)
+    if run is None or run.finished_at is None:
+        return None
+    return run.finished_at.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _product_collection_titles(db: Session, product_ids: list[int]) -> dict[int, list[str]]:
+    if not product_ids:
+        return {}
+    rows = db.execute(
+        select(
+            ShopifyProductCollection.product_id,
+            ShopifyCollection.title,
+        )
+        .join(
+            ShopifyCollection,
+            ShopifyCollection.id == ShopifyProductCollection.collection_id,
+        )
+        .where(ShopifyProductCollection.product_id.in_(product_ids))
+        .order_by(ShopifyCollection.title)
+    ).all()
+    by_pid: dict[int, list[str]] = {pid: [] for pid in product_ids}
+    for pid, title in rows:
+        by_pid[pid].append(title)
+    return by_pid
+
+
 @app.get("/products", response_class=HTMLResponse)
 def products_collections(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
@@ -668,7 +656,14 @@ def products_collections(request: Request, db: DbDep) -> Response:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
     q = (request.query_params.get("q") or "").strip().lower()
-    collections = [c for c in _SAMPLE_COLLECTIONS if not q or q in c["title"].lower()]
+    collections = _collections_summary(db)
+    if q:
+        collections = [c for c in collections if q in c["title"].lower()]
+
+    total_products = db.scalar(select(func.count(ShopifyProduct.id))) or 0
+    active_products = db.scalar(
+        select(func.count(ShopifyProduct.id)).where(ShopifyProduct.status == "active")
+    ) or 0
 
     return templates.TemplateResponse(
         request,
@@ -678,9 +673,9 @@ def products_collections(request: Request, db: DbDep) -> Response:
             "user": user,
             "active": "products",
             "collections": collections,
-            "total_count": len(_SAMPLE_PRODUCTS),
-            "active_count": sum(1 for p in _SAMPLE_PRODUCTS if p["status"] == "active"),
-            "last_synced": None,
+            "total_count": total_products,
+            "active_count": active_products,
+            "last_synced": _last_sync_display(db),
             "query": q,
             "shopify_connected": _shopify_status(db),
             "flashes": _consume_flashes(request),
@@ -690,12 +685,17 @@ def products_collections(request: Request, db: DbDep) -> Response:
 
 def _render_products_list(
     request: Request,
+    db: Session,
     user: User,
-    items: list[dict],
+    products: list[ShopifyProduct],
     *,
-    collection: dict | None,
+    collection: ShopifyCollection | None,
 ) -> Response:
     view, cols = _parse_view_params(request)
+    titles_by_pid = _product_collection_titles(db, [p.id for p in products])
+    items = [_product_to_dict(p, titles_by_pid.get(p.id, [])) for p in products]
+    total_count = db.scalar(select(func.count(ShopifyProduct.id))) or 0
+
     return templates.TemplateResponse(
         request,
         "products_list.html",
@@ -703,11 +703,13 @@ def _render_products_list(
             "version": __version__,
             "user": user,
             "active": "products",
-            "heading": collection["title"] if collection else "All products",
-            "collection": collection,
-            "items": [_enrich(p) for p in items],
-            "total_count": len(_SAMPLE_PRODUCTS),
-            "collections": _SAMPLE_COLLECTIONS,
+            "heading": collection.title if collection else "All products",
+            "collection": {"title": collection.title, "handle": collection.handle}
+            if collection
+            else None,
+            "items": items,
+            "total_count": total_count,
+            "collections": _collections_summary(db),
             "query": (request.query_params.get("q") or "").strip(),
             "status_filter": request.query_params.get("status") or "",
             "collection_filter": request.query_params.get("collection") or "",
@@ -723,25 +725,40 @@ def _render_products_list(
     )
 
 
+def _apply_filters(
+    db: Session, base_query, q: str, status_filter: str, collection_handle: str | None
+):
+    if q:
+        base_query = base_query.where(ShopifyProduct.title.ilike(f"%{q}%"))
+    if status_filter:
+        base_query = base_query.where(ShopifyProduct.status == status_filter)
+    if collection_handle:
+        coll = db.scalar(
+            select(ShopifyCollection).where(ShopifyCollection.handle == collection_handle)
+        )
+        if coll is not None:
+            base_query = base_query.join(
+                ShopifyProductCollection,
+                ShopifyProductCollection.product_id == ShopifyProduct.id,
+            ).where(ShopifyProductCollection.collection_id == coll.id)
+    return base_query
+
+
 @app.get("/products/all", response_class=HTMLResponse)
 def products_all(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
-    q = (request.query_params.get("q") or "").strip().lower()
+    q = (request.query_params.get("q") or "").strip()
     status_filter = request.query_params.get("status") or ""
     collection_filter = request.query_params.get("collection") or ""
 
-    items = list(_SAMPLE_PRODUCTS)
-    if q:
-        items = [p for p in items if q in p["title"].lower()]
-    if status_filter:
-        items = [p for p in items if p["status"] == status_filter]
-    if collection_filter:
-        items = [p for p in items if collection_filter in p["collection_handles"]]
+    query = select(ShopifyProduct).order_by(ShopifyProduct.title)
+    query = _apply_filters(db, query, q, status_filter, collection_filter)
+    products = db.execute(query.limit(500)).scalars().all()
 
-    return _render_products_list(request, user, items, collection=None)
+    return _render_products_list(request, db, user, products, collection=None)
 
 
 @app.get("/products/collection/{handle}", response_class=HTMLResponse)
@@ -750,20 +767,31 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
-    collection = next((c for c in _SAMPLE_COLLECTIONS if c["handle"] == handle), None)
+    collection = db.scalar(
+        select(ShopifyCollection).where(ShopifyCollection.handle == handle)
+    )
     if collection is None:
         raise HTTPException(status_code=404)
 
-    q = (request.query_params.get("q") or "").strip().lower()
+    q = (request.query_params.get("q") or "").strip()
     status_filter = request.query_params.get("status") or ""
 
-    items = [p for p in _SAMPLE_PRODUCTS if handle in p["collection_handles"]]
+    query = (
+        select(ShopifyProduct)
+        .join(
+            ShopifyProductCollection,
+            ShopifyProductCollection.product_id == ShopifyProduct.id,
+        )
+        .where(ShopifyProductCollection.collection_id == collection.id)
+        .order_by(ShopifyProduct.title)
+    )
     if q:
-        items = [p for p in items if q in p["title"].lower()]
+        query = query.where(ShopifyProduct.title.ilike(f"%{q}%"))
     if status_filter:
-        items = [p for p in items if p["status"] == status_filter]
+        query = query.where(ShopifyProduct.status == status_filter)
+    products = db.execute(query.limit(500)).scalars().all()
 
-    return _render_products_list(request, user, items, collection=collection)
+    return _render_products_list(request, db, user, products, collection=collection)
 
 
 @app.post("/products/sync")
@@ -771,11 +799,8 @@ def products_sync(request: Request, db: DbDep) -> Response:
     user, deny = _require_admin(request, db)
     if deny is not None:
         return deny
-    _flash(
-        request,
-        "Sync backend not built yet — this preview uses sample data.",
-        "info",
-    )
+    ok, detail, _stats = shopify_svc.sync_catalog(db)
+    _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -785,33 +810,44 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
-    base = next((p for p in _SAMPLE_PRODUCTS if p["id"] == product_id), None)
-    if base is None:
+    p = db.get(ShopifyProduct, product_id)
+    if p is None:
         raise HTTPException(status_code=404)
 
+    variants = db.execute(
+        select(ShopifyVariant)
+        .where(ShopifyVariant.product_id == p.id)
+        .order_by(ShopifyVariant.id)
+    ).scalars().all()
+
+    collection_titles = _product_collection_titles(db, [p.id]).get(p.id, [])
+
     product = {
-        **_enrich(base),
-        "total_inventory": base["inventory"],
-        "created_at": "2025-11-14",
-        "updated_at": "2026-04-22",
-        "description_html": (
-            "<p>This is a sample product description shown for the design preview. "
-            "Once Shopify sync is wired up, the real product description (HTML) "
-            "renders here verbatim.</p>"
-        ),
-        "shopify_admin_url": "#",
+        "id": p.id,
+        "title": p.title,
+        "status": p.status,
+        "image_url": p.image_url,
+        "price_range": _format_price(p),
+        "vendor": p.vendor or "—",
+        "product_type": p.product_type or "—",
+        "variant_count": p.variant_count,
+        "total_inventory": p.total_inventory,
+        "created_at": p.created_at.strftime("%Y-%m-%d") if p.created_at else "—",
+        "updated_at": p.updated_at.strftime("%Y-%m-%d") if p.updated_at else "—",
+        "description_html": p.description_html or "",
+        "shopify_admin_url": p.shopify_admin_url or "#",
         "variants": [
             {
-                "sku": f"{base['sku']}-V{i}",
-                "title": f"Variant {i}",
-                "price": "29.00",
-                "inventory_quantity": 25 + i * 4,
-                "options": [f"Color {i}", "Size M"],
+                "sku": v.sku or "—",
+                "title": v.title or "—",
+                "price": f"{v.price:.2f}" if v.price is not None else "—",
+                "inventory_quantity": v.inventory_quantity,
+                "options": [o for o in (v.option1, v.option2, v.option3) if o],
             }
-            for i in range(1, base["variant_count"] + 1)
+            for v in variants
         ],
         "ads_performance": None,
-        "collections": [_collection_title(h) for h in base["collection_handles"]],
+        "collections": collection_titles,
     }
 
     return templates.TemplateResponse(

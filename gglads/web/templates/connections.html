@@ -241,6 +241,83 @@
   </form>
 </section>
 
+<!-- GOOGLE SEARCH CONSOLE -->
+{% set sc = integrations.google_search_console %}
+<section class="panel conn-panel">
+  <div class="panel-head conn-head">
+    <div>
+      <h2>Google Search Console</h2>
+      <p class="conn-desc">
+        Reads which organic queries already drive impressions/clicks to each product page.
+        Powers the "already ranks for" enrichment in keyword research.
+      </p>
+    </div>
+    {{ status_pill(sc) }}
+  </div>
+
+  <form method="post" action="/connections/google-search-console/save" class="conn-form" novalidate>
+    <div class="field">
+      <label for="sc_site">Site URL</label>
+      <input
+        type="text"
+        id="sc_site"
+        name="site_url"
+        value="{{ sc.fields.site_url.value }}"
+        placeholder="https://yourstore.com/  or  sc-domain:yourstore.com"
+        autocomplete="off"
+      />
+      <p class="field-help">The verified property in Search Console. Must match exactly (slash and protocol matter).</p>
+    </div>
+
+    <div class="field-row-2">
+      <div class="field">
+        <label for="sc_client_id">OAuth client ID</label>
+        <input
+          type="password"
+          id="sc_client_id"
+          name="oauth_client_id"
+          placeholder="{{ 'Saved — leave blank to keep' if sc.fields.oauth_client_id.has_stored else '…apps.googleusercontent.com' }}"
+          autocomplete="off"
+        />
+        <p class="field-help">Can reuse the same OAuth client you set up for Google Ads.</p>
+      </div>
+      <div class="field">
+        <label for="sc_client_secret">OAuth client secret</label>
+        <input
+          type="password"
+          id="sc_client_secret"
+          name="oauth_client_secret"
+          placeholder="{{ 'Saved — leave blank to keep' if sc.fields.oauth_client_secret.has_stored else 'GOCSPX-…' }}"
+          autocomplete="off"
+        />
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="sc_refresh">Refresh token</label>
+      <input
+        type="password"
+        id="sc_refresh"
+        name="refresh_token"
+        placeholder="{{ 'Saved — leave blank to keep' if sc.fields.refresh_token.has_stored else '1//…' }}"
+        autocomplete="off"
+      />
+      <p class="field-help">
+        Needs scope <code>https://www.googleapis.com/auth/webmasters.readonly</code>.
+        Generate via Google OAuth Playground using the OAuth client above.
+      </p>
+    </div>
+
+    <div class="form-actions">
+      {% if sc.from_db %}
+      <button type="submit" formaction="/connections/google-search-console/disconnect" class="btn-ghost btn-danger">Disconnect</button>
+      {% endif %}
+      <button type="submit" formaction="/connections/google-search-console/test" class="btn-ghost">Test connection</button>
+      <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
+</section>
+
 <p class="security-note">
   All credentials are encrypted at rest using a key derived from <code>APP_SECRET</code>.
   Rotating <code>APP_SECRET</code> invalidates every stored secret.

@@ -5,17 +5,14 @@
   <div class="panel-head">
     <div>
       <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Analytics</h2>
-      <p class="conn-desc">Performance for this product across Shopify and (when connected) Google Ads.</p>
+      <p class="conn-desc">Performance for this product. Most cards fill in as integrations come online.</p>
     </div>
-    <form method="get" class="filter-form" style="grid-template-columns:auto auto auto;">
+    <form method="get" class="filter-form" style="grid-template-columns:auto auto auto auto;">
       <select name="range" class="filter-select">
         <option value="7" {{ 'selected' if range == '7' }}>Last 7 days</option>
         <option value="30" {{ 'selected' if range == '30' }}>Last 30 days</option>
         <option value="90" {{ 'selected' if range == '90' }}>Last 90 days</option>
-        <option value="custom" {{ 'selected' if range == 'custom' }}>Custom…</option>
       </select>
-      <input type="date" name="from" value="{{ range_from }}" class="filter-search" style="max-width:140px;" />
-      <input type="date" name="to" value="{{ range_to }}" class="filter-search" style="max-width:140px;" />
       <button type="submit" class="btn-ghost">Apply</button>
     </form>
   </div>
@@ -23,117 +20,97 @@
 
 <section class="metric-row" style="grid-template-columns:repeat(4,1fr);">
   <div class="metric">
-    <div class="metric-label">Units sold</div>
-    <div class="metric-value">{{ analytics.units_sold }}</div>
-    <div class="metric-foot">{{ analytics.range_label }}</div>
+    <div class="metric-label">Units sold (90d)</div>
+    <div class="metric-value">{{ product.units_sold_90d }}</div>
+    <div class="metric-foot">Shopify orders</div>
   </div>
   <div class="metric">
-    <div class="metric-label">Revenue</div>
-    <div class="metric-value">${{ analytics.revenue }}</div>
-    <div class="metric-foot">{{ analytics.range_label }}</div>
+    <div class="metric-label">Unique customers (90d)</div>
+    <div class="metric-value">{{ product.unique_customers_90d }}</div>
+    <div class="metric-foot">Shopify orders</div>
   </div>
   <div class="metric">
-    <div class="metric-label">Conversions</div>
-    <div class="metric-value">{{ analytics.conversions }}</div>
-    <div class="metric-foot">conv rate {{ analytics.conv_rate }}%</div>
+    <div class="metric-label">Stock now</div>
+    <div class="metric-value">{{ product.total_inventory }}</div>
+    <div class="metric-foot">latest snapshot</div>
   </div>
-  <div class="metric metric-accent">
-    <div class="metric-label">Ad ROAS</div>
-    <div class="metric-value">{{ analytics.roas }}</div>
-    <div class="metric-foot">Google Ads · {{ analytics.range_label }}</div>
+  <div class="metric">
+    <div class="metric-label">Stock days (30d)</div>
+    <div class="metric-value" style="font-size:18px;">
+      {% if product.stock_total_days > 0 %}
+        {{ product.stock_in_days }} in · {{ product.stock_out_days }} out
+      {% else %}no data{% endif %}
+    </div>
+    <div class="metric-foot">of {{ product.stock_total_days }} tracked</div>
   </div>
 </section>
 
 <div class="chart-grid">
   <section class="panel chart-panel">
-    <div class="panel-head"><h2>Units sold per day</h2></div>
-    <canvas id="chart-sales" height="220"></canvas>
+    <div class="panel-head"><h2>Stock level over time</h2></div>
+    {% if stock_values %}
+    <canvas id="chart-stock" height="220"></canvas>
+    {% else %}
+    <div class="empty-state" style="padding:30px 4px;">
+      <p>No snapshots yet.</p>
+      <p class="empty-sub">The daily cron writes one per day. Wait a day, or click <a href="/products" class="muted-link">Sync now</a> to start.</p>
+    </div>
+    {% endif %}
   </section>
 
   <section class="panel chart-panel">
-    <div class="panel-head"><h2>Stock level per day</h2></div>
-    <canvas id="chart-stock" height="220"></canvas>
+    <div class="panel-head"><h2>Sales over time</h2></div>
+    <div class="empty-state" style="padding:30px 4px;">
+      <p>Per-day sales chart pending.</p>
+      <p class="empty-sub">We have aggregates from Shopify orders, but not daily breakdowns yet — that lands when we store individual orders.</p>
+    </div>
   </section>
 </div>
 
 <div class="chart-grid">
   <section class="panel chart-panel">
     <div class="panel-head"><h2>Ad spend vs. conversions</h2></div>
-    <canvas id="chart-ads" height="220"></canvas>
+    <div class="empty-state" style="padding:30px 4px;">
+      <p>Awaiting Google Ads sync.</p>
+      <p class="empty-sub">Connection is verified, but we don't sync campaign performance yet. That's the next backend.</p>
+    </div>
   </section>
 
   <section class="panel chart-panel">
-    <div class="panel-head"><h2>Search term performance</h2></div>
-    <canvas id="chart-keywords" height="220"></canvas>
+    <div class="panel-head"><h2>Organic search performance</h2></div>
+    <div class="empty-state" style="padding:30px 4px;">
+      <p>Connect Search Console under <a href="/connections" class="muted-link">Connections</a>.</p>
+      <p class="empty-sub">Once connected, we'll show clicks / impressions / position for this product page.</p>
+    </div>
   </section>
 </div>
 
+{% if stock_values %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-  const palette = {
-    accent: '#7c9cff',
-    ok: '#4ade80',
-    wait: '#fbbf24',
-    fail: '#f87171',
-    muted: '#8a93a4',
-    grid: 'rgba(255,255,255,0.06)',
-  };
-  const baseOpts = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: palette.muted, font: { size: 11 } } } },
-    scales: {
-      x: { ticks: { color: palette.muted, font: { size: 10 } }, grid: { color: palette.grid } },
-      y: { ticks: { color: palette.muted, font: { size: 10 } }, grid: { color: palette.grid } },
-    },
-  };
-
-  const labels = {{ analytics.chart_labels|tojson }};
-
-  new Chart(document.getElementById('chart-sales'), {
-    type: 'line',
-    data: { labels, datasets: [{
-      label: 'Units sold',
-      data: {{ analytics.chart_units|tojson }},
-      borderColor: palette.accent,
-      backgroundColor: 'rgba(124,156,255,0.15)',
-      fill: true,
-      tension: 0.3,
-    }] },
-    options: baseOpts,
-  });
-
   new Chart(document.getElementById('chart-stock'), {
     type: 'line',
-    data: { labels, datasets: [{
-      label: 'Stock level',
-      data: {{ analytics.chart_stock|tojson }},
-      borderColor: palette.ok,
-      backgroundColor: 'rgba(74,222,128,0.12)',
-      fill: true,
-      tension: 0.2,
-      stepped: false,
-    }] },
-    options: baseOpts,
-  });
-
-  new Chart(document.getElementById('chart-ads'), {
-    type: 'bar',
-    data: { labels, datasets: [
-      { label: 'Spend', data: {{ analytics.chart_spend|tojson }}, backgroundColor: palette.wait },
-      { label: 'Conversions', data: {{ analytics.chart_conv|tojson }}, backgroundColor: palette.ok },
-    ] },
-    options: baseOpts,
-  });
-
-  new Chart(document.getElementById('chart-keywords'), {
-    type: 'bar',
-    data: { labels: {{ analytics.chart_kw_labels|tojson }}, datasets: [{
-      label: 'Clicks',
-      data: {{ analytics.chart_kw_clicks|tojson }},
-      backgroundColor: palette.accent,
-    }] },
-    options: { ...baseOpts, indexAxis: 'y' },
+    data: {
+      labels: {{ stock_labels|tojson }},
+      datasets: [{
+        label: 'Stock level',
+        data: {{ stock_values|tojson }},
+        borderColor: '#4ade80',
+        backgroundColor: 'rgba(74,222,128,0.12)',
+        fill: true,
+        tension: 0.2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#8a93a4', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#8a93a4', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+        y: { ticks: { color: '#8a93a4', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+      },
+    },
   });
 </script>
+{% endif %}
 {% endblock %}

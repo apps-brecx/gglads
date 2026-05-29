@@ -87,8 +87,51 @@ def test_google_ads(config: dict[str, Any]) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
+def test_google_search_console(config: dict[str, Any]) -> tuple[bool, str]:
+    required = ["site_url", "oauth_client_id", "oauth_client_secret", "refresh_token"]
+    missing = [k for k in required if not (config.get(k) or "").strip()]
+    if missing:
+        return False, f"Missing fields: {', '.join(missing)}."
+    try:
+        token_resp = httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": config["oauth_client_id"].strip(),
+                "client_secret": config["oauth_client_secret"].strip(),
+                "refresh_token": config["refresh_token"].strip(),
+                "grant_type": "refresh_token",
+            },
+            timeout=10.0,
+        )
+    except httpx.HTTPError as exc:
+        return False, f"Token exchange failed: {type(exc).__name__}: {exc}"
+    if token_resp.status_code != 200:
+        return False, f"Token exchange HTTP {token_resp.status_code}: {token_resp.text[:200]}"
+    access_token = token_resp.json().get("access_token")
+    if not access_token:
+        return False, "Token exchange returned no access_token."
+    try:
+        r = httpx.get(
+            "https://www.googleapis.com/webmasters/v3/sites",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as exc:
+        return False, f"Sites list failed: {type(exc).__name__}: {exc}"
+    if r.status_code != 200:
+        return False, f"HTTP {r.status_code}: {r.text[:200]}"
+    sites = r.json().get("siteEntry", []) or r.json().get("sites", [])
+    site_url = config["site_url"].strip().rstrip("/") + "/"
+    matched = any(
+        (s.get("siteUrl") or "").rstrip("/") + "/" == site_url for s in sites
+    )
+    warn = "" if matched else f" (warning: {site_url} not in verified sites list)"
+    return True, f"Reached Search Console. {len(sites)} verified sites.{warn}"
+
+
 TESTERS = {
     "anthropic": test_anthropic,
     "shopify": test_shopify,
     "google_ads": test_google_ads,
+    "google_search_console": test_google_search_console,
 }

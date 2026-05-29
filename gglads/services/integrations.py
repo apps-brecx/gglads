@@ -30,6 +30,12 @@ INTEGRATION_FIELDS: dict[str, list[tuple[str, str, bool]]] = {
         ("oauth_client_secret", "OAuth client secret", True),
         ("refresh_token", "Refresh token", True),
     ],
+    "google_search_console": [
+        ("site_url", "Site URL", False),
+        ("oauth_client_id", "OAuth client ID", True),
+        ("oauth_client_secret", "OAuth client secret", True),
+        ("refresh_token", "Refresh token", True),
+    ],
 }
 
 
@@ -51,6 +57,13 @@ def _env_fallback(name: str) -> dict[str, Any]:
             "oauth_client_id": s.google_ads_client_id,
             "oauth_client_secret": s.google_ads_client_secret,
             "refresh_token": s.google_ads_refresh_token,
+        }
+    if name == "google_search_console":
+        return {
+            "site_url": "",
+            "oauth_client_id": "",
+            "oauth_client_secret": "",
+            "refresh_token": "",
         }
     return {}
 
@@ -151,6 +164,8 @@ def required_keys(name: str) -> list[str]:
             "refresh_token",
             "customer_id",
         ]
+    if name == "google_search_console":
+        return ["site_url", "oauth_client_id", "oauth_client_secret", "refresh_token"]
     return []
 
 

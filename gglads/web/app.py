@@ -20,6 +20,7 @@ from gglads.auth.password import hash_password, verify_password
 from gglads.config import get_settings
 from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
+from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
 from gglads.models.shopify_product import (
     ShopifyCollection,
     ShopifyInventorySnapshot,
@@ -31,6 +32,7 @@ from gglads.models.shopify_product import (
 )
 from gglads.models.user import User
 from gglads.services import integration_tests, integrations as integrations_svc
+from gglads.services import keyword_research as kw_research_svc
 from gglads.services import shopify as shopify_svc
 
 logger = logging.getLogger("gglads.web")
@@ -249,6 +251,7 @@ _INTEGRATION_ROUTE_TO_NAME = {
     "anthropic": "anthropic",
     "shopify": "shopify",
     "google-ads": "google_ads",
+    "google-search-console": "google_search_console",
 }
 
 
@@ -259,7 +262,7 @@ def connections_page(request: Request, db: DbDep) -> Response:
         return deny
     integrations_state = {
         name: integrations_svc.summarize_for_form(db, name)
-        for name in ("anthropic", "shopify", "google_ads")
+        for name in ("anthropic", "shopify", "google_ads", "google_search_console")
     }
     return templates.TemplateResponse(
         request,
@@ -1058,77 +1061,61 @@ def _mock_seo(product: dict) -> dict:
     }
 
 
-def _mock_ads(product: dict) -> dict:
-    title = product["title"]
+def _ads_context(db: Session, product_id: int) -> dict:
+    """Load real keyword research + last run from DB. No mock data."""
+    keywords = db.execute(
+        select(ProductKeyword)
+        .where(ProductKeyword.product_id == product_id)
+        .order_by(ProductKeyword.relevance_score.desc().nullslast(), ProductKeyword.keyword)
+    ).scalars().all()
+
+    by_bucket = {"primary": [], "secondary": [], "negative": [], "unsorted": [], "ignore": []}
+    for k in keywords:
+        item = {
+            "id": k.id,
+            "keyword": k.keyword,
+            "intent": k.intent,
+            "funnel": k.funnel,
+            "match_type": k.match_type,
+            "relevance_score": k.relevance_score,
+            "rationale": k.rationale,
+            "source": k.source,
+            "bucket": k.bucket,
+            "avg_monthly_searches": k.avg_monthly_searches,
+            "competition": k.competition,
+            "bid_range": _format_bid_range(k.low_bid_micros, k.high_bid_micros),
+            "sc_clicks": k.sc_clicks,
+            "sc_impressions": k.sc_impressions,
+            "sc_position": f"{k.sc_position:.1f}" if k.sc_position else None,
+        }
+        by_bucket.setdefault(k.bucket, by_bucket["unsorted"]).append(item)
+
+    last_run = db.scalar(
+        select(KeywordResearchRun)
+        .where(KeywordResearchRun.product_id == product_id)
+        .order_by(KeywordResearchRun.started_at.desc())
+        .limit(1)
+    )
+
     return {
-        "primary_keywords": [title.lower(), f"buy {title.lower()}", f"{title.lower()} online"],
-        "secondary_keywords": [
-            "free shipping",
-            "best price",
-            "premium quality",
-            "shop now",
-            "limited stock",
-        ],
-        "negative_keywords": ["free", "cheap", "knockoff", "diy", "tutorial"],
-        "headlines": [
-            f"{title[:25]}",
-            "Free Shipping on $50+",
-            "Designed To Last",
-            "Shop New Arrivals",
-            "Limited-Time Offer",
-            "Loved By 10K+ Buyers",
-            "Hand-Built Quality",
-            "30-Day Easy Returns",
-        ],
-        "descriptions": [
-            f"Premium {title.lower()} crafted for everyday use. Free shipping on $50+.",
-            f"Order today and ship free. Easy 30-day returns. Shop the {title.lower()}.",
-            f"Built to last with sustainable materials. Trusted by 10,000+ customers.",
-        ],
-        "usps": [
-            "Sustainable materials, ethically sourced",
-            "Designed in-house, hand-finished",
-            "Free shipping on orders over $50",
-        ],
-        "pain_points": [
-            "Cheap products that break after a few weeks",
-            "Long shipping times from overseas",
-        ],
+        "candidates": by_bucket["unsorted"],
+        "primary": by_bucket["primary"],
+        "secondary": by_bucket["secondary"],
+        "negative": by_bucket["negative"],
+        "ignored": by_bucket["ignore"],
+        "total": len(keywords),
+        "last_run": last_run,
     }
 
 
-def _mock_analytics(product: dict, range_days: int) -> dict:
-    """Mocked chart data for the design preview. Real data when orders are stored."""
-    today = datetime.now(timezone.utc).date()
-    labels = [(today - timedelta(days=i)).strftime("%b %d") for i in range(range_days - 1, -1, -1)]
-    base = max(1, product["units_sold_90d"] // 30)
-    chart_units = [max(0, base + ((i * 7) % 5) - 2) for i in range(range_days)]
-    stock_now = product["total_inventory"]
-    chart_stock = [stock_now + (range_days - i) * 2 for i in range(range_days)]
-    chart_spend = [base * 4 + (i % 4) * 3 for i in range(range_days)]
-    chart_conv = [max(0, base // 2 + ((i * 3) % 4) - 1) for i in range(range_days)]
-
-    return {
-        "range_label": f"last {range_days} days",
-        "units_sold": sum(chart_units),
-        "revenue": f"{sum(chart_units) * 32:.2f}",
-        "conversions": sum(chart_conv),
-        "conv_rate": "2.1",
-        "roas": "3.4x",
-        "chart_labels": labels,
-        "chart_units": chart_units,
-        "chart_stock": chart_stock,
-        "chart_spend": chart_spend,
-        "chart_conv": chart_conv,
-        "chart_kw_labels": [
-            "linen bag", "crossbody bag", "summer tote", "lightweight bag", "linen tote",
-        ],
-        "chart_kw_clicks": [42, 31, 28, 19, 14],
-    }
-
-
-def _mock_history(product: dict) -> list[dict]:
-    return []
+def _format_bid_range(low_micros: int | None, high_micros: int | None) -> str | None:
+    if not low_micros and not high_micros:
+        return None
+    lo = (low_micros or 0) / 1_000_000
+    hi = (high_micros or 0) / 1_000_000
+    if lo and hi:
+        return f"${lo:.2f}–${hi:.2f}"
+    return f"${(lo or hi):.2f}"
 
 
 @app.get("/products/{product_id}", response_class=HTMLResponse)
@@ -1157,6 +1144,20 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     _p, product = _load_product_context(db, product_id)
+    # No AI-generated SEO yet — empty state. Wires up after kw research lands.
+    seo = {
+        "score": None,
+        "score_band": "warn",
+        "title": {"current": "", "suggestion": ""},
+        "meta": {"current": "", "suggestion": ""},
+        "description": {
+            "current": product.get("description_html") or "",
+            "suggestion": "",
+        },
+        "bullets": [],
+        "images": [],
+        "generated": False,
+    }
     return templates.TemplateResponse(
         request,
         "product_seo.html",
@@ -1166,7 +1167,7 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
             "active": "products",
             "tab": "seo",
             "product": product,
-            "seo": _mock_seo(product),
+            "seo": seo,
             "flashes": _consume_flashes(request),
         },
     )
@@ -1178,6 +1179,7 @@ def product_ads(product_id: int, request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     _p, product = _load_product_context(db, product_id)
+    ctx = _ads_context(db, product_id)
     return templates.TemplateResponse(
         request,
         "product_ads.html",
@@ -1187,9 +1189,48 @@ def product_ads(product_id: int, request: Request, db: DbDep) -> Response:
             "active": "products",
             "tab": "ads",
             "product": product,
-            "ads": _mock_ads(product),
+            "kw": ctx,
             "flashes": _consume_flashes(request),
         },
+    )
+
+
+@app.post("/products/{product_id}/keywords/research")
+def product_keywords_research(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = kw_research_svc.research_keywords(db, product_id, user.id)
+    _flash(request, detail or ("Research completed." if ok else "Research failed."),
+           "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/ads", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/keywords/{keyword_id}/bucket")
+async def product_keyword_bucket(
+    product_id: int, keyword_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    new_bucket = (form.get("bucket") or "").strip()
+    if new_bucket not in ("primary", "secondary", "negative", "ignore", "unsorted"):
+        raise HTTPException(status_code=400)
+    kw = db.get(ProductKeyword, keyword_id)
+    if kw is None or kw.product_id != product_id:
+        raise HTTPException(status_code=404)
+    kw.bucket = new_bucket
+    kw.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return RedirectResponse(
+        f"/products/{product_id}/ads", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -1198,13 +1239,25 @@ def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    _p, product = _load_product_context(db, product_id)
+    p, product = _load_product_context(db, product_id)
     range_param = request.query_params.get("range") or "30"
     try:
         range_days = int(range_param) if range_param != "custom" else 30
     except ValueError:
         range_days = 30
     range_days = max(1, min(range_days, 365))
+
+    # Real inventory chart from snapshots
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=range_days)
+    snap_rows = db.execute(
+        select(ShopifyInventorySnapshot.snapshot_date, ShopifyInventorySnapshot.inventory)
+        .where(ShopifyInventorySnapshot.product_id == product_id)
+        .where(ShopifyInventorySnapshot.snapshot_date >= cutoff)
+        .order_by(ShopifyInventorySnapshot.snapshot_date)
+    ).all()
+    stock_labels = [d.strftime("%b %d") for d, _ in snap_rows]
+    stock_values = [int(v) for _, v in snap_rows]
+
     return templates.TemplateResponse(
         request,
         "product_analytics.html",
@@ -1215,9 +1268,12 @@ def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
             "tab": "analytics",
             "product": product,
             "range": range_param,
-            "range_from": "",
-            "range_to": "",
-            "analytics": _mock_analytics(product, range_days),
+            "range_days": range_days,
+            "range_label": f"last {range_days} days",
+            "stock_labels": stock_labels,
+            "stock_values": stock_values,
+            "has_ads_data": False,  # set true when we wire Google Ads sync
+            "has_sc_data": _shopify_status(db),  # placeholder; replace per-integration
             "flashes": _consume_flashes(request),
         },
     )

@@ -1,99 +1,155 @@
 {% extends "product_layout.html" %}
 
+{% macro kw_row(k, product) -%}
+<tr>
+  <td>
+    <div class="kw-text">{{ k.keyword }}</div>
+    {% if k.rationale %}<div class="kw-rationale">{{ k.rationale }}</div>{% endif %}
+  </td>
+  <td>{% if k.intent %}<span class="tag">{{ k.intent }}</span>{% endif %}</td>
+  <td>{% if k.funnel %}<span class="tag">{{ k.funnel }}</span>{% endif %}</td>
+  <td>{% if k.match_type %}<span class="tag">{{ k.match_type }}</span>{% endif %}</td>
+  <td class="num">{{ k.avg_monthly_searches if k.avg_monthly_searches is not none else '—' }}</td>
+  <td>{% if k.competition %}<span class="tag tag-comp-{{ k.competition }}">{{ k.competition }}</span>{% else %}—{% endif %}</td>
+  <td>{{ k.bid_range or '—' }}</td>
+  <td class="num">{% if k.sc_clicks %}{{ k.sc_clicks }} <span class="conn-desc">(#{{ k.sc_position }})</span>{% else %}—{% endif %}</td>
+  <td class="num">
+    {% if k.relevance_score is not none %}
+    <span class="score-mini score-{{ 'good' if k.relevance_score >= 80 else 'ok' if k.relevance_score >= 60 else 'warn' if k.relevance_score >= 40 else 'bad' }}">
+      {{ k.relevance_score }}
+    </span>
+    {% else %}—{% endif %}
+  </td>
+  <td>
+    <div class="bucket-actions">
+      {% for slug, label in [('primary','P'), ('secondary','S'), ('negative','N'), ('ignore','✕')] %}
+      <form method="post" action="/products/{{ product.id }}/keywords/{{ k.id }}/bucket" class="inline-form">
+        <input type="hidden" name="bucket" value="{{ slug }}" />
+        <button type="submit"
+                class="bucket-btn {{ 'is-active' if k.bucket == slug }} bucket-{{ slug }}"
+                title="Move to {{ slug }}">{{ label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </td>
+</tr>
+{%- endmacro %}
+
 {% block product_content %}
 <section class="panel">
   <div class="panel-head">
     <div>
-      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Ad assets</h2>
-      <p class="conn-desc">Used to build Google Ads campaigns targeting this product. Approve, then create the campaign.</p>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Keyword research</h2>
+      <p class="conn-desc">
+        Claude generates candidates · Google Keyword Planner enriches with volume + competition ·
+        Search Console enriches with queries already driving organic traffic to this product.
+      </p>
+      {% if kw.last_run %}
+      <p class="conn-desc" style="margin-top:6px;">
+        Last run: {{ kw.last_run.finished_at.strftime("%Y-%m-%d %H:%M UTC") if kw.last_run.finished_at else "in progress" }}
+        · sources: {{ kw.last_run.sources_used or "—" }}
+        · {{ kw.last_run.keywords_total or 0 }} total keywords
+      </p>
+      {% endif %}
     </div>
     <div class="form-actions" style="margin:0;">
-      <form method="post" action="/products/{{ product.id }}/ads/generate" class="inline-form">
-        <button type="submit" class="btn-ghost">Regenerate all with AI</button>
-      </form>
-      <form method="post" action="/products/{{ product.id }}/ads/create-campaign" class="inline-form">
-        <button type="submit" class="btn-primary">Create campaign →</button>
+      <form method="post" action="/products/{{ product.id }}/keywords/research" class="inline-form">
+        <button type="submit" class="btn-primary">
+          {% if kw.total %}Re-run research{% else %}Research keywords ↻{% endif %}
+        </button>
       </form>
     </div>
   </div>
 </section>
 
+{% if kw.total == 0 %}
 <section class="panel">
-  <div class="panel-head"><h2>Target keywords</h2></div>
-  <div class="kw-group">
-    <div class="kw-group-label">Primary <span class="conn-desc">(must bid)</span></div>
-    <div class="kw-row">
-      {% for k in ads.primary_keywords %}<span class="tag tag-primary">{{ k }} ×</span>{% endfor %}
-      <button class="tag tag-add" type="button">+ Add</button>
-    </div>
-  </div>
-  <div class="kw-group">
-    <div class="kw-group-label">Secondary <span class="conn-desc">(good to bid)</span></div>
-    <div class="kw-row">
-      {% for k in ads.secondary_keywords %}<span class="tag">{{ k }} ×</span>{% endfor %}
-      <button class="tag tag-add" type="button">+ Add</button>
-    </div>
-  </div>
-  <div class="kw-group">
-    <div class="kw-group-label">Negative <span class="conn-desc">(never bid)</span></div>
-    <div class="kw-row">
-      {% for k in ads.negative_keywords %}<span class="tag tag-neg">{{ k }} ×</span>{% endfor %}
-      <button class="tag tag-add" type="button">+ Add</button>
-    </div>
+  <div class="empty-state" style="padding:40px 4px;">
+    <p><strong>No keyword research yet for this product.</strong></p>
+    <p class="empty-sub">
+      Click <strong>Research keywords</strong> above. Anthropic must be connected.
+      Google Ads and Search Console are optional — they enrich the results.
+    </p>
   </div>
 </section>
+{% else %}
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Headlines</h2>
-    <span class="conn-desc">{{ ads.headlines|length }} / 15 — each ≤ 30 chars</span>
+    <h2>Candidates to triage <span class="conn-desc">{{ kw.candidates|length }}</span></h2>
+    <p class="conn-desc">Click P / S / N / ✕ to assign. Use the bucket sections below to review later.</p>
   </div>
-  <div class="headline-grid">
-    {% for h in ads.headlines %}
-    <div class="headline-row">
-      <input type="text" value="{{ h }}" maxlength="30" />
-      <span class="charcount">{{ h|length }}/30</span>
-    </div>
-    {% endfor %}
-    {% for _ in range(15 - ads.headlines|length) %}
-    <div class="headline-row">
-      <input type="text" placeholder="Empty headline slot" maxlength="30" />
-      <span class="charcount">0/30</span>
-    </div>
-    {% endfor %}
+  {% if kw.candidates %}
+  <div class="kw-table-wrap">
+    <table class="data-table kw-table">
+      <thead>
+        <tr>
+          <th>Keyword</th>
+          <th>Intent</th>
+          <th>Funnel</th>
+          <th>Match</th>
+          <th class="num">Vol/mo</th>
+          <th>Comp</th>
+          <th>Bid</th>
+          <th class="num">Organic</th>
+          <th class="num">Score</th>
+          <th>Bucket</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k in kw.candidates %}{{ kw_row(k, product) }}{% endfor %}
+      </tbody>
+    </table>
   </div>
+  {% else %}
+  <div class="empty-state" style="padding:20px 4px;">
+    <p>All candidates triaged.</p>
+    <p class="empty-sub">Re-run research to find new keywords.</p>
+  </div>
+  {% endif %}
 </section>
+
+{% for bucket_key, bucket_label, bucket_color in [
+  ('primary', 'Primary — must-bid', 'primary'),
+  ('secondary', 'Secondary — worth testing', 'secondary'),
+  ('negative', 'Negative — block these', 'negative'),
+] %}
+{% set group = kw[bucket_key] %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>{{ bucket_label }} <span class="conn-desc">{{ group|length }}</span></h2>
+  </div>
+  {% if group %}
+  <div class="kw-table-wrap">
+    <table class="data-table kw-table">
+      <thead>
+        <tr>
+          <th>Keyword</th><th>Intent</th><th>Funnel</th><th>Match</th>
+          <th class="num">Vol/mo</th><th>Comp</th><th>Bid</th>
+          <th class="num">Organic</th><th class="num">Score</th><th>Bucket</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k in group %}{{ kw_row(k, product) }}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="conn-desc">Nothing here yet.</p>
+  {% endif %}
+</section>
+{% endfor %}
+
+{% endif %}
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Long descriptions</h2>
-    <span class="conn-desc">{{ ads.descriptions|length }} / 4 — each ≤ 90 chars</span>
+    <h2>Ad copy &amp; assets</h2>
+    <p class="conn-desc">Headlines, descriptions, USPs. Wires in after keyword research is approved.</p>
   </div>
-  <div class="desc-list">
-    {% for d in ads.descriptions %}
-    <div class="desc-row">
-      <textarea rows="2" maxlength="90">{{ d }}</textarea>
-      <span class="charcount">{{ d|length }}/90</span>
-    </div>
-    {% endfor %}
-  </div>
-</section>
-
-<section class="panel">
-  <div class="panel-head"><h2>Selling points &amp; objections</h2></div>
-  <div class="usp-grid">
-    <div>
-      <div class="meta-key">USPs (unique selling points)</div>
-      <ul class="bullet-list">
-        {% for u in ads.usps %}<li class="bullet-row"><span class="bullet-dot">•</span><input type="text" value="{{ u }}" /></li>{% endfor %}
-      </ul>
-    </div>
-    <div>
-      <div class="meta-key">Pain points the product solves</div>
-      <ul class="bullet-list">
-        {% for p in ads.pain_points %}<li class="bullet-row"><span class="bullet-dot">•</span><input type="text" value="{{ p }}" /></li>{% endfor %}
-      </ul>
-    </div>
+  <div class="empty-state" style="padding:24px 4px;">
+    <p>Ad copy generation coming next.</p>
+    <p class="empty-sub">Approve some Primary keywords above, then Claude will write headlines and descriptions tuned for them.</p>
   </div>
 </section>
 {% endblock %}

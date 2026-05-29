@@ -4,97 +4,45 @@
 <section class="panel">
   <div class="panel-head">
     <div>
-      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">SEO quality score</h2>
-      <p class="conn-desc">Weighted score across title length, meta length, keyword coverage, and image alt coverage.</p>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">SEO &amp; content</h2>
+      <p class="conn-desc">
+        Claude will generate suggestions for SEO title, meta description, product description,
+        bullets, and image alt text. Push approved changes back to Shopify.
+      </p>
     </div>
-    <div class="score-pill score-{{ seo.score_band }}">{{ seo.score }} / 100</div>
-  </div>
-  <div class="score-bar">
-    <div class="score-bar-fill" style="width:{{ seo.score }}%;"></div>
-  </div>
-  <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
-    <form method="post" action="/products/{{ product.id }}/seo/generate" class="inline-form">
-      <button type="submit" class="btn-primary">Regenerate all with AI</button>
-    </form>
-    <form method="post" action="/products/{{ product.id }}/seo/push" class="inline-form">
-      <button type="submit" class="btn-ghost">Push approved changes to Shopify</button>
-    </form>
-  </div>
-</section>
-
-{% macro seo_field(label, current, suggestion, charlimit, name) -%}
-<section class="panel seo-field">
-  <div class="panel-head">
-    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">{{ label }}</h2>
-    {% if charlimit %}<span class="conn-desc">{{ current|length }}/{{ charlimit }} chars</span>{% endif %}
-  </div>
-  <div class="seo-current">
-    <div class="seo-label-row"><span class="meta-key">Current</span></div>
-    <textarea name="{{ name }}_current" rows="2" readonly>{{ current }}</textarea>
-  </div>
-  <div class="seo-suggestion">
-    <div class="seo-label-row">
-      <span class="meta-key">AI suggestion</span>
-      <span class="conn-desc">{{ suggestion|length }}{% if charlimit %}/{{ charlimit }}{% endif %} chars</span>
-    </div>
-    <textarea name="{{ name }}_suggestion" rows="2">{{ suggestion }}</textarea>
-    <div class="form-actions" style="margin-top:8px;">
-      <form method="post" action="/products/{{ product.id }}/seo/reject/{{ name }}" class="inline-form">
-        <button type="submit" class="btn-ghost">Reject</button>
-      </form>
-      <form method="post" action="/products/{{ product.id }}/seo/approve/{{ name }}" class="inline-form">
-        <button type="submit" class="btn-primary">Approve</button>
+    <div class="form-actions" style="margin:0;">
+      <form method="post" action="/products/{{ product.id }}/seo/generate" class="inline-form">
+        <button type="submit" class="btn-primary">Generate with AI</button>
       </form>
     </div>
   </div>
 </section>
-{%- endmacro %}
-
-{{ seo_field("SEO title (meta title)", seo.title.current, seo.title.suggestion, 60, "title") }}
-{{ seo_field("Meta description", seo.meta.current, seo.meta.suggestion, 160, "meta") }}
-{{ seo_field("Product description rewrite", seo.description.current, seo.description.suggestion, None, "description") }}
 
 <section class="panel">
-  <div class="panel-head">
-    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">Bullet points (for ads &amp; structured data)</h2>
-    <span class="conn-desc">5 features Claude suggests</span>
-  </div>
-  <ul class="bullet-list">
-    {% for b in seo.bullets %}
-    <li class="bullet-row">
-      <span class="bullet-dot">•</span>
-      <input type="text" value="{{ b }}" class="bullet-input" />
-      <button class="link-danger" type="button">Remove</button>
-    </li>
-    {% endfor %}
-  </ul>
-  <div class="form-actions" style="justify-content:flex-start;">
-    <button class="btn-ghost" type="button">+ Add bullet</button>
-    <button class="btn-ghost" type="button">Regenerate with AI</button>
-  </div>
+  <div class="panel-head"><h2>Current values from Shopify</h2></div>
+  <dl class="meta">
+    <dt>SEO title</dt><dd>—</dd>
+    <dt>Meta description</dt><dd>—</dd>
+    <dt>Product description</dt>
+    <dd>
+      {% if seo.description.current %}
+        <span class="conn-desc">{{ (seo.description.current|striptags)[:140] }}{% if (seo.description.current|striptags)|length > 140 %}…{% endif %}</span>
+      {% else %}<em>empty</em>{% endif %}
+    </dd>
+  </dl>
+  <p class="conn-desc">
+    Current SEO title and meta description aren't synced yet — the Shopify query needs
+    to be extended with the <code>seo</code> field. Will land before AI generation.
+  </p>
 </section>
 
 <section class="panel">
-  <div class="panel-head">
-    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">Image alt text</h2>
-    <span class="conn-desc">Improves SEO + accessibility</span>
+  <div class="empty-state" style="padding:30px 4px;">
+    <p><strong>AI suggestions not generated yet for this product.</strong></p>
+    <p class="empty-sub">
+      Click <strong>Generate with AI</strong> above. Anthropic must be connected
+      under <a href="/connections" class="muted-link">Connections</a>.
+    </p>
   </div>
-  {% for img in seo.images %}
-  <div class="alt-row">
-    <div class="alt-thumb">
-      {% if img.url %}<img src="{{ img.url }}" alt="" />{% else %}<span>?</span>{% endif %}
-    </div>
-    <div class="alt-fields">
-      <div class="seo-label-row"><span class="meta-key">Current</span></div>
-      <input type="text" value="{{ img.current_alt }}" readonly />
-      <div class="seo-label-row" style="margin-top:8px;"><span class="meta-key">AI suggestion</span></div>
-      <input type="text" value="{{ img.suggested_alt }}" />
-    </div>
-    <div class="form-actions" style="flex-direction:column;gap:6px;">
-      <button class="btn-ghost" type="button">Reject</button>
-      <button class="btn-primary" type="button">Approve</button>
-    </div>
-  </div>
-  {% endfor %}
 </section>
 {% endblock %}

@@ -21,3 +21,24 @@ services:
         sync: false
       - key: AUTONOMOUS_MODE
         sync: false
+
+  - type: cron
+    name: gglads-shopify-daily
+    runtime: python
+    # 04:00 UTC daily (~midnight EST / 9pm PST). Adjust schedule if you want.
+    schedule: "0 4 * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.shopify_sync
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false

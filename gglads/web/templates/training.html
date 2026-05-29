@@ -1,0 +1,82 @@
+{% extends "layout.html" %}
+
+{% block title %}Training — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Training</h1>
+    <p class="page-subtitle">
+      Teach Claude about your business. Every recommendation is grounded in what you put here.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/training/new" class="btn-primary">+ Add entry</a>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}
+  <div class="flash flash-{{ f.level }}">{{ f.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<section class="panel training-howitworks">
+  <div class="panel-head">
+    <h2>How this works</h2>
+  </div>
+  <p class="conn-desc" style="max-width:780px;">
+    Every entry below is included in Claude's system prompt on every run, using
+    prompt caching so it stays fast and cheap. Treat it like a Q&amp;A guide for
+    a new hire: the more specific and concrete, the better the recommendations.
+    You can edit any entry at any time, and corrections you make on past actions
+    (from the Feedback log) are pulled in automatically.
+  </p>
+</section>
+
+{% for cat in categories %}
+<section class="panel training-category">
+  <div class="panel-head">
+    <div>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">{{ cat.name }}</h2>
+      <p class="conn-desc">{{ cat.desc }}</p>
+    </div>
+    <span class="pill {{ 'pill-info' if cat.entries else 'pill-warn' }}">
+      {{ cat.entries|length }} {{ 'entry' if cat.entries|length == 1 else 'entries' }}
+    </span>
+  </div>
+
+  {% if cat.entries %}
+  <ul class="training-list">
+    {% for e in cat.entries %}
+    <li class="training-entry">
+      <div class="training-q">{{ e.question }}</div>
+      <div class="training-a">{{ e.answer }}</div>
+      <div class="training-actions">
+        <a href="/training/{{ e.id }}/edit" class="muted-link">Edit</a>
+        <form method="post" action="/training/{{ e.id }}/delete" class="inline-form">
+          <button type="submit" class="link-danger">Delete</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="training-empty">
+    <p class="empty-state-msg">Nothing here yet. A few questions to start with:</p>
+    <ul class="suggested-questions">
+      {% for q in cat.suggestions %}
+      <li>
+        <a href="/training/new?category={{ cat.slug }}&question={{ q|urlencode }}">
+          → {{ q }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

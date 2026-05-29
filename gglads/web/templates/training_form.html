@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ 'Edit entry' if entry else 'Add entry' }} — Training — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">{{ 'Edit training entry' if entry else 'New training entry' }}</h1>
+    <p class="page-subtitle">
+      <a href="/training" class="muted-link">← Back to training</a>
+    </p>
+  </div>
+</div>
+
+<section class="panel" style="max-width:760px;">
+  <form method="post" action="{{ form_action }}" class="conn-form" novalidate>
+    {% if error %}
+    <div class="auth-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <div class="field">
+      <label for="category">Category</label>
+      <select id="category" name="category" required>
+        {% for cat in categories %}
+        <option value="{{ cat.slug }}" {{ 'selected' if cat.slug == current_category }}>
+          {{ cat.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="question">Question</label>
+      <input
+        type="text"
+        id="question"
+        name="question"
+        value="{{ current_question }}"
+        placeholder="e.g. How should ad copy sound?"
+        required
+      />
+      <p class="field-help">A short prompt that frames what this entry answers.</p>
+    </div>
+
+    <div class="field">
+      <label for="answer">Answer</label>
+      <textarea
+        id="answer"
+        name="answer"
+        rows="8"
+        placeholder="The more specific and concrete, the better. Examples are great."
+        required
+      >{{ current_answer }}</textarea>
+      <p class="field-help">
+        This text gets included in Claude's system prompt verbatim. Be direct.
+      </p>
+    </div>
+
+    <div class="form-actions">
+      <a href="/training" class="btn-ghost">Cancel</a>
+      <button type="submit" class="btn-primary">
+        {{ 'Save changes' if entry else 'Add entry' }}
+      </button>
+    </div>
+  </form>
+</section>
+{% endblock %}

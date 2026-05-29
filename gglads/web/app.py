@@ -312,6 +312,220 @@ def connections_disconnect(route: str, request: Request, db: DbDep) -> Response:
     return RedirectResponse("/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 
+TRAINING_CATEGORIES = [
+    {
+        "slug": "voice",
+        "name": "Brand voice & tone",
+        "desc": "How ad copy should sound, which words to use, which to avoid.",
+        "suggestions": [
+            "How should ad copy sound? (friendly, expert, urgent, etc.)",
+            "Which pronouns do we use — 'we', 'us', 'you', 'your'?",
+            "Are there phrases we always use? Phrases we never use?",
+        ],
+    },
+    {
+        "slug": "catalog",
+        "name": "Products & catalog",
+        "desc": "What you sell, top categories, margins, hero products.",
+        "suggestions": [
+            "What are your top 3 product categories?",
+            "Which products are your bestsellers vs. highest margin?",
+            "Are there any products we should NOT advertise?",
+        ],
+    },
+    {
+        "slug": "customer",
+        "name": "Target customer",
+        "desc": "Who buys from you, what they care about, what objections they have.",
+        "suggestions": [
+            "Who is your ideal customer? (age, profession, lifestyle)",
+            "What pain point does your product solve?",
+            "What objections do customers have before buying?",
+        ],
+    },
+    {
+        "slug": "geo",
+        "name": "Geography & language",
+        "desc": "Where you sell, languages, regional constraints.",
+        "suggestions": [
+            "Which countries / regions do you sell to?",
+            "What languages should ads run in?",
+            "Are there shipping or fulfillment limits we should mention?",
+        ],
+    },
+    {
+        "slug": "guardrails",
+        "name": "Do's & Don'ts",
+        "desc": "Hard rules Claude must always or never follow.",
+        "suggestions": [
+            "Are there claims we cannot make (legal, FTC, etc.)?",
+            "Should we ever discount? What's the minimum margin?",
+            "Are there competitors we should never mention by name?",
+        ],
+    },
+    {
+        "slug": "banned",
+        "name": "Banned terms",
+        "desc": "Words / phrases / brand names that must never appear.",
+        "suggestions": [
+            "Are there words our brand never uses?",
+            "Are there competitor names we cannot bid on?",
+            "Any regulatory words to avoid (FDA, supplement claims, etc.)?",
+        ],
+    },
+    {
+        "slug": "required",
+        "name": "Must-include",
+        "desc": "Phrases or claims that should appear when relevant.",
+        "suggestions": [
+            "Do you have a tagline we should use?",
+            "Are there claims you want in every ad? (e.g. 'free shipping')",
+            "Are there disclosures we are legally required to include?",
+        ],
+    },
+    {
+        "slug": "promos",
+        "name": "Promotions & seasonality",
+        "desc": "Always-on offers, seasonal events, when to ramp.",
+        "suggestions": [
+            "Are there always-on promotions?",
+            "What seasonal events matter? (Black Friday, summer sale, etc.)",
+            "How early should we ramp spend before a seasonal event?",
+        ],
+    },
+    {
+        "slug": "competitors",
+        "name": "Competitors",
+        "desc": "Who they are, how to position against them.",
+        "suggestions": [
+            "Who are your main competitors?",
+            "What do you do better than them?",
+            "Should we bid on competitor brand names?",
+        ],
+    },
+    {
+        "slug": "other",
+        "name": "Other context",
+        "desc": "Anything else Claude should know.",
+        "suggestions": [
+            "Is there anything else Claude should know about the business?",
+        ],
+    },
+]
+
+
+def _categories_with_entries(_db: Session) -> list[dict]:
+    # Backend is not built yet — all entries lists are empty. We still seed
+    # categories so the design preview shows real structure + suggestions.
+    return [{**c, "entries": []} for c in TRAINING_CATEGORIES]
+
+
+@app.get("/training", response_class=HTMLResponse)
+def training_page(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    return templates.TemplateResponse(
+        request,
+        "training.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "training",
+            "categories": _categories_with_entries(db),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.get("/training/new", response_class=HTMLResponse)
+def training_new(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    current_category = request.query_params.get("category", "voice")
+    current_question = request.query_params.get("question", "")
+    return templates.TemplateResponse(
+        request,
+        "training_form.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "training",
+            "categories": TRAINING_CATEGORIES,
+            "current_category": current_category,
+            "current_question": current_question,
+            "current_answer": "",
+            "entry": None,
+            "form_action": "/training/new",
+            "error": None,
+        },
+    )
+
+
+@app.post("/training/new")
+def training_new_submit(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    _flash(request, "Backend not yet built — design preview only.", "info")
+    return RedirectResponse("/training", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/training/{entry_id}/edit", response_class=HTMLResponse)
+def training_edit(entry_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    # Backend not built — placeholder entry so the form renders.
+    return templates.TemplateResponse(
+        request,
+        "training_form.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "training",
+            "categories": TRAINING_CATEGORIES,
+            "current_category": "voice",
+            "current_question": "(example) How should ad copy sound?",
+            "current_answer": "(example) Friendly, expert, never pushy.",
+            "entry": {"id": entry_id},
+            "form_action": f"/training/{entry_id}/edit",
+            "error": None,
+        },
+    )
+
+
+@app.post("/training/{entry_id}/edit")
+def training_edit_submit(entry_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    _flash(request, "Backend not yet built — design preview only.", "info")
+    return RedirectResponse("/training", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/training/{entry_id}/delete")
+def training_delete(entry_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    _flash(request, "Backend not yet built — design preview only.", "info")
+    return RedirectResponse("/training", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/status", response_class=HTMLResponse)
 def status_page(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)

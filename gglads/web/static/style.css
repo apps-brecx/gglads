@@ -852,3 +852,122 @@ footer {
   border-color: rgba(248, 113, 113, 0.25);
   color: var(--fail);
 }
+
+/* ---------- Training page ---------- */
+
+.training-howitworks {
+  margin-bottom: 18px;
+}
+
+.training-category {
+  margin-bottom: 14px;
+}
+
+.training-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.training-entry {
+  background: #0e1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.training-q {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.training-a {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.training-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.inline-form {
+  display: inline;
+  margin: 0;
+  padding: 0;
+}
+
+.link-danger {
+  background: none;
+  border: none;
+  color: var(--fail);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.link-danger:hover {
+  text-decoration: underline;
+}
+
+.training-empty {
+  padding: 4px 0 0;
+}
+
+.empty-state-msg {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.suggested-questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggested-questions a {
+  display: block;
+  padding: 8px 10px;
+  background: rgba(124, 156, 255, 0.04);
+  border: 1px dashed rgba(124, 156, 255, 0.18);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.suggested-questions a:hover {
+  background: rgba(124, 156, 255, 0.08);
+  border-style: solid;
+}
+
+textarea {
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124, 156, 255, 0.18);
+}

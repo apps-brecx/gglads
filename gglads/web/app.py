@@ -1,5 +1,6 @@
 import logging
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -32,13 +33,6 @@ OPEN_PATHS = {"/login", "/setup", "/healthz", "/readyz", "/favicon.ico"}
 settings = get_settings()
 
 app = FastAPI(title="gglads", version=__version__)
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.app_secret,
-    https_only=settings.app_env == "production",
-    same_site="lax",
-    session_cookie="gglads_session",
-)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -58,7 +52,7 @@ def _current_user(request: Request, db: Session) -> User | None:
 
 
 class AuthGateMiddleware(BaseHTTPMiddleware):
-    """Redirect unauthenticated requests to /login (or /setup on first run)."""
+    """Redirect unauthenticated requests to /login."""
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -69,7 +63,17 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
 
+# Order matters: the LAST add_middleware call becomes the OUTERMOST wrapper
+# (runs first on a request). SessionMiddleware must run before AuthGateMiddleware
+# so that request.session is populated when AuthGate reads it.
 app.add_middleware(AuthGateMiddleware)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.app_secret,
+    https_only=settings.app_env == "production",
+    same_site="lax",
+    session_cookie="gglads_session",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +186,7 @@ def login_submit(
             {"version": __version__, "error": "Invalid email or password."},
         )
 
-    user.last_login_at = func.now()
+    user.last_login_at = datetime.now(timezone.utc)
     db.commit()
     request.session["user_id"] = user.id
     return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)

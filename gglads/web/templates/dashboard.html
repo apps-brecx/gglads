@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — gglads</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="status">
+    <header>
+      <h1>gglads</h1>
+      <p class="subtitle">
+        Signed in as <strong>{{ user.email }}</strong>
+        · role: <strong>{{ user.role }}</strong>
+        · <a href="/logout" class="muted-link">log out</a>
+      </p>
+    </header>
+
+    <section class="card">
+      <h2>Dashboard</h2>
+      <p style="margin:0;color:var(--muted);font-size:14px;">
+        Login is working. The real dashboard design is approved next.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Quick links</h2>
+      <p style="margin:0;font-size:14px;">
+        <a href="/status" class="muted-link">System status</a>
+      </p>
+    </section>
+  </main>
+</body>
+</html>

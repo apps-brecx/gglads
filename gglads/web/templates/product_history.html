@@ -1,0 +1,30 @@
+{% extends "product_layout.html" %}
+
+{% block product_content %}
+<section class="panel">
+  <div class="panel-head">
+    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Activity history</h2>
+    <p class="conn-desc">Every AI suggestion, your approvals, and pushes back to Shopify.</p>
+  </div>
+  {% if history %}
+  <ol class="timeline">
+    {% for ev in history %}
+    <li class="timeline-event timeline-{{ ev.kind }}">
+      <div class="timeline-dot"></div>
+      <div class="timeline-body">
+        <div class="timeline-when">{{ ev.when }}</div>
+        <div class="timeline-title">{{ ev.title }}</div>
+        {% if ev.detail %}<div class="timeline-detail">{{ ev.detail }}</div>{% endif %}
+        <div class="timeline-actor">by {{ ev.actor }}</div>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <div class="empty-state" style="padding:24px 4px;">
+    <p>No activity yet for this product.</p>
+    <p class="empty-sub">Once you run AI generation or push changes to Shopify, every event lands here.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

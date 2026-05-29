@@ -1,0 +1,91 @@
+{% extends "product_layout.html" %}
+
+{% block product_content %}
+<div class="overview-grid">
+  <section class="panel overview-hero">
+    {% if product.image_url %}
+    <img src="{{ product.image_url }}" alt="{{ product.title }}" class="overview-hero-image" />
+    {% else %}
+    <div class="overview-hero-placeholder">{{ product.title[0]|upper }}</div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Details</h2></div>
+    <dl class="meta">
+      <dt>Vendor</dt><dd>{{ product.vendor }}</dd>
+      <dt>Product type</dt><dd>{{ product.product_type }}</dd>
+      <dt>Price range</dt><dd>{{ product.price_range }}</dd>
+      <dt>Variants</dt><dd>{{ product.variant_count }}</dd>
+      <dt>Stock now</dt><dd>{{ product.total_inventory }}</dd>
+      <dt>Channels</dt>
+      <dd>
+        {% if product.channels %}
+          {% for ch in product.channels %}<span class="tag">{{ ch }}</span>{% endfor %}
+        {% else %}—{% endif %}
+      </dd>
+      <dt>Created</dt><dd>{{ product.created_at }}</dd>
+      <dt>Last updated</dt><dd>{{ product.updated_at }}</dd>
+    </dl>
+  </section>
+</div>
+
+<section class="metric-row" style="grid-template-columns:repeat(4,1fr);">
+  <div class="metric">
+    <div class="metric-label">Units sold (90d)</div>
+    <div class="metric-value">{{ product.units_sold_90d }}</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Unique customers (90d)</div>
+    <div class="metric-value">{{ product.unique_customers_90d }}</div>
+  </div>
+  <div class="metric metric-accent">
+    <div class="metric-label">Last sale</div>
+    <div class="metric-value" style="font-size:18px;">{{ product.last_sale_at }}</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Stock days (30d)</div>
+    <div class="metric-value" style="font-size:18px;">
+      {% if product.stock_total_days > 0 %}
+        {{ product.stock_in_days }} in · {{ product.stock_out_days }} out
+      {% else %}no data{% endif %}
+    </div>
+    <div class="metric-foot">of {{ product.stock_total_days }} tracked</div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Description</h2></div>
+  <div class="product-description">
+    {{ product.description_html|safe if product.description_html else '<p class="conn-desc">No description yet.</p>' }}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Variants</h2>
+    <span class="conn-desc">{{ product.variants|length }} total</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>SKU</th><th>Title</th>
+        <th class="num">Price</th>
+        <th class="num">Inventory</th>
+        <th>Options</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in product.variants %}
+      <tr>
+        <td>{{ v.sku }}</td>
+        <td>{{ v.title }}</td>
+        <td class="num">${{ v.price }}</td>
+        <td class="num">{{ v.inventory_quantity }}</td>
+        <td>{{ v.options|join(' / ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

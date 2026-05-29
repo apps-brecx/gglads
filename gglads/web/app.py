@@ -955,12 +955,9 @@ def products_sync(request: Request, db: DbDep) -> Response:
     return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@app.get("/products/{product_id}", response_class=HTMLResponse)
-def product_detail_page(product_id: int, request: Request, db: DbDep) -> Response:
-    user = _current_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-
+def _load_product_context(
+    db: Session, product_id: int
+) -> tuple[ShopifyProduct, dict]:
     p = db.get(ShopifyProduct, product_id)
     if p is None:
         raise HTTPException(status_code=404)
@@ -971,7 +968,6 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
         .order_by(ShopifyVariant.id)
     ).scalars().all()
 
-    collection_titles = _product_collection_titles(db, [p.id]).get(p.id, [])
     channel_names = _product_channel_names(db, [p.id]).get(p.id, [])
     in_days, out_days, total_days = _stock_history(db, [p.id]).get(p.id, (0, 0, 0))
 
@@ -1002,24 +998,283 @@ def product_detail_page(product_id: int, request: Request, db: DbDep) -> Respons
             }
             for v in variants
         ],
-        "ads_performance": None,
-        "collections": collection_titles,
         "channels": channel_names,
         "stock_in_days": in_days,
         "stock_out_days": out_days,
         "stock_total_days": total_days,
     }
+    return p, product
 
+
+def _score_band(score: int) -> str:
+    if score >= 80:
+        return "good"
+    if score >= 65:
+        return "ok"
+    if score >= 45:
+        return "warn"
+    return "bad"
+
+
+def _mock_seo(product: dict) -> dict:
+    """Placeholder content — replaced by real Claude output once AI is wired up."""
+    title = product["title"]
+    return {
+        "score": 72,
+        "score_band": _score_band(72),
+        "title": {
+            "current": title,
+            "suggestion": f"{title} — Free Shipping & Easy Returns",
+        },
+        "meta": {
+            "current": "",
+            "suggestion": (
+                f"Shop {title} crafted for everyday wear. Free shipping on orders "
+                f"over $50. 30-day returns. Made to last."
+            )[:160],
+        },
+        "description": {
+            "current": product.get("description_html") or "",
+            "suggestion": (
+                f"<p><strong>{title}</strong> — built for daily use.</p>"
+                "<ul><li>Durable materials</li><li>Designed in-house</li>"
+                "<li>Free shipping on $50+</li></ul>"
+            ),
+        },
+        "bullets": [
+            "Lightweight, durable build",
+            "Designed for everyday wear",
+            "Free shipping on orders $50+",
+            "30-day no-questions returns",
+            "Made with sustainable materials",
+        ],
+        "images": [
+            {
+                "url": product["image_url"],
+                "current_alt": "",
+                "suggested_alt": f"{title} shown from the front on a neutral background",
+            }
+        ] if product.get("image_url") else [],
+    }
+
+
+def _mock_ads(product: dict) -> dict:
+    title = product["title"]
+    return {
+        "primary_keywords": [title.lower(), f"buy {title.lower()}", f"{title.lower()} online"],
+        "secondary_keywords": [
+            "free shipping",
+            "best price",
+            "premium quality",
+            "shop now",
+            "limited stock",
+        ],
+        "negative_keywords": ["free", "cheap", "knockoff", "diy", "tutorial"],
+        "headlines": [
+            f"{title[:25]}",
+            "Free Shipping on $50+",
+            "Designed To Last",
+            "Shop New Arrivals",
+            "Limited-Time Offer",
+            "Loved By 10K+ Buyers",
+            "Hand-Built Quality",
+            "30-Day Easy Returns",
+        ],
+        "descriptions": [
+            f"Premium {title.lower()} crafted for everyday use. Free shipping on $50+.",
+            f"Order today and ship free. Easy 30-day returns. Shop the {title.lower()}.",
+            f"Built to last with sustainable materials. Trusted by 10,000+ customers.",
+        ],
+        "usps": [
+            "Sustainable materials, ethically sourced",
+            "Designed in-house, hand-finished",
+            "Free shipping on orders over $50",
+        ],
+        "pain_points": [
+            "Cheap products that break after a few weeks",
+            "Long shipping times from overseas",
+        ],
+    }
+
+
+def _mock_analytics(product: dict, range_days: int) -> dict:
+    """Mocked chart data for the design preview. Real data when orders are stored."""
+    today = datetime.now(timezone.utc).date()
+    labels = [(today - timedelta(days=i)).strftime("%b %d") for i in range(range_days - 1, -1, -1)]
+    base = max(1, product["units_sold_90d"] // 30)
+    chart_units = [max(0, base + ((i * 7) % 5) - 2) for i in range(range_days)]
+    stock_now = product["total_inventory"]
+    chart_stock = [stock_now + (range_days - i) * 2 for i in range(range_days)]
+    chart_spend = [base * 4 + (i % 4) * 3 for i in range(range_days)]
+    chart_conv = [max(0, base // 2 + ((i * 3) % 4) - 1) for i in range(range_days)]
+
+    return {
+        "range_label": f"last {range_days} days",
+        "units_sold": sum(chart_units),
+        "revenue": f"{sum(chart_units) * 32:.2f}",
+        "conversions": sum(chart_conv),
+        "conv_rate": "2.1",
+        "roas": "3.4x",
+        "chart_labels": labels,
+        "chart_units": chart_units,
+        "chart_stock": chart_stock,
+        "chart_spend": chart_spend,
+        "chart_conv": chart_conv,
+        "chart_kw_labels": [
+            "linen bag", "crossbody bag", "summer tote", "lightweight bag", "linen tote",
+        ],
+        "chart_kw_clicks": [42, 31, 28, 19, 14],
+    }
+
+
+def _mock_history(product: dict) -> list[dict]:
+    return []
+
+
+@app.get("/products/{product_id}", response_class=HTMLResponse)
+def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
     return templates.TemplateResponse(
         request,
-        "product_detail.html",
+        "product_overview.html",
         {
             "version": __version__,
             "user": user,
             "active": "products",
+            "tab": "overview",
             "product": product,
+            "flashes": _consume_flashes(request),
         },
     )
+
+
+@app.get("/products/{product_id}/seo", response_class=HTMLResponse)
+def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    return templates.TemplateResponse(
+        request,
+        "product_seo.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "seo",
+            "product": product,
+            "seo": _mock_seo(product),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.get("/products/{product_id}/ads", response_class=HTMLResponse)
+def product_ads(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    return templates.TemplateResponse(
+        request,
+        "product_ads.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "ads",
+            "product": product,
+            "ads": _mock_ads(product),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.get("/products/{product_id}/analytics", response_class=HTMLResponse)
+def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    range_param = request.query_params.get("range") or "30"
+    try:
+        range_days = int(range_param) if range_param != "custom" else 30
+    except ValueError:
+        range_days = 30
+    range_days = max(1, min(range_days, 365))
+    return templates.TemplateResponse(
+        request,
+        "product_analytics.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "analytics",
+            "product": product,
+            "range": range_param,
+            "range_from": "",
+            "range_to": "",
+            "analytics": _mock_analytics(product, range_days),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.get("/products/{product_id}/history", response_class=HTMLResponse)
+def product_history(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    return templates.TemplateResponse(
+        request,
+        "product_history.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "history",
+            "product": product,
+            "history": _mock_history(product),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+# Placeholder POSTs for SEO / Ads actions — wire backend after design approval
+def _placeholder_redirect(
+    request: Request, db: Session, product_id: int, tab: str
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _flash(request, "Backend not built yet — design preview only.", "info")
+    return RedirectResponse(
+        f"/products/{product_id}/{tab}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/seo/generate")
+@app.post("/products/{product_id}/seo/push")
+def _seo_action(product_id: int, request: Request, db: DbDep) -> Response:
+    return _placeholder_redirect(request, db, product_id, "seo")
+
+
+@app.post("/products/{product_id}/seo/approve/{field}")
+@app.post("/products/{product_id}/seo/reject/{field}")
+def _seo_field_action(
+    product_id: int, field: str, request: Request, db: DbDep
+) -> Response:
+    return _placeholder_redirect(request, db, product_id, "seo")
+
+
+@app.post("/products/{product_id}/ads/generate")
+@app.post("/products/{product_id}/ads/create-campaign")
+def _ads_action(product_id: int, request: Request, db: DbDep) -> Response:
+    return _placeholder_redirect(request, db, product_id, "ads")
 
 
 @app.get("/status", response_class=HTMLResponse)

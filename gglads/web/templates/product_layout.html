@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ product.title }} — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head product-page-head">
+  <div class="product-head-main">
+    <p class="page-subtitle" style="margin:0 0 4px;">
+      <a href="/products" class="muted-link">← Products</a>
+    </p>
+    <h1 class="page-title">{{ product.title }}</h1>
+    <div class="product-head-meta">
+      <span class="pill {{ 'pill-ok' if product.status == 'active' else 'pill-warn' }}">{{ product.status }}</span>
+      <span class="muted">{{ product.vendor }}</span>
+      <span class="muted">·</span>
+      <span class="muted">{{ product.price_range }}</span>
+      <span class="muted">·</span>
+      <span class="muted">{{ product.variant_count }} variant{{ '' if product.variant_count == 1 else 's' }}</span>
+    </div>
+  </div>
+  <div class="page-actions">
+    <a href="{{ product.shopify_admin_url }}" target="_blank" rel="noopener" class="btn-ghost">View in Shopify ↗</a>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}
+  <div class="flash flash-{{ f.level }}">{{ f.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="tab-bar">
+  <a href="/products/{{ product.id }}" class="tab {{ 'is-active' if tab == 'overview' }}">Overview</a>
+  <a href="/products/{{ product.id }}/seo" class="tab {{ 'is-active' if tab == 'seo' }}">SEO &amp; Content</a>
+  <a href="/products/{{ product.id }}/ads" class="tab {{ 'is-active' if tab == 'ads' }}">Ads</a>
+  <a href="/products/{{ product.id }}/analytics" class="tab {{ 'is-active' if tab == 'analytics' }}">Analytics</a>
+  <a href="/products/{{ product.id }}/history" class="tab {{ 'is-active' if tab == 'history' }}">History</a>
+</div>
+
+{% block product_content %}{% endblock %}
+{% endblock %}

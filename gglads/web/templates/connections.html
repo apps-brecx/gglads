@@ -2,6 +2,22 @@
 
 {% block title %}Connections — gglads{% endblock %}
 
+{% macro status_pill(state) -%}
+  {% if state.last_test_ok == true %}
+    <span class="pill pill-ok">Connected · tested</span>
+  {% elif state.is_configured and state.last_test_ok == false %}
+    <span class="pill pill-fail">Saved · last test failed</span>
+  {% elif state.is_configured %}
+    <span class="pill pill-info">Saved · not tested</span>
+  {% else %}
+    <span class="pill pill-warn">Not connected</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro secret_placeholder(field_state) -%}
+  {% if field_state.has_stored %}Saved — leave blank to keep{% else %}sk-… / shpat_… / etc.{% endif %}
+{%- endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -12,24 +28,33 @@
   </div>
 </div>
 
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}
+  <div class="flash flash-{{ f.level }}">{{ f.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <!-- ANTHROPIC -->
+{% set ant = integrations.anthropic %}
 <section class="panel conn-panel">
   <div class="panel-head conn-head">
     <div>
       <h2>Anthropic</h2>
       <p class="conn-desc">Powers Claude — the reasoning behind every recommendation.</p>
     </div>
-    <span class="pill pill-warn">Not connected</span>
+    {{ status_pill(ant) }}
   </div>
 
-  <form method="post" action="/connections/anthropic" class="conn-form" novalidate>
+  <form method="post" action="/connections/anthropic/save" class="conn-form" novalidate>
     <div class="field">
       <label for="anthropic_key">API key</label>
       <input
         type="password"
         id="anthropic_key"
         name="api_key"
-        placeholder="sk-ant-…"
+        placeholder="{{ 'Saved — leave blank to keep' if ant.fields.api_key.has_stored else 'sk-ant-…' }}"
         autocomplete="off"
       />
       <p class="field-help">Find it at console.anthropic.com → Settings → API Keys.</p>
@@ -38,36 +63,42 @@
     <div class="field">
       <label for="anthropic_model">Model</label>
       <select id="anthropic_model" name="model">
-        <option value="claude-opus-4-7" selected>Claude Opus 4.7 (best quality)</option>
-        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (faster, cheaper)</option>
-        <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest, simple tasks)</option>
+        {% set current_model = ant.fields.model.value or 'claude-opus-4-7' %}
+        <option value="claude-opus-4-7" {{ 'selected' if current_model == 'claude-opus-4-7' }}>Claude Opus 4.7 (best quality)</option>
+        <option value="claude-sonnet-4-6" {{ 'selected' if current_model == 'claude-sonnet-4-6' }}>Claude Sonnet 4.6 (faster, cheaper)</option>
+        <option value="claude-haiku-4-5" {{ 'selected' if current_model == 'claude-haiku-4-5' }}>Claude Haiku 4.5 (cheapest, simple tasks)</option>
       </select>
     </div>
 
     <div class="form-actions">
-      <button type="button" class="btn-ghost" data-action="test">Test connection</button>
+      {% if ant.from_db %}
+      <button type="submit" formaction="/connections/anthropic/disconnect" class="btn-ghost btn-danger">Disconnect</button>
+      {% endif %}
+      <button type="submit" formaction="/connections/anthropic/test" class="btn-ghost">Test connection</button>
       <button type="submit" class="btn-primary">Save</button>
     </div>
   </form>
 </section>
 
 <!-- SHOPIFY -->
+{% set sh = integrations.shopify %}
 <section class="panel conn-panel">
   <div class="panel-head conn-head">
     <div>
       <h2>Shopify</h2>
       <p class="conn-desc">Pulls your product catalog and collections so Claude knows what you sell.</p>
     </div>
-    <span class="pill pill-warn">Not connected</span>
+    {{ status_pill(sh) }}
   </div>
 
-  <form method="post" action="/connections/shopify" class="conn-form" novalidate>
+  <form method="post" action="/connections/shopify/save" class="conn-form" novalidate>
     <div class="field">
       <label for="shopify_domain">Store domain</label>
       <input
         type="text"
         id="shopify_domain"
         name="store_domain"
+        value="{{ sh.fields.store_domain.value }}"
         placeholder="yourstore.myshopify.com"
         autocomplete="off"
       />
@@ -79,7 +110,7 @@
         type="password"
         id="shopify_token"
         name="admin_api_token"
-        placeholder="shpat_…"
+        placeholder="{{ 'Saved — leave blank to keep' if sh.fields.admin_api_token.has_stored else 'shpat_…' }}"
         autocomplete="off"
       />
       <p class="field-help">
@@ -87,7 +118,7 @@
       </p>
     </div>
 
-    <details class="conn-advanced">
+    <details class="conn-advanced" {{ 'open' if sh.fields.api_version.value and sh.fields.api_version.value != '2025-01' }}>
       <summary>Advanced</summary>
       <div class="field">
         <label for="shopify_version">API version</label>
@@ -95,20 +126,24 @@
           type="text"
           id="shopify_version"
           name="api_version"
-          value="2025-01"
+          value="{{ sh.fields.api_version.value or '2025-01' }}"
           autocomplete="off"
         />
       </div>
     </details>
 
     <div class="form-actions">
-      <button type="button" class="btn-ghost" data-action="test">Test connection</button>
+      {% if sh.from_db %}
+      <button type="submit" formaction="/connections/shopify/disconnect" class="btn-ghost btn-danger">Disconnect</button>
+      {% endif %}
+      <button type="submit" formaction="/connections/shopify/test" class="btn-ghost">Test connection</button>
       <button type="submit" class="btn-primary">Save</button>
     </div>
   </form>
 </section>
 
 <!-- GOOGLE ADS -->
+{% set ga = integrations.google_ads %}
 <section class="panel conn-panel">
   <div class="panel-head conn-head">
     <div>
@@ -118,10 +153,10 @@
         campaigns, ad groups, ads, and keywords back.
       </p>
     </div>
-    <span class="pill pill-warn">Not connected</span>
+    {{ status_pill(ga) }}
   </div>
 
-  <form method="post" action="/connections/google-ads" class="conn-form" novalidate>
+  <form method="post" action="/connections/google-ads/save" class="conn-form" novalidate>
     <div class="field-row-2">
       <div class="field">
         <label for="ga_customer">Customer ID</label>
@@ -129,6 +164,7 @@
           type="text"
           id="ga_customer"
           name="customer_id"
+          value="{{ ga.fields.customer_id.value }}"
           placeholder="123-456-7890"
           autocomplete="off"
         />
@@ -139,6 +175,7 @@
           type="text"
           id="ga_login_customer"
           name="login_customer_id"
+          value="{{ ga.fields.login_customer_id.value }}"
           placeholder="123-456-7890"
           autocomplete="off"
         />
@@ -151,7 +188,7 @@
         type="password"
         id="ga_dev_token"
         name="developer_token"
-        placeholder="22-character token"
+        placeholder="{{ 'Saved — leave blank to keep' if ga.fields.developer_token.has_stored else '22-character token' }}"
         autocomplete="off"
       />
     </div>
@@ -160,10 +197,10 @@
       <div class="field">
         <label for="ga_client_id">OAuth client ID</label>
         <input
-          type="text"
+          type="password"
           id="ga_client_id"
           name="oauth_client_id"
-          placeholder="…apps.googleusercontent.com"
+          placeholder="{{ 'Saved — leave blank to keep' if ga.fields.oauth_client_id.has_stored else '…apps.googleusercontent.com' }}"
           autocomplete="off"
         />
       </div>
@@ -173,7 +210,7 @@
           type="password"
           id="ga_client_secret"
           name="oauth_client_secret"
-          placeholder="GOCSPX-…"
+          placeholder="{{ 'Saved — leave blank to keep' if ga.fields.oauth_client_secret.has_stored else 'GOCSPX-…' }}"
           autocomplete="off"
         />
       </div>
@@ -185,17 +222,20 @@
         type="password"
         id="ga_refresh"
         name="refresh_token"
-        placeholder="1//…"
+        placeholder="{{ 'Saved — leave blank to keep' if ga.fields.refresh_token.has_stored else '1//…' }}"
         autocomplete="off"
       />
       <p class="field-help">
-        Generated once by running Google's OAuth playground or oauth2l with the
-        adwords scope. We'll walk through this when the backend is wired up.
+        Generated once via Google's OAuth playground or oauth2l with the
+        adwords scope. We can walk through that when you're ready.
       </p>
     </div>
 
     <div class="form-actions">
-      <button type="button" class="btn-ghost" data-action="test">Test connection</button>
+      {% if ga.from_db %}
+      <button type="submit" formaction="/connections/google-ads/disconnect" class="btn-ghost btn-danger">Disconnect</button>
+      {% endif %}
+      <button type="submit" formaction="/connections/google-ads/test" class="btn-ghost">Test connection</button>
       <button type="submit" class="btn-primary">Save</button>
     </div>
   </form>

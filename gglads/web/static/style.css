@@ -803,3 +803,52 @@ footer {
   border-radius: 4px;
   font-size: 11px;
 }
+
+.pill-fail {
+  color: var(--fail);
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.btn-danger {
+  color: var(--fail);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.btn-danger:hover {
+  background: rgba(248, 113, 113, 0.08);
+  color: var(--fail);
+  border-color: var(--fail);
+}
+
+.flash-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.flash {
+  padding: 11px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+
+.flash-ok {
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.25);
+  color: var(--ok);
+}
+
+.flash-info {
+  background: rgba(124, 156, 255, 0.08);
+  border-color: rgba(124, 156, 255, 0.25);
+  color: var(--accent);
+}
+
+.flash-error {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.25);
+  color: var(--fail);
+}

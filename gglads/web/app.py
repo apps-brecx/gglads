@@ -21,6 +21,7 @@ from gglads.config import get_settings
 from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
 from gglads.models.user import User
+from gglads.services import integration_tests, integrations as integrations_svc
 
 logger = logging.getLogger("gglads.web")
 
@@ -223,25 +224,91 @@ def _require_admin(request: Request, db: Session) -> tuple[User | None, Response
     return user, None
 
 
+def _flash(request: Request, message: str, level: str = "info") -> None:
+    flashes = request.session.get("flashes", [])
+    flashes.append({"message": message, "level": level})
+    request.session["flashes"] = flashes
+
+
+def _consume_flashes(request: Request) -> list[dict]:
+    flashes = request.session.pop("flashes", [])
+    return flashes
+
+
+_INTEGRATION_ROUTE_TO_NAME = {
+    "anthropic": "anthropic",
+    "shopify": "shopify",
+    "google-ads": "google_ads",
+}
+
+
 @app.get("/connections", response_class=HTMLResponse)
 def connections_page(request: Request, db: DbDep) -> Response:
     user, deny = _require_admin(request, db)
     if deny is not None:
         return deny
+    integrations_state = {
+        name: integrations_svc.summarize_for_form(db, name)
+        for name in ("anthropic", "shopify", "google_ads")
+    }
     return templates.TemplateResponse(
         request,
         "connections.html",
-        {"version": __version__, "user": user, "active": "connections"},
+        {
+            "version": __version__,
+            "user": user,
+            "active": "connections",
+            "integrations": integrations_state,
+            "flashes": _consume_flashes(request),
+        },
     )
 
 
-@app.post("/connections/anthropic")
-@app.post("/connections/shopify")
-@app.post("/connections/google-ads")
-def connections_save_placeholder(request: Request, db: DbDep) -> Response:
+@app.post("/connections/{route}/save")
+async def connections_save(route: str, request: Request, db: DbDep) -> Response:
     user, deny = _require_admin(request, db)
     if deny is not None:
         return deny
+    name = _INTEGRATION_ROUTE_TO_NAME.get(route)
+    if name is None:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    incoming = {k: str(v) for k, v in form.items()}
+    integrations_svc.save_config(db, name, incoming, user.id)
+    _flash(request, f"Saved {name.replace('_', ' ').title()} credentials.", "ok")
+    return RedirectResponse("/connections", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/connections/{route}/test")
+def connections_test(route: str, request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    name = _INTEGRATION_ROUTE_TO_NAME.get(route)
+    if name is None:
+        raise HTTPException(status_code=404)
+    config = integrations_svc.get_config(db, name)
+    tester = integration_tests.TESTERS[name]
+    ok, detail = tester(config)
+    integrations_svc.record_test(db, name, ok, detail)
+    _flash(
+        request,
+        f"{name.replace('_', ' ').title()}: {detail}",
+        "ok" if ok else "error",
+    )
+    return RedirectResponse("/connections", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/connections/{route}/disconnect")
+def connections_disconnect(route: str, request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    name = _INTEGRATION_ROUTE_TO_NAME.get(route)
+    if name is None:
+        raise HTTPException(status_code=404)
+    integrations_svc.delete_config(db, name)
+    _flash(request, f"Disconnected {name.replace('_', ' ').title()}.", "info")
     return RedirectResponse("/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 

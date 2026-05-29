@@ -1,0 +1,210 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ heading }} — Products — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">{{ heading }}</h1>
+    <p class="page-subtitle">
+      {% if collection %}
+        <a href="/products" class="muted-link">← All collections</a>
+        · {{ items|length }} of {{ total_count }} products
+      {% else %}
+        <a href="/products" class="muted-link">← Collections</a>
+        · {{ total_count }} products
+      {% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/products/sync" class="inline-form">
+      <button type="submit" class="btn-primary">Sync now</button>
+    </form>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}
+  <div class="flash flash-{{ f.level }}">{{ f.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="tab-bar">
+  <a href="/products" class="tab">Collections</a>
+  <a href="/products/all" class="tab {{ 'is-active' if not collection }}">All products</a>
+  {% if collection %}
+  <span class="tab is-active">{{ collection.title }}</span>
+  {% endif %}
+</div>
+
+<section class="panel filter-bar">
+  <form method="get" class="filter-form">
+    <input
+      type="search"
+      name="q"
+      value="{{ query }}"
+      placeholder="Search products by title…"
+      class="filter-search"
+    />
+    <select name="status" class="filter-select">
+      <option value="" {{ 'selected' if not status_filter }}>All statuses</option>
+      <option value="active" {{ 'selected' if status_filter == 'active' }}>Active</option>
+      <option value="draft" {{ 'selected' if status_filter == 'draft' }}>Draft</option>
+      <option value="archived" {{ 'selected' if status_filter == 'archived' }}>Archived</option>
+    </select>
+    {% if not collection %}
+    <select name="collection" class="filter-select">
+      <option value="">All collections</option>
+      {% for c in collections %}
+      <option value="{{ c.handle }}" {{ 'selected' if collection_filter == c.handle }}>
+        {{ c.title }} ({{ c.product_count }})
+      </option>
+      {% endfor %}
+    </select>
+    {% else %}
+    <span></span>
+    {% endif %}
+    <button type="submit" class="btn-ghost">Apply</button>
+    {% for key, val in passthrough_qs %}
+    <input type="hidden" name="{{ key }}" value="{{ val }}" />
+    {% endfor %}
+  </form>
+</section>
+
+<section class="view-toolbar">
+  <details class="view-options">
+    <summary>View options ▾</summary>
+    <form method="get" class="view-options-form">
+      <div class="view-group">
+        <div class="view-group-label">Layout</div>
+        <label><input type="radio" name="view" value="grid" {{ 'checked' if view == 'grid' }}> Grid</label>
+        <label><input type="radio" name="view" value="list" {{ 'checked' if view == 'list' }}> List</label>
+      </div>
+      <div class="view-group">
+        <div class="view-group-label">Show</div>
+        {% for col_key, col_label in available_columns %}
+        <label>
+          <input type="checkbox" name="cols" value="{{ col_key }}" {{ 'checked' if col_key in cols }}>
+          {{ col_label }}
+        </label>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="q" value="{{ query }}" />
+      <input type="hidden" name="status" value="{{ status_filter }}" />
+      {% if collection_filter %}
+      <input type="hidden" name="collection" value="{{ collection_filter }}" />
+      {% endif %}
+      <button type="submit" class="btn-primary">Apply</button>
+    </form>
+  </details>
+  <div class="view-summary">
+    {{ view|capitalize }} view
+    · {{ cols|length }} of {{ available_columns|length }} fields shown
+  </div>
+</section>
+
+{% if not items %}
+<section class="panel">
+  <div class="empty-state" style="padding:40px 4px;">
+    <p><strong>No products match.</strong></p>
+    <p class="empty-sub">Try clearing filters or syncing from Shopify.</p>
+  </div>
+</section>
+
+{% elif view == 'grid' %}
+<div class="product-grid">
+  {% for p in items %}
+  <a href="/products/{{ p.id }}" class="product-card">
+    {% if 'image' in cols %}
+    <div class="product-thumb">
+      {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="{{ p.title }}" />
+      {% else %}
+      <div class="product-thumb-placeholder">{{ p.title[0]|upper }}</div>
+      {% endif %}
+      {% if 'status' in cols %}
+      <span class="product-status status-{{ p.status }}">{{ p.status }}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+    <div class="product-body">
+      <div class="product-title">{{ p.title }}</div>
+      <div class="product-meta-lines">
+        {% if 'price' in cols %}<div><span class="meta-key">Price</span> {{ p.price_range }}</div>{% endif %}
+        {% if 'sku' in cols %}<div><span class="meta-key">SKU</span> {{ p.sku }}</div>{% endif %}
+        {% if 'inventory' in cols %}<div><span class="meta-key">Inventory</span> {{ p.inventory }}</div>{% endif %}
+        {% if 'vendor' in cols %}<div><span class="meta-key">Vendor</span> {{ p.vendor }}</div>{% endif %}
+        {% if 'type' in cols %}<div><span class="meta-key">Type</span> {{ p.product_type }}</div>{% endif %}
+        {% if 'variants' in cols %}<div><span class="meta-key">Variants</span> {{ p.variant_count }}</div>{% endif %}
+        {% if 'status' in cols and 'image' not in cols %}
+          <div><span class="meta-key">Status</span> {{ p.status }}</div>
+        {% endif %}
+      </div>
+      {% if 'collections' in cols and p.collection_titles %}
+      <div class="product-tags">
+        {% for col in p.collection_titles[:3] %}<span class="tag">{{ col }}</span>{% endfor %}
+        {% if p.collection_titles|length > 3 %}
+        <span class="tag tag-more">+{{ p.collection_titles|length - 3 }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+{% else %}
+<section class="panel" style="padding:0;overflow:hidden;">
+  <table class="data-table products-table">
+    <thead>
+      <tr>
+        {% if 'image' in cols %}<th class="thumb-col"></th>{% endif %}
+        <th>Title</th>
+        {% if 'price' in cols %}<th class="num">Price</th>{% endif %}
+        {% if 'sku' in cols %}<th>SKU</th>{% endif %}
+        {% if 'inventory' in cols %}<th class="num">Inventory</th>{% endif %}
+        {% if 'vendor' in cols %}<th>Vendor</th>{% endif %}
+        {% if 'type' in cols %}<th>Type</th>{% endif %}
+        {% if 'variants' in cols %}<th class="num">Variants</th>{% endif %}
+        {% if 'collections' in cols %}<th>Collections</th>{% endif %}
+        {% if 'status' in cols %}<th>Status</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in items %}
+      <tr onclick="window.location='/products/{{ p.id }}'">
+        {% if 'image' in cols %}
+        <td class="thumb-col">
+          <div class="thumb-sm">
+            {% if p.image_url %}
+            <img src="{{ p.image_url }}" alt="" />
+            {% else %}
+            <span>{{ p.title[0]|upper }}</span>
+            {% endif %}
+          </div>
+        </td>
+        {% endif %}
+        <td><a href="/products/{{ p.id }}" class="row-link">{{ p.title }}</a></td>
+        {% if 'price' in cols %}<td class="num">{{ p.price_range }}</td>{% endif %}
+        {% if 'sku' in cols %}<td>{{ p.sku }}</td>{% endif %}
+        {% if 'inventory' in cols %}<td class="num">{{ p.inventory }}</td>{% endif %}
+        {% if 'vendor' in cols %}<td>{{ p.vendor }}</td>{% endif %}
+        {% if 'type' in cols %}<td>{{ p.product_type }}</td>{% endif %}
+        {% if 'variants' in cols %}<td class="num">{{ p.variant_count }}</td>{% endif %}
+        {% if 'collections' in cols %}
+        <td>
+          {% for col in p.collection_titles %}<span class="tag">{{ col }}</span>{% endfor %}
+        </td>
+        {% endif %}
+        {% if 'status' in cols %}
+        <td><span class="product-status status-{{ p.status }}">{{ p.status }}</span></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

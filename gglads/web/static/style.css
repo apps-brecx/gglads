@@ -1249,3 +1249,249 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Tabs ---------- */
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.tab {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- Collections grid ---------- */
+
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.collection-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.1s ease, transform 0.1s ease;
+}
+
+.collection-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.collection-thumb {
+  background: #0b0d12;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.collection-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.collection-thumb-placeholder {
+  font-size: 56px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: -0.04em;
+}
+
+.collection-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.collection-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.collection-desc {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.collection-count {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ---------- View toolbar ---------- */
+
+.view-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.view-options {
+  position: relative;
+}
+
+.view-options summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.view-options summary::-webkit-details-marker {
+  display: none;
+}
+
+.view-options[open] summary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.view-options-form {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 240px;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
+}
+
+.view-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.view-group-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.view-options-form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.view-options-form input[type="checkbox"],
+.view-options-form input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+.view-summary {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- Grid meta lines + list table thumb ---------- */
+
+.product-meta-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+.product-meta-lines .meta-key {
+  display: inline-block;
+  min-width: 64px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.products-table tbody tr {
+  cursor: pointer;
+}
+
+.products-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.thumb-col {
+  width: 56px;
+}
+
+.thumb-sm {
+  width: 40px;
+  height: 40px;
+  background: #0b0d12;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.thumb-sm img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.row-link {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.row-link:hover {
+  color: var(--accent);
+}

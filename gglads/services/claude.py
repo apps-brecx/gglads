@@ -29,7 +29,6 @@ def chat(
     user_message: str,
     *,
     max_tokens: int = 4096,
-    temperature: float = 0.7,
 ) -> tuple[str | None, str | None]:
     """Single-turn chat. Returns (text, error)."""
     client, model, err = get_client_and_model(db)
@@ -39,7 +38,6 @@ def chat(
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature,
             system=system,
             messages=[{"role": "user", "content": user_message}],
         )

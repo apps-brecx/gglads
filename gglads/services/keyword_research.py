@@ -193,7 +193,6 @@ def research_keywords(
         system=SYSTEM_PROMPT,
         user_message=user_msg,
         max_tokens=6000,
-        temperature=0.7,
     )
     claude_error = None
     if err or text is None:

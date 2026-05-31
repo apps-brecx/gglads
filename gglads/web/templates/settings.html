@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+
+{% block title %}Settings — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-subtitle">Per-user preferences. They apply only to you.</p>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Keywords page defaults</h2>
+  </div>
+  <p class="conn-desc" style="margin-bottom:16px;">
+    Apply when you open a Keywords page without sort or column params in the URL.
+    Override per-page via the View options popover and the column-header clicks.
+  </p>
+
+  <form method="post" action="/settings/keywords" class="conn-form">
+    <div class="field">
+      <label>Default columns</label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:6px;margin-top:6px;">
+        {% for col_key, col_label in available_columns %}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <input type="checkbox" name="col" value="{{ col_key }}"
+                 {{ 'checked' if col_key in kp_cols }} />
+          {{ col_label }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="field-row-2" style="margin-top:14px;">
+      <div class="field">
+        <label for="sort">Default sort by</label>
+        <select id="sort" name="sort">
+          {% for slug, label in sort_options %}
+          <option value="{{ slug }}" {{ 'selected' if slug == kp_sort }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="dir">Direction</label>
+        <select id="dir" name="dir">
+          <option value="desc" {{ 'selected' if kp_dir == 'desc' }}>Descending (highest first)</option>
+          <option value="asc"  {{ 'selected' if kp_dir == 'asc'  }}>Ascending (lowest first)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Save Keyword defaults</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>More coming</h2>
+  </div>
+  <p class="conn-desc">
+    Theme is set with the toggle in the top-right and saved in your browser.
+    More preferences (default tab on product pages, dashboard date range, etc.)
+    will appear here as we add them.
+  </p>
+</section>
+{% endblock %}

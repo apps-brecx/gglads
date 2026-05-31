@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gglads.models.base import Base
@@ -19,3 +19,5 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # JSON-encoded per-user preferences (default columns, default sort, etc.)
+    preferences: Mapped[str | None] = mapped_column(Text, nullable=True)

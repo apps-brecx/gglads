@@ -44,6 +44,7 @@ from gglads.services import keyword_placement as kw_place_svc
 from gglads.services import seo_chat as seo_chat_svc
 from gglads.services import seo_generation as seo_svc
 from gglads.services import shopify as shopify_svc
+from gglads.services import user_prefs as prefs_svc
 from gglads.web import listing as listing_util
 
 logger = logging.getLogger("gglads.web")
@@ -1662,10 +1663,15 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
     source_filter = request.query_params.get("source") or ""
     in_ads_filter = request.query_params.get("in_ads") or ""
     missing_filter = request.query_params.get("missing") or ""  # title|meta_title|...
+    # Per-user defaults (Settings → Keywords) when URL doesn't override
+    kp_defaults = prefs_svc.keyword_page_defaults(user)
+
     sort = listing_util.parse_sort(
-        request.query_params.get("sort"), _RANK_SORT_KEYS, "score"
+        request.query_params.get("sort"), _RANK_SORT_KEYS, kp_defaults["sort"]
     )
-    direction = listing_util.parse_direction(request.query_params.get("dir"), "desc")
+    direction = listing_util.parse_direction(
+        request.query_params.get("dir"), kp_defaults["dir"]
+    )
     per_page = listing_util.parse_per_page(request.query_params.get("per_page"))
     page = listing_util.parse_page(request.query_params.get("page"))
 
@@ -1673,7 +1679,8 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
     if cols_raw:
         cols = {c for c in cols_raw if c in dict(_RANK_COLUMNS)}
     else:
-        cols = set(_RANK_DEFAULT_COLS)
+        user_cols = [c for c in kp_defaults["cols"] if c in dict(_RANK_COLUMNS)]
+        cols = set(user_cols) if user_cols else set(_RANK_DEFAULT_COLS)
 
     # Pull every stored keyword (AI/KP/SC/manual)
     kw_rows = db.execute(
@@ -1862,6 +1869,26 @@ async def product_keywords_bulk_place(
             continue
     seo_fields = form.getlist("seo_field")
     bucket = (form.get("bucket") or "").strip()
+
+    # If the user picked "AI decides", route to Claude-driven categorization
+    # for ONLY the selected keywords. SEO fields still apply (uncommon, but
+    # consistent with the bulk form).
+    if bucket == "ai":
+        if not keyword_ids:
+            _flash(request, "No keywords selected.", "error")
+        else:
+            ok, detail = kw_research_svc.ai_categorize_keywords(
+                db, product_id, keyword_ids
+            )
+            _flash(request, detail, "ok" if ok else "error")
+            if seo_fields:
+                ok2, detail2 = kw_place_svc.bulk_place(
+                    db, product_id, keyword_ids, list(seo_fields), None
+                )
+                _flash(request, detail2, "ok" if ok2 else "error")
+        referer = request.headers.get("referer", f"/products/{product_id}/keyword-rank")
+        return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
     ok, detail = kw_place_svc.bulk_place(
         db, product_id, keyword_ids, list(seo_fields), bucket or None
     )
@@ -2683,6 +2710,60 @@ def campaign_delete(campaign_id: int, request: Request, db: DbDep) -> Response:
     ok, detail = campaigns_svc.delete_campaign(db, campaign_id)
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse("/campaigns", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------------
+# Settings (per-user preferences)
+# ---------------------------------------------------------------------------
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    kp = prefs_svc.keyword_page_defaults(user)
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "settings",
+            "available_columns": _RANK_COLUMNS,
+            "kp_cols": kp["cols"],
+            "kp_sort": kp["sort"],
+            "kp_dir": kp["dir"],
+            "sort_options": [
+                ("keyword", "Keyword (A-Z)"),
+                ("source", "Source"),
+                ("volume", "Search volume"),
+                ("competition", "Competition"),
+                ("position", "Organic position"),
+                ("clicks", "Organic clicks"),
+                ("impressions", "Organic impressions"),
+                ("ctr", "Organic CTR"),
+                ("score", "Relevance score"),
+                ("bucket", "Ads bucket"),
+            ],
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/settings/keywords")
+async def settings_keywords_save(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    form = await request.form()
+    cols = [c for c in form.getlist("col") if c in dict(_RANK_COLUMNS)]
+    sort = form.get("sort") or "score"
+    direction = form.get("dir") or "desc"
+    prefs_svc.set_keyword_page_prefs(
+        db, user, cols=cols or None, sort=sort, direction=direction
+    )
+    _flash(request, "Saved Keyword-page defaults.", "ok")
+    return RedirectResponse("/settings", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.exception_handler(Exception)

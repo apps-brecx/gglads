@@ -290,6 +290,105 @@ def apply_chat_to_keywords(
     return run.ok, detail
 
 
+def ai_categorize_keywords(
+    db: Session, product_id: int, keyword_ids: list[int]
+) -> tuple[bool, str]:
+    """Have Claude assign primary / secondary / negative to each selected
+    keyword. Used by the bulk bar when the user picks "AI decides" as the
+    target bucket. Honors product chat rules + global chat rules.
+    """
+    product = db.get(ShopifyProduct, product_id)
+    if product is None:
+        return False, "Product not found."
+
+    rows = db.execute(
+        select(ProductKeyword)
+        .where(ProductKeyword.product_id == product_id)
+        .where(ProductKeyword.id.in_(keyword_ids))
+    ).scalars().all()
+    if not rows:
+        return False, "No matching keywords."
+
+    chat_rows = chat_svc.list_context_for_product(
+        db, product_id, topics=("seo", "general", "keywords")
+    )
+    chat_lines = (
+        "\n".join(
+            f"  [{('GLOBAL' if m.product_id is None else 'product')}/{m.role}] {m.content[:400]}"
+            for m in chat_rows[-20:]
+        )
+        if chat_rows
+        else "  (no chat rules)"
+    )
+
+    system = (
+        "You categorize each keyword for Google Ads. Pick exactly one bucket "
+        "per keyword:\n"
+        '  - "primary"   — high relevance, conversion intent, must-bid\n'
+        '  - "secondary" — relevant but lower priority, worth testing\n'
+        '  - "negative"  — block these (wrong product, wrong intent, '
+        "competitor names not to bid on, regulatory words to avoid).\n"
+        "Apply the user's chat rules strictly — they override defaults. "
+        "Return JSON only.\n\n"
+        'Format: { "decisions": [{"index": 0, "bucket": "primary"}, ...] }\n'
+    )
+
+    BATCH_SIZE = 50
+    updated = 0
+    failed: list[str] = []
+
+    for batch_start in range(0, len(rows), BATCH_SIZE):
+        batch = rows[batch_start : batch_start + BATCH_SIZE]
+        rows_str = "\n".join(
+            f"  {batch_start + i}. \"{kw.keyword}\" | source={kw.source}"
+            for i, kw in enumerate(batch)
+        )
+        user_msg = (
+            f"Product: {product.title}\n"
+            f"Type: {product.product_type or '—'}\n"
+            f"Vendor: {product.vendor or '—'}\n\n"
+            f"User chat rules:\n{chat_lines}\n\n"
+            f"Keyword batch (indices {batch_start}-{batch_start + len(batch) - 1}):\n"
+            f"{rows_str}"
+        )
+        text, err = claude_svc.chat(
+            db, system=system, user_message=user_msg, max_tokens=4000
+        )
+        if err or not text:
+            failed.append(
+                f"batch {batch_start // BATCH_SIZE + 1}: {err or 'no response'}"
+            )
+            continue
+        parsed = _extract_json(text)
+        decisions = (parsed or {}).get("decisions") if isinstance(parsed, dict) else None
+        if not isinstance(decisions, list):
+            failed.append(f"batch {batch_start // BATCH_SIZE + 1}: unparseable")
+            continue
+        for d in decisions:
+            if not isinstance(d, dict):
+                continue
+            try:
+                idx = int(d.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if idx < batch_start or idx >= batch_start + len(batch):
+                continue
+            bucket = (d.get("bucket") or "").strip().lower()
+            if bucket not in ("primary", "secondary", "negative"):
+                continue
+            kw = rows[idx]
+            if kw.bucket != bucket:
+                kw.bucket = bucket
+                kw.updated_at = datetime.now(timezone.utc)
+                updated += 1
+        db.commit()
+
+    detail = f"AI categorized {updated} of {len(rows)} keyword(s)"
+    if failed:
+        detail += f" — {len(failed)} batch failure(s): {'; '.join(failed[:2])}"
+    return True, detail
+
+
 def _normalize_candidate(raw: dict) -> dict | None:
     keyword = (raw.get("keyword") or "").strip().lower()
     if not keyword or len(keyword) > 250:

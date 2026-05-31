@@ -176,6 +176,8 @@ class ProductSeoDraft(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="pending", index=True
     )
+    # verdict: 'improve' = AI wants to change; 'keep' = AI says current is already strong
+    verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)
     quality_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(

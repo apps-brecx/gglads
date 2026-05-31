@@ -21,31 +21,54 @@ from gglads.models.shopify_product import (
     ShopifyProductImage,
 )
 from gglads.services import claude as claude_svc
+from gglads.services import shopify_push as shopify_push_svc
 
 logger = logging.getLogger("gglads.seo")
 
 
-SEO_SYSTEM = """You are a senior e-commerce SEO copywriter. Given a product and the \
-keywords the brand wants to rank for, generate SEO assets that are honest, accurate, and \
-naturally incorporate target keywords. Never invent claims, certifications, ingredients, \
-or specifications that aren't in the brief.
+SEO_SYSTEM = """You are a senior e-commerce SEO copywriter REVIEWING existing SEO assets \
+for a product. Be honest: if the current value is already strong, say so and KEEP it. \
+Do not rewrite for the sake of looking busy. Only suggest changes that measurably \
+improve SEO (keyword coverage, length, clarity, brand alignment) or page quality score.
 
-Output a single JSON object exactly in this format (no commentary):
+For each field, decide:
+  verdict = "keep"     if the current value is already strong, no meaningful change needed
+  verdict = "improve"  only if the new value is materially better
+
+For BOTH verdicts, write a short rationale (≤140 chars, ONE sentence) explaining your call.
+
+Output JSON ONLY, no commentary, exactly this structure:
 
 {
-  "seo_title": "string, ≤60 chars, includes the primary keyword early",
-  "meta_description": "string, ≤155 chars, compelling and includes 1-2 keywords",
-  "description_html": "valid HTML: 2-4 short paragraphs and 1 <ul> with 4-6 <li> features, \
-total length 600-1200 chars. Honest, accurate, brand-voice consistent.",
-  "bullets": ["5 short, scannable feature/benefit bullets", "...", "...", "...", "..."]
+  "seo_title": {
+    "verdict": "keep" | "improve",
+    "rationale": "short reason",
+    "value": "string ≤60 chars (current if keep, new if improve)"
+  },
+  "meta_description": {
+    "verdict": "keep" | "improve",
+    "rationale": "short reason",
+    "value": "string 120-155 chars"
+  },
+  "product_description": {
+    "verdict": "keep" | "improve",
+    "rationale": "short reason",
+    "value": "valid HTML: 2-4 short paragraphs and 1 <ul> with 4-6 <li> features, 600-1200 chars"
+  },
+  "bullets": {
+    "verdict": "improve",
+    "rationale": "short reason",
+    "value": ["5 short, scannable feature/benefit bullets", "...", "...", "...", "..."]
+  }
 }
 
 Hard rules:
-- Keep seo_title ≤ 60 characters
-- Keep meta_description between 120 and 155 characters
-- Use the brand's voice if provided in training
-- Do not stuff keywords — use them naturally
-- Do not make claims the brief doesn't support
+- seo_title ≤ 60 chars
+- meta_description 120-155 chars
+- Do not invent claims, ingredients, or certifications not in the brief
+- Use the brand's voice if training is provided
+- Natural keyword use, no stuffing
+- Bullets verdict is always "improve" because we treat AI bullets as additive
 """
 
 
@@ -168,26 +191,47 @@ def generate_seo_drafts(
     if not data:
         return False, "Claude response was not parseable JSON."
 
-    # Persist drafts (one per field)
-    for field, value in [
-        ("seo_title", data.get("seo_title")),
-        ("meta_description", data.get("meta_description")),
-        ("description", data.get("description_html")),
-        ("bullets", json.dumps(data.get("bullets", []))),
-    ]:
-        if not value:
+    # Each entry in `data` is { verdict, rationale, value }
+    field_map = [
+        ("seo_title", "seo_title"),
+        ("meta_description", "meta_description"),
+        ("description", "product_description"),
+        ("bullets", "bullets"),
+    ]
+    saved = 0
+    for our_field, claude_field in field_map:
+        block = data.get(claude_field)
+        if not isinstance(block, dict):
             continue
-        _replace_pending(db, product_id, field)
+        verdict = (block.get("verdict") or "improve").lower().strip()
+        if verdict not in ("keep", "improve"):
+            verdict = "improve"
+        rationale = (block.get("rationale") or "").strip()[:300]
+        raw_value = block.get("value")
+        if raw_value is None:
+            continue
+        if our_field == "bullets":
+            if not isinstance(raw_value, list):
+                continue
+            value = json.dumps([str(x)[:200] for x in raw_value][:10])
+        else:
+            value = str(raw_value)
+        _replace_pending(db, product_id, our_field)
         db.add(
             ProductSeoDraft(
                 product_id=product_id,
-                field=field,
-                suggested_value=str(value),
+                field=our_field,
+                suggested_value=value,
                 status="pending",
+                verdict=verdict,
+                rationale=rationale or None,
             )
         )
+        saved += 1
     db.commit()
-    return True, "Generated suggestions for SEO title, meta description, product description, and bullets."
+    if saved == 0:
+        return False, "Claude returned no usable suggestions."
+    return True, f"Reviewed {saved} field(s) — see verdict and rationale below."
 
 
 def generate_image_alt(
@@ -256,16 +300,21 @@ def generate_image_alt(
 
 
 def approve_draft(
-    db: Session, draft_id: int, user_id: int | None
-) -> tuple[bool, str]:
+    db: Session,
+    draft_id: int,
+    user_id: int | None,
+    edited_value: str | None = None,
+) -> tuple[bool, str, ProductSeoDraft | None]:
     draft = db.get(ProductSeoDraft, draft_id)
     if draft is None or draft.status != "pending":
-        return False, "Draft not found or already actioned."
+        return False, "Draft not found or already actioned.", None
+    if edited_value is not None and edited_value.strip() and edited_value.strip() != draft.suggested_value:
+        draft.suggested_value = edited_value.strip()
     draft.status = "approved"
     draft.approved_at = datetime.now(timezone.utc)
     draft.approved_by_user_id = user_id
     db.commit()
-    return True, f"Approved {draft.field}."
+    return True, f"Approved {draft.field}.", draft
 
 
 def reject_draft(db: Session, draft_id: int) -> tuple[bool, str]:
@@ -275,3 +324,97 @@ def reject_draft(db: Session, draft_id: int) -> tuple[bool, str]:
     draft.status = "rejected"
     db.commit()
     return True, f"Rejected {draft.field}."
+
+
+def push_image_alt(
+    db: Session, product_id: int, draft: ProductSeoDraft
+) -> tuple[bool, str]:
+    """Push an approved image-alt draft to Shopify and mirror the value locally."""
+    from gglads.models.shopify_product import ShopifyProductImage
+
+    if draft.field != "image_alt" or draft.image_id is None:
+        return False, "Draft is not an image alt."
+    if draft.status not in ("approved", "pending"):
+        return False, "Draft is not approved."
+    ok, msg = shopify_push_svc.update_image_alt(
+        db, product_id, draft.image_id, draft.suggested_value
+    )
+    if not ok:
+        return False, msg
+    draft.pushed_to_shopify_at = datetime.now(timezone.utc)
+    img = db.get(ShopifyProductImage, draft.image_id)
+    if img is not None:
+        img.alt_text = draft.suggested_value
+    db.commit()
+    return True, "Pushed to Shopify."
+
+
+def approve_and_push_image(
+    db: Session,
+    product_id: int,
+    draft_id: int,
+    user_id: int | None,
+    edited_value: str | None = None,
+) -> tuple[bool, str]:
+    ok, detail, draft = approve_draft(db, draft_id, user_id, edited_value)
+    if not ok or draft is None:
+        return False, detail
+    ok2, msg = push_image_alt(db, product_id, draft)
+    if not ok2:
+        return False, f"Approved locally but Shopify push failed: {msg}"
+    return True, "Approved and pushed to Shopify."
+
+
+def push_all_approved_image_alts(
+    db: Session, product_id: int
+) -> tuple[bool, str]:
+    drafts = db.execute(
+        select(ProductSeoDraft)
+        .where(ProductSeoDraft.product_id == product_id)
+        .where(ProductSeoDraft.field == "image_alt")
+        .where(ProductSeoDraft.status == "approved")
+        .where(ProductSeoDraft.pushed_to_shopify_at.is_(None))
+    ).scalars().all()
+    if not drafts:
+        return False, "No approved image-alt drafts waiting to be pushed."
+    pushed = 0
+    failures: list[str] = []
+    for d in drafts:
+        ok, msg = push_image_alt(db, product_id, d)
+        if ok:
+            pushed += 1
+        else:
+            failures.append(f"#{d.image_id}: {msg}")
+    if failures:
+        return pushed > 0, f"Pushed {pushed}/{len(drafts)}. Errors: {'; '.join(failures)}"
+    return True, f"Pushed {pushed} image alt(s) to Shopify."
+
+
+def approve_and_push_all_pending_image_alts(
+    db: Session, product_id: int, user_id: int | None
+) -> tuple[bool, str]:
+    pending = db.execute(
+        select(ProductSeoDraft)
+        .where(ProductSeoDraft.product_id == product_id)
+        .where(ProductSeoDraft.field == "image_alt")
+        .where(ProductSeoDraft.status == "pending")
+    ).scalars().all()
+    if not pending:
+        return False, "No pending image-alt suggestions to approve."
+    approved_pushed = 0
+    failures: list[str] = []
+    for d in pending:
+        ok, _detail, draft = approve_draft(db, d.id, user_id)
+        if not ok or draft is None:
+            continue
+        ok2, msg = push_image_alt(db, product_id, draft)
+        if ok2:
+            approved_pushed += 1
+        else:
+            failures.append(f"#{d.image_id}: {msg}")
+    if failures:
+        return (
+            approved_pushed > 0,
+            f"Approved+pushed {approved_pushed}/{len(pending)}. Errors: {'; '.join(failures)}",
+        )
+    return True, f"Approved and pushed {approved_pushed} image alt(s) to Shopify."

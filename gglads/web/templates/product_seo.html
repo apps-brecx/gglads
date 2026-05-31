@@ -1,6 +1,6 @@
 {% extends "product_layout.html" %}
 
-{% macro draft_card(label, current_value, charlimit, draft, product, multiline=False) -%}
+{% macro draft_card(label, current_value, charlimit, draft, product, render_html=False) -%}
 <section class="panel seo-field">
   <div class="panel-head">
     <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">{{ label }}</h2>
@@ -12,32 +12,57 @@
       <span class="meta-key">Current (in Shopify)</span>
       {% if charlimit and current_value %}<span class="conn-desc">{{ current_value|length }} chars</span>{% endif %}
     </div>
-    {% if multiline %}
-    <div class="alt-current">{{ current_value or '' }}</div>
+    {% if render_html %}
+    <div class="seo-rendered">
+      {% if current_value %}{{ current_value|safe }}{% else %}<em class="conn-desc">empty</em>{% endif %}
+    </div>
     {% else %}
-    <div class="alt-current">{% if current_value %}{{ current_value }}{% else %}<em class="conn-desc">empty</em>{% endif %}</div>
+    <div class="alt-current-box">
+      {% if current_value %}{{ current_value }}{% else %}<em class="conn-desc">empty</em>{% endif %}
+    </div>
     {% endif %}
   </div>
 
-  <div class="seo-suggestion">
-    <div class="seo-label-row">
-      <span class="meta-key">AI suggestion</span>
-      {% if draft %}<span class="conn-desc">{{ draft.suggested_value|length }} chars</span>{% endif %}
-    </div>
-    {% if draft %}
-    <div class="alt-suggestion">{{ draft.suggested_value }}</div>
-    <div class="form-actions" style="margin-top:8px;">
-      <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/reject" class="inline-form">
-        <button type="submit" class="btn-ghost btn-danger">Reject</button>
-      </form>
-      <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/approve" class="inline-form">
-        <button type="submit" class="btn-primary">Approve</button>
-      </form>
+  {% if draft %}
+    {% if draft.verdict == 'keep' %}
+    <div class="verdict-block verdict-keep">
+      <div class="verdict-head">
+        <span class="verdict-pill verdict-pill-keep">AI says: keep current ❤</span>
+        {% if charlimit %}<span class="conn-desc">{{ draft.suggested_value|length }} chars</span>{% endif %}
+      </div>
+      {% if draft.rationale %}
+      <div class="verdict-rationale">"{{ draft.rationale }}"</div>
+      {% endif %}
     </div>
     {% else %}
-    <div class="conn-desc">No suggestion yet — click <strong>Generate with AI</strong> at the top of the page.</div>
+    <div class="seo-suggestion">
+      <div class="verdict-head">
+        <span class="verdict-pill verdict-pill-improve">AI suggests improving</span>
+        {% if charlimit %}<span class="conn-desc">{{ draft.suggested_value|length }} chars</span>{% endif %}
+      </div>
+      {% if draft.rationale %}
+      <div class="verdict-rationale">Why: {{ draft.rationale }}</div>
+      {% endif %}
+      {% if render_html %}
+      <div class="seo-rendered seo-rendered-suggestion">{{ draft.suggested_value|safe }}</div>
+      {% else %}
+      <div class="alt-suggestion">{{ draft.suggested_value }}</div>
+      {% endif %}
+      <div class="form-actions" style="margin-top:8px;">
+        <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/reject" class="inline-form">
+          <button type="submit" class="btn-ghost btn-danger">Reject</button>
+        </form>
+        <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/approve" class="inline-form">
+          <button type="submit" class="btn-primary">Approve</button>
+        </form>
+      </div>
+    </div>
     {% endif %}
-  </div>
+  {% else %}
+    <div class="seo-suggestion">
+      <div class="conn-desc">No suggestion yet — click <strong>Generate with AI</strong> at the top of the page.</div>
+    </div>
+  {% endif %}
 </section>
 {%- endmacro %}
 
@@ -47,8 +72,8 @@
     <div>
       <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">SEO &amp; content</h2>
       <p class="conn-desc">
-        Claude rewrites SEO title, meta description, product description, and bullets using
-        your approved keywords. Approve here, push back to Shopify when wired.
+        Claude reviews each field and either approves your current value or proposes an improvement —
+        with a one-line rationale every time.
       </p>
     </div>
     <div class="form-actions" style="margin:0;">
@@ -66,7 +91,7 @@
 
 {{ draft_card("SEO title (meta title)", seo.current_title, 60, seo.drafts.seo_title, product) }}
 {{ draft_card("Meta description", seo.current_meta, 155, seo.drafts.meta_description, product) }}
-{{ draft_card("Product description (HTML)", current_description_excerpt, None, seo.drafts.description, product, multiline=True) }}
+{{ draft_card("Product description", current_description_full, None, seo.drafts.description, product, render_html=True) }}
 
 <section class="panel seo-field">
   <div class="panel-head">
@@ -74,17 +99,20 @@
     {% if seo.drafts.bullets %}<span class="conn-desc">{{ seo.bullets_list|length }} bullets</span>{% endif %}
   </div>
   {% if seo.drafts.bullets %}
-  <ul class="bullet-list">
-    {% for b in seo.bullets_list %}<li class="bullet-row"><span class="bullet-dot">•</span><div>{{ b }}</div></li>{% endfor %}
-  </ul>
-  <div class="form-actions" style="margin-top:8px;">
-    <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ seo.drafts.bullets.id }}/reject" class="inline-form">
-      <button type="submit" class="btn-ghost btn-danger">Reject</button>
-    </form>
-    <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ seo.drafts.bullets.id }}/approve" class="inline-form">
-      <button type="submit" class="btn-primary">Approve</button>
-    </form>
-  </div>
+    {% if seo.drafts.bullets.rationale %}
+    <div class="verdict-rationale" style="margin-bottom:8px;">Why: {{ seo.drafts.bullets.rationale }}</div>
+    {% endif %}
+    <ul class="bullet-list">
+      {% for b in seo.bullets_list %}<li class="bullet-row"><span class="bullet-dot">•</span><div>{{ b }}</div></li>{% endfor %}
+    </ul>
+    <div class="form-actions" style="margin-top:8px;">
+      <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ seo.drafts.bullets.id }}/reject" class="inline-form">
+        <button type="submit" class="btn-ghost btn-danger">Reject</button>
+      </form>
+      <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ seo.drafts.bullets.id }}/approve" class="inline-form">
+        <button type="submit" class="btn-primary">Approve</button>
+      </form>
+    </div>
   {% else %}
   <div class="conn-desc">No bullet suggestions yet.</div>
   {% endif %}

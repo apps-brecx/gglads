@@ -29,13 +29,11 @@
     {% endif %}
   </div>
   <form method="get" class="listing-per-page">
-    {# replay all query params except per_page/page so submitting keeps state #}
-    {% for k, v in (qs_no_page or '').split('&') %}
-      {% if k and not k.startswith('per_page=') and v != '' %}
-        {% set pair = k.split('=') %}
-        {% if pair|length == 2 %}
-          <input type="hidden" name="{{ pair[0] }}" value="{{ pair[1] }}" />
-        {% endif %}
+    {# Replay current query params (except per_page) so submitting keeps state #}
+    {% for pair in (qs_no_page or '').split('&') %}
+      {% set kv = pair.split('=', 1) %}
+      {% if kv|length == 2 and kv[0] and kv[0] != 'per_page' and kv[1] != '' %}
+        <input type="hidden" name="{{ kv[0] }}" value="{{ kv[1] }}" />
       {% endif %}
     {% endfor %}
     <label>

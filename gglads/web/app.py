@@ -1269,10 +1269,6 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
         .where(ProductKeyword.bucket.in_(("primary", "secondary")))
     ) or 0
 
-    description_excerpt = (p.description_html or "")[:400]
-    if len(p.description_html or "") > 400:
-        description_excerpt += "…"
-
     return templates.TemplateResponse(
         request,
         "product_seo.html",
@@ -1288,7 +1284,7 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
                 "drafts": drafts,
                 "bullets_list": bullets_list,
             },
-            "current_description_excerpt": description_excerpt,
+            "current_description_full": p.description_html or "",
             "no_keywords_warning": has_approved == 0,
             "flashes": _consume_flashes(request),
         },
@@ -1310,7 +1306,7 @@ def product_seo_generate(product_id: int, request: Request, db: DbDep) -> Respon
 
 
 @app.post("/products/{product_id}/seo/drafts/{draft_id}/approve")
-def product_seo_draft_approve(
+async def product_seo_draft_approve(
     product_id: int, draft_id: int, request: Request, db: DbDep
 ) -> Response:
     user = _current_user(request, db)
@@ -1318,10 +1314,63 @@ def product_seo_draft_approve(
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     if user.role not in ("admin", "operator"):
         return PlainTextResponse("Forbidden", status_code=403)
-    ok, detail = seo_svc.approve_draft(db, draft_id, user.id)
+    form = await request.form()
+    edited = form.get("edited_value")
+    ok, detail, _ = seo_svc.approve_draft(db, draft_id, user.id, edited_value=edited)
     _flash(request, detail, "ok" if ok else "error")
     referer = request.headers.get("referer", f"/products/{product_id}/seo")
     return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/{product_id}/seo/drafts/{draft_id}/approve-and-push")
+async def product_seo_draft_approve_and_push(
+    product_id: int, draft_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    edited = form.get("edited_value")
+    ok, detail = seo_svc.approve_and_push_image(
+        db, product_id, draft_id, user.id, edited_value=edited
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    referer = request.headers.get("referer", f"/products/{product_id}/images")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/{product_id}/images/approve-and-push-all")
+def product_images_approve_and_push_all(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.approve_and_push_all_pending_image_alts(db, product_id, user.id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/images", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/images/push-approved-all")
+def product_images_push_approved_all(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.push_all_approved_image_alts(db, product_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/images", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @app.post("/products/{product_id}/seo/drafts/{draft_id}/reject")
@@ -1353,18 +1402,25 @@ def product_images(product_id: int, request: Request, db: DbDep) -> Response:
         .order_by(ShopifyProductImage.position)
     ).scalars().all()
 
-    # Pending alt drafts keyed by image_id
+    # All image_alt drafts for this product (most recent first), grouped by image
     alt_rows = db.execute(
         select(ProductSeoDraft)
         .where(ProductSeoDraft.product_id == product_id)
         .where(ProductSeoDraft.field == "image_alt")
-        .where(ProductSeoDraft.status == "pending")
         .order_by(ProductSeoDraft.generated_at.desc())
     ).scalars().all()
-    drafts_by_image: dict[int, ProductSeoDraft] = {}
+    pending_by_image: dict[int, ProductSeoDraft] = {}
+    approved_by_image: dict[int, ProductSeoDraft] = {}
+    pushed_by_image: dict[int, ProductSeoDraft] = {}
     for r in alt_rows:
-        if r.image_id and r.image_id not in drafts_by_image:
-            drafts_by_image[r.image_id] = r
+        if not r.image_id:
+            continue
+        if r.status == "pending" and r.image_id not in pending_by_image:
+            pending_by_image[r.image_id] = r
+        elif r.status == "approved" and r.pushed_to_shopify_at is None and r.image_id not in approved_by_image:
+            approved_by_image[r.image_id] = r
+        elif r.pushed_to_shopify_at is not None and r.image_id not in pushed_by_image:
+            pushed_by_image[r.image_id] = r
 
     image_views = [
         {
@@ -1374,10 +1430,15 @@ def product_images(product_id: int, request: Request, db: DbDep) -> Response:
             "position": img.position,
             "width": img.width,
             "height": img.height,
-            "draft": drafts_by_image.get(img.id),
+            "draft": pending_by_image.get(img.id),
+            "approved_draft": approved_by_image.get(img.id),
+            "pushed_draft": pushed_by_image.get(img.id),
         }
         for img in images
     ]
+
+    pending_count = sum(1 for v in image_views if v["draft"])
+    approved_unpushed = sum(1 for v in image_views if v["approved_draft"])
 
     return templates.TemplateResponse(
         request,
@@ -1389,6 +1450,8 @@ def product_images(product_id: int, request: Request, db: DbDep) -> Response:
             "tab": "images",
             "product": product,
             "images": image_views,
+            "pending_count": pending_count,
+            "approved_unpushed_count": approved_unpushed,
             "flashes": _consume_flashes(request),
         },
     )
@@ -1686,7 +1749,7 @@ def product_history(product_id: int, request: Request, db: DbDep) -> Response:
             "active": "products",
             "tab": "history",
             "product": product,
-            "history": _mock_history(product),
+            "history": [],
             "flashes": _consume_flashes(request),
         },
     )

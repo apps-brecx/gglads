@@ -1,19 +1,42 @@
 {% extends "product_layout.html" %}
 
+{% macro state_pill(img) -%}
+  {% if img.pushed_draft %}
+    <span class="pill pill-ok" title="Last synced {{ img.pushed_draft.pushed_to_shopify_at.strftime('%Y-%m-%d %H:%M UTC') }}">Synced</span>
+  {% elif img.approved_draft %}
+    <span class="pill pill-info">Approved · waiting push</span>
+  {% elif img.draft %}
+    <span class="pill pill-warn">Suggestion ready</span>
+  {% elif img.alt_text %}
+    <span class="pill" style="background:rgba(255,255,255,0.04);color:var(--muted);border-color:var(--border);">Has alt</span>
+  {% else %}
+    <span class="pill pill-fail">Empty alt</span>
+  {% endif %}
+{%- endmacro %}
+
 {% block product_content %}
 <section class="panel">
   <div class="panel-head">
     <div>
       <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Images &amp; alt text</h2>
       <p class="conn-desc">
-        Each image's current alt text comes from Shopify. AI suggestions are written using your
-        approved Primary/Secondary keywords so the alts naturally include high-intent search terms.
+        Better alt text = better Google image search + better landing-page quality score for ads.
+        Claude uses your approved Primary/Secondary keywords so suggestions naturally include high-intent terms.
       </p>
     </div>
     <div class="form-actions" style="margin:0;">
       <form method="post" action="/products/{{ product.id }}/images/generate-all" class="inline-form">
-        <button type="submit" class="btn-primary">Generate all with AI</button>
+        <button type="submit" class="btn-ghost">Generate all with AI</button>
       </form>
+      {% if pending_count %}
+      <form method="post" action="/products/{{ product.id }}/images/approve-and-push-all" class="inline-form">
+        <button type="submit" class="btn-primary">Approve &amp; push all ({{ pending_count }})</button>
+      </form>
+      {% elif approved_unpushed_count %}
+      <form method="post" action="/products/{{ product.id }}/images/push-approved-all" class="inline-form">
+        <button type="submit" class="btn-primary">Push {{ approved_unpushed_count }} approved to Shopify</button>
+      </form>
+      {% endif %}
     </div>
   </div>
 </section>
@@ -23,59 +46,105 @@
   <div class="empty-state" style="padding:40px 4px;">
     <p><strong>No images synced for this product yet.</strong></p>
     <p class="empty-sub">
-      Click <a href="/products" class="muted-link">Sync now</a> from the products page so the new images table fills in.
+      Click <a href="/products" class="muted-link">Sync now</a> from the products page so the images table fills in.
     </p>
   </div>
 </section>
 {% else %}
 
 {% for img in images %}
-<section class="panel image-row">
-  <div class="image-row-grid">
-    <div class="image-thumb-lg">
+<section class="panel img-card">
+  <div class="img-card-grid">
+    <div class="img-thumb">
       <img src="{{ img.url }}" alt="{{ img.alt_text or '' }}" />
     </div>
-    <div class="image-meta">
-      <div class="meta-key">Position</div>
-      <div class="image-pos">{{ img.position }}{% if img.position == 0 %} <span class="conn-desc">(featured)</span>{% endif %}</div>
-      {% if img.width and img.height %}
-      <div class="meta-key" style="margin-top:8px;">Dimensions</div>
-      <div>{{ img.width }} × {{ img.height }}px</div>
-      {% endif %}
-    </div>
-    <div class="image-alt-block">
-      <div class="seo-label-row"><span class="meta-key">Current alt text</span></div>
-      <div class="alt-current">
-        {% if img.alt_text %}{{ img.alt_text }}{% else %}<em class="conn-desc">empty</em>{% endif %}
+    <div class="img-body">
+      <div class="img-head-row">
+        <div>
+          <span class="img-pos">#{{ img.position + 1 }}{% if img.position == 0 %} · featured{% endif %}</span>
+          {% if img.width %}<span class="conn-desc">· {{ img.width }} × {{ img.height }}px</span>{% endif %}
+        </div>
+        {{ state_pill(img) }}
       </div>
 
-      <div class="seo-label-row" style="margin-top:14px;">
-        <span class="meta-key">AI suggestion</span>
-        {% if img.draft %}<span class="conn-desc">{{ img.draft.suggested_value|length }}/125 chars</span>{% endif %}
+      <div class="alt-grid">
+        <div class="alt-col">
+          <div class="alt-col-label">Current (in Shopify)</div>
+          <div class="alt-current-box">
+            {% if img.alt_text %}{{ img.alt_text }}{% else %}<em class="conn-desc">empty</em>{% endif %}
+          </div>
+        </div>
+        <div class="alt-col">
+          <div class="alt-col-label">AI suggestion {% if img.draft %}<span class="conn-desc">· editable</span>{% endif %}</div>
+          {% if img.draft %}
+          <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ img.draft.id }}/approve-and-push" class="alt-suggestion-form">
+            <textarea
+              name="edited_value"
+              class="alt-textarea"
+              maxlength="125"
+              rows="2"
+              data-counter="counter-{{ img.id }}"
+            >{{ img.draft.suggested_value }}</textarea>
+            <div class="alt-foot">
+              <span class="charcount" id="counter-{{ img.id }}">{{ img.draft.suggested_value|length }}/125</span>
+              <div class="alt-actions">
+                <button type="submit"
+                        formaction="/products/{{ product.id }}/seo/drafts/{{ img.draft.id }}/reject"
+                        class="btn-ghost btn-danger">Reject</button>
+                <button type="submit"
+                        formaction="/products/{{ product.id }}/images/{{ img.id }}/regenerate"
+                        class="btn-ghost">Regenerate</button>
+                <button type="submit" class="btn-primary">Approve &amp; push</button>
+              </div>
+            </div>
+          </form>
+          {% elif img.approved_draft %}
+          <div class="alt-current-box alt-approved">
+            {{ img.approved_draft.suggested_value }}
+          </div>
+          <div class="alt-foot">
+            <span class="conn-desc">Approved {{ img.approved_draft.approved_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+            <form method="post" action="/products/{{ product.id }}/images/push-approved-all" class="inline-form">
+              <button type="submit" class="btn-primary">Push to Shopify</button>
+            </form>
+          </div>
+          {% elif img.pushed_draft %}
+          <div class="alt-current-box alt-synced">
+            {{ img.pushed_draft.suggested_value }}
+          </div>
+          <div class="alt-foot">
+            <span class="conn-desc">Last synced {{ img.pushed_draft.pushed_to_shopify_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+            <form method="post" action="/products/{{ product.id }}/images/{{ img.id }}/regenerate" class="inline-form">
+              <button type="submit" class="btn-ghost">Regenerate</button>
+            </form>
+          </div>
+          {% else %}
+          <div class="alt-empty">
+            <span class="conn-desc">No suggestion yet.</span>
+            <form method="post" action="/products/{{ product.id }}/images/{{ img.id }}/generate" class="inline-form">
+              <button type="submit" class="btn-ghost">Generate with AI</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
       </div>
-      {% if img.draft %}
-      <div class="alt-suggestion">{{ img.draft.suggested_value }}</div>
-      <div class="form-actions" style="margin-top:8px;">
-        <form method="post" action="/products/{{ product.id }}/images/{{ img.id }}/regenerate" class="inline-form">
-          <button type="submit" class="btn-ghost">Regenerate</button>
-        </form>
-        <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ img.draft.id }}/reject" class="inline-form">
-          <button type="submit" class="btn-ghost btn-danger">Reject</button>
-        </form>
-        <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ img.draft.id }}/approve" class="inline-form">
-          <button type="submit" class="btn-primary">Approve</button>
-        </form>
-      </div>
-      {% else %}
-      <div class="conn-desc" style="padding:6px 0;">No suggestion yet.</div>
-      <form method="post" action="/products/{{ product.id }}/images/{{ img.id }}/generate" class="inline-form">
-        <button type="submit" class="btn-ghost">Generate with AI</button>
-      </form>
-      {% endif %}
     </div>
   </div>
 </section>
 {% endfor %}
+
+<script>
+  // Live character counter for editable alt textareas
+  document.querySelectorAll('textarea.alt-textarea').forEach(function (ta) {
+    var counter = document.getElementById(ta.dataset.counter);
+    if (!counter) return;
+    var update = function () {
+      counter.textContent = ta.value.length + '/' + ta.maxLength;
+      counter.classList.toggle('charcount-over', ta.value.length >= ta.maxLength);
+    };
+    ta.addEventListener('input', update);
+  });
+</script>
 
 {% endif %}
 {% endblock %}

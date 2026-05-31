@@ -1,0 +1,86 @@
+{% extends "product_layout.html" %}
+
+{% block product_content %}
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Keyword rank</h2>
+      <p class="conn-desc">
+        Terms this product already ranks for — organic via Search Console, paid via Google Ads.
+        The "In ads?" column tells you whether you're already bidding on a query.
+      </p>
+    </div>
+    <div class="form-actions" style="margin:0;">
+      <form method="post" action="/products/{{ product.id }}/keyword-rank/refresh" class="inline-form">
+        <button type="submit" class="btn-primary">Refresh</button>
+      </form>
+    </div>
+  </div>
+  {% if last_refreshed %}
+  <p class="conn-desc" style="margin-top:8px;">Last refresh: {{ last_refreshed }} · page queried: <code>{{ page_url or '—' }}</code></p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Organic — Search Console</h2></div>
+  {% if not sc_connected %}
+    <div class="empty-state" style="padding:24px 4px;">
+      <p>Search Console isn't connected.</p>
+      <p class="empty-sub">Add it under <a href="/connections" class="muted-link">Connections</a> to see organic ranking data.</p>
+    </div>
+  {% elif sc_error %}
+    <div class="empty-state" style="padding:24px 4px;">
+      <p class="conn-desc" style="color:var(--fail);">Search Console error: {{ sc_error }}</p>
+    </div>
+  {% elif not organic_rows %}
+    <div class="empty-state" style="padding:24px 4px;">
+      <p>No organic queries found for this product's page in the last 90 days.</p>
+      <p class="empty-sub">Either the page hasn't ranked yet, or the page URL doesn't match a verified property.</p>
+    </div>
+  {% else %}
+    <div class="kw-table-wrap">
+      <table class="data-table kw-table">
+        <thead>
+          <tr>
+            <th>Query</th>
+            <th class="num">Position</th>
+            <th class="num">Clicks</th>
+            <th class="num">Impressions</th>
+            <th class="num">CTR</th>
+            <th>In ads?</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in organic_rows %}
+          <tr>
+            <td>{{ r.query }}</td>
+            <td class="num">{{ '%.1f'|format(r.position) }}</td>
+            <td class="num">{{ r.clicks }}</td>
+            <td class="num">{{ r.impressions }}</td>
+            <td class="num">{{ '%.1f'|format(r.ctr * 100) }}%</td>
+            <td>
+              {% if r.in_ads %}
+                <span class="tag tag-primary">{{ r.in_ads_bucket }}</span>
+              {% else %}
+                <span class="conn-desc">no</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Paid — Google Ads</h2></div>
+  <div class="empty-state" style="padding:24px 4px;">
+    <p>Awaiting Google Ads campaign sync.</p>
+    <p class="empty-sub">
+      Connection is verified, but we don't sync individual campaign / ad-group / search-term data yet.
+      That's the next backend after this batch.
+    </p>
+  </div>
+</section>
+{% endblock %}

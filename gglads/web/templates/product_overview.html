@@ -30,16 +30,20 @@
   </section>
 </div>
 
-<section class="metric-row" style="grid-template-columns:repeat(4,1fr);">
+<section class="metric-row" style="grid-template-columns:repeat(5,1fr);">
   <div class="metric">
     <div class="metric-label">Units sold (90d)</div>
     <div class="metric-value">{{ product.units_sold_90d }}</div>
   </div>
   <div class="metric">
-    <div class="metric-label">Unique customers (90d)</div>
+    <div class="metric-label">Buyers (90d)</div>
     <div class="metric-value">{{ product.unique_customers_90d }}</div>
   </div>
   <div class="metric metric-accent">
+    <div class="metric-label">Net sales (90d)</div>
+    <div class="metric-value">${{ product.net_sales_90d }}</div>
+  </div>
+  <div class="metric">
     <div class="metric-label">Last sale</div>
     <div class="metric-value" style="font-size:18px;">{{ product.last_sale_at }}</div>
   </div>

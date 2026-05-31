@@ -25,8 +25,9 @@ services:
   - type: cron
     name: gglads-shopify-daily
     runtime: python
-    # 04:00 UTC daily (~midnight EST / 9pm PST). Adjust schedule if you want.
-    schedule: "0 4 * * *"
+    # 04:00 and 16:00 UTC — twice daily so 30-day stock data and 90-day
+    # sales aggregates stay current. Edit if you want different timing.
+    schedule: "0 4,16 * * *"
     buildCommand: pip install --upgrade pip && pip install -e .
     startCommand: python -m gglads.cron.shopify_sync
     envVars:

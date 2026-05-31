@@ -1,0 +1,81 @@
+{% extends "product_layout.html" %}
+
+{% block product_content %}
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Images &amp; alt text</h2>
+      <p class="conn-desc">
+        Each image's current alt text comes from Shopify. AI suggestions are written using your
+        approved Primary/Secondary keywords so the alts naturally include high-intent search terms.
+      </p>
+    </div>
+    <div class="form-actions" style="margin:0;">
+      <form method="post" action="/products/{{ product.id }}/images/generate-all" class="inline-form">
+        <button type="submit" class="btn-primary">Generate all with AI</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+{% if not images %}
+<section class="panel">
+  <div class="empty-state" style="padding:40px 4px;">
+    <p><strong>No images synced for this product yet.</strong></p>
+    <p class="empty-sub">
+      Click <a href="/products" class="muted-link">Sync now</a> from the products page so the new images table fills in.
+    </p>
+  </div>
+</section>
+{% else %}
+
+{% for img in images %}
+<section class="panel image-row">
+  <div class="image-row-grid">
+    <div class="image-thumb-lg">
+      <img src="{{ img.url }}" alt="{{ img.alt_text or '' }}" />
+    </div>
+    <div class="image-meta">
+      <div class="meta-key">Position</div>
+      <div class="image-pos">{{ img.position }}{% if img.position == 0 %} <span class="conn-desc">(featured)</span>{% endif %}</div>
+      {% if img.width and img.height %}
+      <div class="meta-key" style="margin-top:8px;">Dimensions</div>
+      <div>{{ img.width }} × {{ img.height }}px</div>
+      {% endif %}
+    </div>
+    <div class="image-alt-block">
+      <div class="seo-label-row"><span class="meta-key">Current alt text</span></div>
+      <div class="alt-current">
+        {% if img.alt_text %}{{ img.alt_text }}{% else %}<em class="conn-desc">empty</em>{% endif %}
+      </div>
+
+      <div class="seo-label-row" style="margin-top:14px;">
+        <span class="meta-key">AI suggestion</span>
+        {% if img.draft %}<span class="conn-desc">{{ img.draft.suggested_value|length }}/125 chars</span>{% endif %}
+      </div>
+      {% if img.draft %}
+      <div class="alt-suggestion">{{ img.draft.suggested_value }}</div>
+      <div class="form-actions" style="margin-top:8px;">
+        <form method="post" action="/products/{{ product.id }}/images/{{ img.id }}/regenerate" class="inline-form">
+          <button type="submit" class="btn-ghost">Regenerate</button>
+        </form>
+        <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ img.draft.id }}/reject" class="inline-form">
+          <button type="submit" class="btn-ghost btn-danger">Reject</button>
+        </form>
+        <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ img.draft.id }}/approve" class="inline-form">
+          <button type="submit" class="btn-primary">Approve</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="conn-desc" style="padding:6px 0;">No suggestion yet.</div>
+      <form method="post" action="/products/{{ product.id }}/images/{{ img.id }}/generate" class="inline-form">
+        <button type="submit" class="btn-ghost">Generate with AI</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

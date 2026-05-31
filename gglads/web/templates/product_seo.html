@@ -1,13 +1,54 @@
 {% extends "product_layout.html" %}
 
+{% macro draft_card(label, current_value, charlimit, draft, product, multiline=False) -%}
+<section class="panel seo-field">
+  <div class="panel-head">
+    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">{{ label }}</h2>
+    {% if charlimit %}<span class="conn-desc">limit {{ charlimit }} chars</span>{% endif %}
+  </div>
+
+  <div class="seo-current">
+    <div class="seo-label-row">
+      <span class="meta-key">Current (in Shopify)</span>
+      {% if charlimit and current_value %}<span class="conn-desc">{{ current_value|length }} chars</span>{% endif %}
+    </div>
+    {% if multiline %}
+    <div class="alt-current">{{ current_value or '' }}</div>
+    {% else %}
+    <div class="alt-current">{% if current_value %}{{ current_value }}{% else %}<em class="conn-desc">empty</em>{% endif %}</div>
+    {% endif %}
+  </div>
+
+  <div class="seo-suggestion">
+    <div class="seo-label-row">
+      <span class="meta-key">AI suggestion</span>
+      {% if draft %}<span class="conn-desc">{{ draft.suggested_value|length }} chars</span>{% endif %}
+    </div>
+    {% if draft %}
+    <div class="alt-suggestion">{{ draft.suggested_value }}</div>
+    <div class="form-actions" style="margin-top:8px;">
+      <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/reject" class="inline-form">
+        <button type="submit" class="btn-ghost btn-danger">Reject</button>
+      </form>
+      <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/approve" class="inline-form">
+        <button type="submit" class="btn-primary">Approve</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="conn-desc">No suggestion yet — click <strong>Generate with AI</strong> at the top of the page.</div>
+    {% endif %}
+  </div>
+</section>
+{%- endmacro %}
+
 {% block product_content %}
 <section class="panel">
   <div class="panel-head">
     <div>
       <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">SEO &amp; content</h2>
       <p class="conn-desc">
-        Claude will generate suggestions for SEO title, meta description, product description,
-        bullets, and image alt text. Push approved changes back to Shopify.
+        Claude rewrites SEO title, meta description, product description, and bullets using
+        your approved keywords. Approve here, push back to Shopify when wired.
       </p>
     </div>
     <div class="form-actions" style="margin:0;">
@@ -16,33 +57,36 @@
       </form>
     </div>
   </div>
-</section>
-
-<section class="panel">
-  <div class="panel-head"><h2>Current values from Shopify</h2></div>
-  <dl class="meta">
-    <dt>SEO title</dt><dd>—</dd>
-    <dt>Meta description</dt><dd>—</dd>
-    <dt>Product description</dt>
-    <dd>
-      {% if seo.description.current %}
-        <span class="conn-desc">{{ (seo.description.current|striptags)[:140] }}{% if (seo.description.current|striptags)|length > 140 %}…{% endif %}</span>
-      {% else %}<em>empty</em>{% endif %}
-    </dd>
-  </dl>
-  <p class="conn-desc">
-    Current SEO title and meta description aren't synced yet — the Shopify query needs
-    to be extended with the <code>seo</code> field. Will land before AI generation.
-  </p>
-</section>
-
-<section class="panel">
-  <div class="empty-state" style="padding:30px 4px;">
-    <p><strong>AI suggestions not generated yet for this product.</strong></p>
-    <p class="empty-sub">
-      Click <strong>Generate with AI</strong> above. Anthropic must be connected
-      under <a href="/connections" class="muted-link">Connections</a>.
-    </p>
+  {% if no_keywords_warning %}
+  <div class="auth-error" style="margin-top:12px;">
+    No approved keywords yet — run keyword research on the <a href="/products/{{ product.id }}/ads">Ads tab</a> and approve some Primary/Secondary first. Otherwise the SEO suggestions won't be tuned for your search terms.
   </div>
+  {% endif %}
+</section>
+
+{{ draft_card("SEO title (meta title)", seo.current_title, 60, seo.drafts.seo_title, product) }}
+{{ draft_card("Meta description", seo.current_meta, 155, seo.drafts.meta_description, product) }}
+{{ draft_card("Product description (HTML)", current_description_excerpt, None, seo.drafts.description, product, multiline=True) }}
+
+<section class="panel seo-field">
+  <div class="panel-head">
+    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">Bullet points</h2>
+    {% if seo.drafts.bullets %}<span class="conn-desc">{{ seo.bullets_list|length }} bullets</span>{% endif %}
+  </div>
+  {% if seo.drafts.bullets %}
+  <ul class="bullet-list">
+    {% for b in seo.bullets_list %}<li class="bullet-row"><span class="bullet-dot">•</span><div>{{ b }}</div></li>{% endfor %}
+  </ul>
+  <div class="form-actions" style="margin-top:8px;">
+    <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ seo.drafts.bullets.id }}/reject" class="inline-form">
+      <button type="submit" class="btn-ghost btn-danger">Reject</button>
+    </form>
+    <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ seo.drafts.bullets.id }}/approve" class="inline-form">
+      <button type="submit" class="btn-primary">Approve</button>
+    </form>
+  </div>
+  {% else %}
+  <div class="conn-desc">No bullet suggestions yet.</div>
+  {% endif %}
 </section>
 {% endblock %}

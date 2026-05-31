@@ -58,6 +58,12 @@ class ShopifyProduct(Base):
         Integer, server_default="0", nullable=False
     )
     last_sale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    net_sales_90d: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+
+    # SEO state pulled from Shopify
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_meta_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -123,6 +129,64 @@ class ShopifyProductPublication(Base):
         BigInteger,
         ForeignKey("shopify_publications.id", ondelete="CASCADE"),
         primary_key=True,
+    )
+
+
+class ShopifyProductImage(Base):
+    __tablename__ = "shopify_product_images"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    alt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProductSeoDraft(Base):
+    """AI-generated suggestion for a product SEO field or image alt.
+
+    field values:
+      - 'seo_title', 'meta_description', 'description', 'bullets', 'image_alt'
+
+    For image_alt drafts, image_id is set.
+    """
+
+    __tablename__ = "product_seo_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    field: Mapped[str] = mapped_column(String(50), nullable=False)
+    image_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    suggested_value: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending", index=True
+    )
+    quality_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    pushed_to_shopify_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

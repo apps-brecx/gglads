@@ -22,10 +22,12 @@ from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
 from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
 from gglads.models.shopify_product import (
+    ProductSeoDraft,
     ShopifyCollection,
     ShopifyInventorySnapshot,
     ShopifyProduct,
     ShopifyProductCollection,
+    ShopifyProductImage,
     ShopifyProductPublication,
     ShopifyPublication,
     ShopifyVariant,
@@ -33,6 +35,8 @@ from gglads.models.shopify_product import (
 from gglads.models.user import User
 from gglads.services import integration_tests, integrations as integrations_svc
 from gglads.services import keyword_research as kw_research_svc
+from gglads.services import search_console as sc_svc
+from gglads.services import seo_generation as seo_svc
 from gglads.services import shopify as shopify_svc
 
 logger = logging.getLogger("gglads.web")
@@ -986,6 +990,8 @@ def _load_product_context(
         "total_inventory": p.total_inventory,
         "units_sold_90d": p.units_sold_90d,
         "unique_customers_90d": p.unique_customers_90d,
+        "net_sales_90d": f"{p.net_sales_90d:.2f}" if p.net_sales_90d is not None else "0.00",
+        "currency": p.currency or "USD",
         "last_sale_at": p.last_sale_at.strftime("%Y-%m-%d") if p.last_sale_at else "—",
         "created_at": p.created_at.strftime("%Y-%m-%d") if p.created_at else "—",
         "updated_at": p.updated_at.strftime("%Y-%m-%d") if p.updated_at else "—",
@@ -1138,26 +1144,54 @@ def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
     )
 
 
+def _latest_pending_drafts(
+    db: Session, product_id: int, fields: list[str]
+) -> dict[str, ProductSeoDraft | None]:
+    result: dict[str, ProductSeoDraft | None] = {f: None for f in fields}
+    rows = db.execute(
+        select(ProductSeoDraft)
+        .where(ProductSeoDraft.product_id == product_id)
+        .where(ProductSeoDraft.status == "pending")
+        .where(ProductSeoDraft.field.in_(fields))
+        .order_by(ProductSeoDraft.generated_at.desc())
+    ).scalars().all()
+    for r in rows:
+        if result.get(r.field) is None:
+            result[r.field] = r
+    return result
+
+
 @app.get("/products/{product_id}/seo", response_class=HTMLResponse)
 def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    _p, product = _load_product_context(db, product_id)
-    # No AI-generated SEO yet — empty state. Wires up after kw research lands.
-    seo = {
-        "score": None,
-        "score_band": "warn",
-        "title": {"current": "", "suggestion": ""},
-        "meta": {"current": "", "suggestion": ""},
-        "description": {
-            "current": product.get("description_html") or "",
-            "suggestion": "",
-        },
-        "bullets": [],
-        "images": [],
-        "generated": False,
-    }
+    p, product = _load_product_context(db, product_id)
+    drafts = _latest_pending_drafts(
+        db, product_id, ["seo_title", "meta_description", "description", "bullets"]
+    )
+
+    bullets_list: list[str] = []
+    if drafts.get("bullets"):
+        try:
+            import json as _json
+            parsed = _json.loads(drafts["bullets"].suggested_value)
+            if isinstance(parsed, list):
+                bullets_list = [str(x) for x in parsed][:10]
+        except (ValueError, TypeError):
+            pass
+
+    # Show whether keyword research has any approved keywords
+    has_approved = db.scalar(
+        select(func.count(ProductKeyword.id))
+        .where(ProductKeyword.product_id == product_id)
+        .where(ProductKeyword.bucket.in_(("primary", "secondary")))
+    ) or 0
+
+    description_excerpt = (p.description_html or "")[:400]
+    if len(p.description_html or "") > 400:
+        description_excerpt += "…"
+
     return templates.TemplateResponse(
         request,
         "product_seo.html",
@@ -1167,9 +1201,224 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
             "active": "products",
             "tab": "seo",
             "product": product,
-            "seo": seo,
+            "seo": {
+                "current_title": p.seo_title,
+                "current_meta": p.seo_meta_description,
+                "drafts": drafts,
+                "bullets_list": bullets_list,
+            },
+            "current_description_excerpt": description_excerpt,
+            "no_keywords_warning": has_approved == 0,
             "flashes": _consume_flashes(request),
         },
+    )
+
+
+@app.post("/products/{product_id}/seo/generate")
+def product_seo_generate(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.generate_seo_drafts(db, product_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/seo", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/seo/drafts/{draft_id}/approve")
+def product_seo_draft_approve(
+    product_id: int, draft_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.approve_draft(db, draft_id, user.id)
+    _flash(request, detail, "ok" if ok else "error")
+    referer = request.headers.get("referer", f"/products/{product_id}/seo")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/{product_id}/seo/drafts/{draft_id}/reject")
+def product_seo_draft_reject(
+    product_id: int, draft_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.reject_draft(db, draft_id)
+    _flash(request, detail, "ok" if ok else "error")
+    referer = request.headers.get("referer", f"/products/{product_id}/seo")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
+# --------- Images tab ---------
+
+@app.get("/products/{product_id}/images", response_class=HTMLResponse)
+def product_images(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    p, product = _load_product_context(db, product_id)
+    images = db.execute(
+        select(ShopifyProductImage)
+        .where(ShopifyProductImage.product_id == product_id)
+        .order_by(ShopifyProductImage.position)
+    ).scalars().all()
+
+    # Pending alt drafts keyed by image_id
+    alt_rows = db.execute(
+        select(ProductSeoDraft)
+        .where(ProductSeoDraft.product_id == product_id)
+        .where(ProductSeoDraft.field == "image_alt")
+        .where(ProductSeoDraft.status == "pending")
+        .order_by(ProductSeoDraft.generated_at.desc())
+    ).scalars().all()
+    drafts_by_image: dict[int, ProductSeoDraft] = {}
+    for r in alt_rows:
+        if r.image_id and r.image_id not in drafts_by_image:
+            drafts_by_image[r.image_id] = r
+
+    image_views = [
+        {
+            "id": img.id,
+            "url": img.url,
+            "alt_text": img.alt_text,
+            "position": img.position,
+            "width": img.width,
+            "height": img.height,
+            "draft": drafts_by_image.get(img.id),
+        }
+        for img in images
+    ]
+
+    return templates.TemplateResponse(
+        request,
+        "product_images.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "images",
+            "product": product,
+            "images": image_views,
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/products/{product_id}/images/generate-all")
+def product_images_generate_all(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.generate_image_alt(db, product_id, image_id=None)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/images", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/images/{image_id}/generate")
+@app.post("/products/{product_id}/images/{image_id}/regenerate")
+def product_image_generate(
+    product_id: int, image_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.generate_image_alt(db, product_id, image_id=image_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/images", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# --------- Keyword rank tab ---------
+
+@app.get("/products/{product_id}/keyword-rank", response_class=HTMLResponse)
+def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    p, product = _load_product_context(db, product_id)
+
+    sc_cfg = integrations_svc.get_config(db, "google_search_console")
+    sc_connected = integrations_svc.is_configured(
+        sc_cfg, integrations_svc.required_keys("google_search_console")
+    )
+
+    organic_rows: list[dict] = []
+    sc_error: str | None = None
+    page_url: str | None = None
+
+    if sc_connected:
+        site = (sc_cfg.get("site_url") or "").strip().rstrip("/")
+        if site:
+            page_url = f"{site}/products/{p.handle}"
+            rows, err = sc_svc.get_queries_for_page(db, page_url, days=90)
+            if err:
+                sc_error = err
+            elif rows:
+                # Cross-reference: is each query also in our paid keyword list?
+                paid_keywords = set(
+                    db.execute(
+                        select(ProductKeyword.keyword, ProductKeyword.bucket)
+                        .where(ProductKeyword.product_id == product_id)
+                        .where(ProductKeyword.bucket.in_(("primary", "secondary")))
+                    ).all()
+                )
+                paid_by_kw = {kw: bucket for kw, bucket in paid_keywords}
+                for r in rows:
+                    q_lower = (r.get("query") or "").lower()
+                    organic_rows.append(
+                        {
+                            **r,
+                            "in_ads": q_lower in paid_by_kw,
+                            "in_ads_bucket": paid_by_kw.get(q_lower, "").title(),
+                        }
+                    )
+
+    return templates.TemplateResponse(
+        request,
+        "product_keyword_rank.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "rank",
+            "product": product,
+            "sc_connected": sc_connected,
+            "sc_error": sc_error,
+            "organic_rows": organic_rows,
+            "page_url": page_url,
+            "last_refreshed": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/products/{product_id}/keyword-rank/refresh")
+def product_keyword_rank_refresh(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        f"/products/{product_id}/keyword-rank", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

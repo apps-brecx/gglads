@@ -21,6 +21,7 @@ from gglads.models.shopify_product import (
     ShopifyInventorySnapshot,
     ShopifyProduct,
     ShopifyProductCollection,
+    ShopifyProductImage,
     ShopifyProductPublication,
     ShopifyPublication,
     ShopifySyncRun,
@@ -68,6 +69,7 @@ query ($cursor: String) {
       updatedAt
       totalInventory
       featuredImage { url }
+      seo { title description }
       priceRangeV2 {
         minVariantPrice { amount currencyCode }
         maxVariantPrice { amount currencyCode }
@@ -90,6 +92,15 @@ query ($cursor: String) {
         nodes {
           isPublished
           publication { id name }
+        }
+      }
+      images(first: 50) {
+        nodes {
+          id
+          url
+          altText
+          width
+          height
         }
       }
     }
@@ -120,6 +131,7 @@ query ($cursor: String, $q: String) {
       lineItems(first: 100) {
         nodes {
           quantity
+          discountedTotalSet { shopMoney { amount } }
           product { legacyResourceId }
         }
       }
@@ -229,6 +241,9 @@ def _upsert_product(
     existing.status = (node.get("status") or "active").lower()
     featured = node.get("featuredImage") or {}
     existing.image_url = featured.get("url")
+    seo = node.get("seo") or {}
+    existing.seo_title = seo.get("title") or None
+    existing.seo_meta_description = seo.get("description") or None
     existing.price_min = Decimal(min_price["amount"]) if min_price.get("amount") else None
     existing.price_max = Decimal(max_price["amount"]) if max_price.get("amount") else None
     existing.currency = min_price.get("currencyCode") or max_price.get("currencyCode")
@@ -237,6 +252,26 @@ def _upsert_product(
     existing.updated_at = _parse_iso(node.get("updatedAt"))
     existing.shopify_admin_url = _shopify_admin_url(domain, pid)
     existing.synced_at = datetime.now(timezone.utc)
+
+    # Product images — replace wholesale
+    db.execute(
+        delete(ShopifyProductImage).where(ShopifyProductImage.product_id == pid)
+    )
+    for position, img in enumerate((node.get("images") or {}).get("nodes") or []):
+        img_legacy = _legacy_id_from_gid(img.get("id"))
+        if img_legacy is None or not img.get("url"):
+            continue
+        db.add(
+            ShopifyProductImage(
+                id=img_legacy,
+                product_id=pid,
+                position=position,
+                url=img["url"],
+                alt_text=img.get("altText"),
+                width=img.get("width"),
+                height=img.get("height"),
+            )
+        )
 
     # Variants — replace wholesale (delete then re-insert) so removed variants vanish
     db.execute(delete(ShopifyVariant).where(ShopifyVariant.product_id == pid))
@@ -330,7 +365,10 @@ def _sync_orders(
     # Reset all product counters first
     db.execute(
         update(ShopifyProduct).values(
-            units_sold_90d=0, unique_customers_90d=0, last_sale_at=None
+            units_sold_90d=0,
+            unique_customers_90d=0,
+            last_sale_at=None,
+            net_sales_90d=Decimal("0"),
         )
     )
     db.commit()
@@ -359,10 +397,14 @@ def _sync_orders(
                 except ValueError:
                     continue
                 qty = li.get("quantity") or 0
+                discounted = (li.get("discountedTotalSet") or {}).get("shopMoney") or {}
+                line_amount = Decimal(discounted.get("amount") or "0")
                 entry = agg.setdefault(
-                    pid, {"units": 0, "customers": set(), "last_sale": None}
+                    pid,
+                    {"units": 0, "customers": set(), "last_sale": None, "revenue": Decimal("0")},
                 )
                 entry["units"] += qty
+                entry["revenue"] += line_amount
                 if customer_id:
                     entry["customers"].add(customer_id)
                 if order_date and (
@@ -380,6 +422,7 @@ def _sync_orders(
             p.units_sold_90d = data["units"]
             p.unique_customers_90d = len(data["customers"])
             p.last_sale_at = data["last_sale"]
+            p.net_sales_90d = data["revenue"]
     db.commit()
 
     return orders_seen

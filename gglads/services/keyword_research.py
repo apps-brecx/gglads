@@ -289,6 +289,8 @@ def apply_chat_to_keywords(
     db.commit()
     return run.ok, detail
 
+
+def _normalize_candidate(raw: dict) -> dict | None:
     keyword = (raw.get("keyword") or "").strip().lower()
     if not keyword or len(keyword) > 250:
         return None

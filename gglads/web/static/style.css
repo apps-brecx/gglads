@@ -2543,6 +2543,49 @@ textarea:focus {
   box-shadow: inset 3px 0 0 var(--fail), 1px 0 0 var(--border);
 }
 
+.in-ads-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+  border: 1px solid transparent;
+}
+
+.in-ads-primary {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-soft-border);
+}
+
+.in-ads-secondary {
+  background: rgba(170, 178, 194, 0.1);
+  color: var(--muted-strong);
+  border-color: rgba(170, 178, 194, 0.3);
+}
+
+[data-theme="light"] .in-ads-secondary {
+  background: rgba(93, 100, 112, 0.08);
+  color: var(--muted-strong);
+  border-color: rgba(93, 100, 112, 0.3);
+}
+
+.in-ads-negative {
+  background: rgba(248, 113, 113, 0.08);
+  color: var(--fail);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+[data-theme="light"] .in-ads-negative {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--fail);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
 .cov-th {
   font-size: 10px;
   letter-spacing: 0.05em;

@@ -1,0 +1,65 @@
+{# Reusable listing controls: sort headers, pagination, page-size selector.
+   Pass `qs_no_sort` (query string without sort/dir/page) and `qs_no_page`
+   (without page) from the route. #}
+
+{% macro sort_th(label, key, current_sort, current_dir, qs_no_sort, num=False) -%}
+  {% if current_sort == key %}
+    {% set new_dir = 'desc' if current_dir == 'asc' else 'asc' %}
+    {% set arrow = '↑' if current_dir == 'asc' else '↓' %}
+  {% else %}
+    {% set new_dir = 'asc' %}
+    {% set arrow = '' %}
+  {% endif %}
+  <th class="{{ 'num' if num }} sortable {{ 'is-sorted' if current_sort == key }}">
+    <a href="?{{ qs_no_sort }}{% if qs_no_sort %}&{% endif %}sort={{ key }}&dir={{ new_dir }}">
+      {{ label }} <span class="sort-arrow">{{ arrow }}</span>
+    </a>
+  </th>
+{%- endmacro %}
+
+
+{% macro pagination(page, total_pages, total, per_page, qs_no_page) -%}
+<div class="listing-foot">
+  <div class="listing-page-info">
+    {% if total > 0 %}
+      Showing {{ ((page - 1) * per_page) + 1 }}–{{ [page * per_page, total]|min }}
+      of {{ total }}
+    {% else %}
+      No results
+    {% endif %}
+  </div>
+  <form method="get" class="listing-per-page">
+    {# replay all query params except per_page/page so submitting keeps state #}
+    {% for k, v in (qs_no_page or '').split('&') %}
+      {% if k and not k.startswith('per_page=') and v != '' %}
+        {% set pair = k.split('=') %}
+        {% if pair|length == 2 %}
+          <input type="hidden" name="{{ pair[0] }}" value="{{ pair[1] }}" />
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+    <label>
+      <span class="conn-desc">Rows</span>
+      <select name="per_page" onchange="this.form.submit()">
+        <option value="50"  {{ 'selected' if per_page == 50 }}>50</option>
+        <option value="100" {{ 'selected' if per_page == 100 }}>100</option>
+        <option value="200" {{ 'selected' if per_page == 200 }}>200</option>
+        <option value="500" {{ 'selected' if per_page == 500 }}>500</option>
+      </select>
+    </label>
+  </form>
+  <div class="listing-page-nav">
+    {% if page > 1 %}
+      <a href="?{{ qs_no_page }}{% if qs_no_page %}&{% endif %}page={{ page - 1 }}" class="btn-ghost">← Prev</a>
+    {% else %}
+      <span class="btn-ghost is-disabled">← Prev</span>
+    {% endif %}
+    <span class="listing-page-num">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="?{{ qs_no_page }}{% if qs_no_page %}&{% endif %}page={{ page + 1 }}" class="btn-ghost">Next →</a>
+    {% else %}
+      <span class="btn-ghost is-disabled">Next →</span>
+    {% endif %}
+  </div>
+</div>
+{%- endmacro %}

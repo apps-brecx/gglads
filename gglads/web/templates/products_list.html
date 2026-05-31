@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from "_listing.html" import sort_th, pagination %}
 
 {% block title %}{{ heading }} — Products — gglads{% endblock %}
 
@@ -113,6 +114,10 @@
   </div>
 </section>
 
+{% if listing and listing.total is defined %}
+<div class="conn-desc" style="margin-bottom:8px;">Net {{ listing.total }} product{{ '' if listing.total == 1 else 's' }} match.</div>
+{% endif %}
+
 {% if not items %}
 <section class="panel">
   <div class="empty-state" style="padding:40px 4px;">
@@ -186,12 +191,12 @@
     <thead>
       <tr>
         {% if 'image' in cols %}<th class="thumb-col"></th>{% endif %}
-        <th>Title</th>
+        {{ sort_th("Title", "title", listing.sort, listing.direction, listing.qs_no_sort) }}
         {% if 'price' in cols %}<th class="num">Price</th>{% endif %}
-        {% if 'sold' in cols %}<th class="num">Sold (90d)</th>{% endif %}
-        {% if 'customers' in cols %}<th class="num">Customers (90d)</th>{% endif %}
+        {% if 'sold' in cols %}{{ sort_th("Sold (90d)", "units_sold", listing.sort, listing.direction, listing.qs_no_sort, num=True) }}{% endif %}
+        {% if 'customers' in cols %}{{ sort_th("Buyers (90d)", "buyers", listing.sort, listing.direction, listing.qs_no_sort, num=True) }}{% endif %}
         {% if 'sku' in cols %}<th>SKU</th>{% endif %}
-        {% if 'inventory' in cols %}<th class="num">Stock now</th>{% endif %}
+        {% if 'inventory' in cols %}{{ sort_th("Stock now", "stock", listing.sort, listing.direction, listing.qs_no_sort, num=True) }}{% endif %}
         {% if 'stock_history' in cols %}<th>Stock days (30d)</th>{% endif %}
         {% if 'vendor' in cols %}<th>Vendor</th>{% endif %}
         {% if 'type' in cols %}<th>Type</th>{% endif %}
@@ -253,5 +258,9 @@
     </tbody>
   </table>
 </section>
+{% endif %}
+
+{% if items and listing and listing.total_pages is defined %}
+  {{ pagination(listing.page, listing.total_pages, listing.total, listing.per_page, listing.qs_no_page) }}
 {% endif %}
 {% endblock %}

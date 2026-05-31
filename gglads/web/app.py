@@ -38,6 +38,7 @@ from gglads.services import keyword_research as kw_research_svc
 from gglads.services import search_console as sc_svc
 from gglads.services import seo_generation as seo_svc
 from gglads.services import shopify as shopify_svc
+from gglads.web import listing as listing_util
 
 logger = logging.getLogger("gglads.web")
 
@@ -800,6 +801,7 @@ def _render_products_list(
     products: list[ShopifyProduct],
     *,
     collection: ShopifyCollection | None,
+    listing: dict | None = None,
 ) -> Response:
     view, cols = _parse_view_params(request)
     pids = [p.id for p in products]
@@ -843,6 +845,7 @@ def _render_products_list(
                 ("view", view),
                 *[("cols", c) for c in cols],
             ],
+            "listing": listing or {},
             "flashes": _consume_flashes(request),
         },
     )
@@ -885,6 +888,18 @@ def _apply_filters(
     return base_query
 
 
+_PRODUCT_SORT_KEYS = {
+    "title", "units_sold", "net_sales", "buyers", "stock", "stock_days_in",
+}
+_PRODUCT_SORT_COLUMNS = {
+    "title": ShopifyProduct.title,
+    "units_sold": ShopifyProduct.units_sold_90d,
+    "net_sales": ShopifyProduct.net_sales_90d,
+    "buyers": ShopifyProduct.unique_customers_90d,
+    "stock": ShopifyProduct.total_inventory,
+}
+
+
 @app.get("/products/all", response_class=HTMLResponse)
 def products_all(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
@@ -896,13 +911,49 @@ def products_all(request: Request, db: DbDep) -> Response:
     collection_filter = request.query_params.get("collection") or ""
     channel_filter = request.query_params.get("channel") or ""
 
-    query = select(ShopifyProduct).order_by(ShopifyProduct.units_sold_90d.desc())
-    query = _apply_filters(
-        db, query, q, status_filter, collection_filter, channel_filter
+    sort = listing_util.parse_sort(
+        request.query_params.get("sort"), _PRODUCT_SORT_KEYS, "units_sold"
     )
-    products = db.execute(query.limit(500)).scalars().unique().all()
+    direction = listing_util.parse_direction(request.query_params.get("dir"), "desc")
+    per_page = listing_util.parse_per_page(request.query_params.get("per_page"))
+    page = listing_util.parse_page(request.query_params.get("page"))
 
-    return _render_products_list(request, db, user, products, collection=None)
+    base = select(ShopifyProduct)
+    base = _apply_filters(
+        db, base, q, status_filter, collection_filter, channel_filter
+    )
+
+    # Sort
+    col = _PRODUCT_SORT_COLUMNS.get(sort, ShopifyProduct.units_sold_90d)
+    base = base.order_by(col.desc() if direction == "desc" else col.asc())
+
+    # Total count for pagination (compile a separate count query)
+    total = db.scalar(
+        select(func.count()).select_from(base.subquery())
+    ) or 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+
+    products = db.execute(base.limit(per_page).offset(offset)).scalars().unique().all()
+
+    return _render_products_list(
+        request,
+        db,
+        user,
+        products,
+        collection=None,
+        listing={
+            "sort": sort,
+            "direction": direction,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "total": total,
+            "qs_no_page": listing_util.query_string_for(request, drop=["page"]),
+            "qs_no_sort": listing_util.query_string_for(request, drop=["sort", "dir", "page"]),
+        },
+    )
 
 
 @app.get("/products/collection/{handle}", response_class=HTMLResponse)
@@ -921,6 +972,13 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
     status_filter = request.query_params.get("status") or ""
     channel_filter = request.query_params.get("channel") or ""
 
+    sort = listing_util.parse_sort(
+        request.query_params.get("sort"), _PRODUCT_SORT_KEYS, "units_sold"
+    )
+    direction = listing_util.parse_direction(request.query_params.get("dir"), "desc")
+    per_page = listing_util.parse_per_page(request.query_params.get("per_page"))
+    page = listing_util.parse_page(request.query_params.get("page"))
+
     query = (
         select(ShopifyProduct)
         .join(
@@ -928,7 +986,6 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
             ShopifyProductCollection.product_id == ShopifyProduct.id,
         )
         .where(ShopifyProductCollection.collection_id == collection.id)
-        .order_by(ShopifyProduct.units_sold_90d.desc())
     )
     if q:
         query = query.where(ShopifyProduct.title.ilike(f"%{q}%"))
@@ -947,9 +1004,33 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
                 ShopifyProductPublication,
                 ShopifyProductPublication.product_id == ShopifyProduct.id,
             ).where(ShopifyProductPublication.publication_id.in_(pub_ids))
-    products = db.execute(query.limit(500)).scalars().unique().all()
 
-    return _render_products_list(request, db, user, products, collection=collection)
+    col = _PRODUCT_SORT_COLUMNS.get(sort, ShopifyProduct.units_sold_90d)
+    query = query.order_by(col.desc() if direction == "desc" else col.asc())
+
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    offset = (page - 1) * per_page
+    products = db.execute(query.limit(per_page).offset(offset)).scalars().unique().all()
+
+    return _render_products_list(
+        request,
+        db,
+        user,
+        products,
+        collection=collection,
+        listing={
+            "sort": sort,
+            "direction": direction,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "total": total,
+            "qs_no_page": listing_util.query_string_for(request, drop=["page"]),
+            "qs_no_sort": listing_util.query_string_for(request, drop=["sort", "dir", "page"]),
+        },
+    )
 
 
 @app.post("/products/sync")
@@ -1348,6 +1429,9 @@ def product_image_generate(
 
 # --------- Keyword rank tab ---------
 
+_RANK_SORT_KEYS = {"query", "position", "clicks", "impressions", "ctr"}
+
+
 @app.get("/products/{product_id}/keyword-rank", response_class=HTMLResponse)
 def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
@@ -1360,6 +1444,26 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
         sc_cfg, integrations_svc.required_keys("google_search_console")
     )
 
+    # Filter / sort / page params
+    q = (request.query_params.get("q") or "").strip().lower()
+    in_ads_filter = request.query_params.get("in_ads") or ""
+    try:
+        min_pos = float(request.query_params["min_pos"]) if request.query_params.get("min_pos") else None
+    except ValueError:
+        min_pos = None
+    try:
+        max_pos = float(request.query_params["max_pos"]) if request.query_params.get("max_pos") else None
+    except ValueError:
+        max_pos = None
+    try:
+        min_clicks = int(request.query_params["min_clicks"]) if request.query_params.get("min_clicks") else None
+    except ValueError:
+        min_clicks = None
+    sort = listing_util.parse_sort(request.query_params.get("sort"), _RANK_SORT_KEYS, "position")
+    direction = listing_util.parse_direction(request.query_params.get("dir"), "asc")
+    per_page = listing_util.parse_per_page(request.query_params.get("per_page"))
+    page = listing_util.parse_page(request.query_params.get("page"))
+
     organic_rows: list[dict] = []
     sc_error: str | None = None
     page_url: str | None = None
@@ -1367,18 +1471,15 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
     if sc_connected:
         page_url = sc_svc.page_url_from_site(sc_cfg.get("site_url") or "", p.handle)
         if page_url:
-            rows, err = sc_svc.get_queries_for_page(db, page_url, days=90)
+            rows, err = sc_svc.get_queries_for_page(db, page_url, days=90, row_limit=1000)
             if err:
                 sc_error = err
             elif rows:
-                # Cross-reference: is each query also in our paid keyword list?
-                paid_keywords = set(
-                    db.execute(
-                        select(ProductKeyword.keyword, ProductKeyword.bucket)
-                        .where(ProductKeyword.product_id == product_id)
-                        .where(ProductKeyword.bucket.in_(("primary", "secondary")))
-                    ).all()
-                )
+                paid_keywords = db.execute(
+                    select(ProductKeyword.keyword, ProductKeyword.bucket)
+                    .where(ProductKeyword.product_id == product_id)
+                    .where(ProductKeyword.bucket.in_(("primary", "secondary")))
+                ).all()
                 paid_by_kw = {kw: bucket for kw, bucket in paid_keywords}
                 for r in rows:
                     q_lower = (r.get("query") or "").lower()
@@ -1389,6 +1490,33 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
                             "in_ads_bucket": paid_by_kw.get(q_lower, "").title(),
                         }
                     )
+
+    # Apply filters
+    if q:
+        organic_rows = [r for r in organic_rows if q in (r["query"] or "").lower()]
+    if min_pos is not None:
+        organic_rows = [r for r in organic_rows if r["position"] >= min_pos]
+    if max_pos is not None:
+        organic_rows = [r for r in organic_rows if r["position"] <= max_pos]
+    if min_clicks is not None:
+        organic_rows = [r for r in organic_rows if r["clicks"] >= min_clicks]
+    if in_ads_filter == "yes":
+        organic_rows = [r for r in organic_rows if r["in_ads"]]
+    elif in_ads_filter == "no":
+        organic_rows = [r for r in organic_rows if not r["in_ads"]]
+
+    # Sort
+    sort_keys = {
+        "query": lambda r: (r.get("query") or "").lower(),
+        "position": lambda r: r.get("position") or 0,
+        "clicks": lambda r: r.get("clicks") or 0,
+        "impressions": lambda r: r.get("impressions") or 0,
+        "ctr": lambda r: r.get("ctr") or 0,
+    }
+    organic_rows.sort(key=sort_keys[sort], reverse=(direction == "desc"))
+
+    # Paginate
+    page_rows, page, total_pages, total = listing_util.paginate(organic_rows, page, per_page)
 
     return templates.TemplateResponse(
         request,
@@ -1401,9 +1529,25 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "product": product,
             "sc_connected": sc_connected,
             "sc_error": sc_error,
-            "organic_rows": organic_rows,
+            "organic_rows": page_rows,
             "page_url": page_url,
             "last_refreshed": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            # listing state
+            "filters": {
+                "q": request.query_params.get("q") or "",
+                "in_ads": in_ads_filter,
+                "min_pos": request.query_params.get("min_pos") or "",
+                "max_pos": request.query_params.get("max_pos") or "",
+                "min_clicks": request.query_params.get("min_clicks") or "",
+            },
+            "sort": sort,
+            "direction": direction,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "total": total,
+            "qs_no_page": listing_util.query_string_for(request, drop=["page"]),
+            "qs_no_sort": listing_util.query_string_for(request, drop=["sort", "dir", "page"]),
             "flashes": _consume_flashes(request),
         },
     )

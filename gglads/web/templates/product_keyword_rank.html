@@ -1,4 +1,5 @@
 {% extends "product_layout.html" %}
+{% from "_listing.html" import sort_th, pagination %}
 
 {% block product_content %}
 <section class="panel">
@@ -6,8 +7,8 @@
     <div>
       <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Keyword rank</h2>
       <p class="conn-desc">
-        Terms this product already ranks for — organic via Search Console, paid via Google Ads.
-        The "In ads?" column tells you whether you're already bidding on a query.
+        Terms this product already ranks for — organic via Search Console, paid via Google Ads. The
+        "In ads?" column tells you whether you're already bidding on a query.
       </p>
     </div>
     <div class="form-actions" style="margin:0;">
@@ -26,13 +27,34 @@
   {% if not sc_connected %}
     <div class="empty-state" style="padding:24px 4px;">
       <p>Search Console isn't connected.</p>
-      <p class="empty-sub">Add it under <a href="/connections" class="muted-link">Connections</a> to see organic ranking data.</p>
+      <p class="empty-sub">Add it under <a href="/connections" class="muted-link">Connections</a>.</p>
     </div>
   {% elif sc_error %}
     <div class="empty-state" style="padding:24px 4px;">
       <p class="conn-desc" style="color:var(--fail);">Search Console error: {{ sc_error }}</p>
     </div>
-  {% elif not organic_rows %}
+  {% else %}
+
+  <form method="get" class="filter-bar-form">
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search query…" class="filter-search" />
+    <input type="number" step="0.1" name="min_pos" value="{{ filters.min_pos }}" placeholder="Min position" class="filter-search filter-narrow" />
+    <input type="number" step="0.1" name="max_pos" value="{{ filters.max_pos }}" placeholder="Max position" class="filter-search filter-narrow" />
+    <input type="number" name="min_clicks" value="{{ filters.min_clicks }}" placeholder="Min clicks" class="filter-search filter-narrow" />
+    <select name="in_ads" class="filter-select">
+      <option value=""    {{ 'selected' if not filters.in_ads }}>In ads — any</option>
+      <option value="yes" {{ 'selected' if filters.in_ads == 'yes' }}>In ads only</option>
+      <option value="no"  {{ 'selected' if filters.in_ads == 'no' }}>Not in ads</option>
+    </select>
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="dir" value="{{ direction }}" />
+    <input type="hidden" name="per_page" value="{{ per_page }}" />
+    <button type="submit" class="btn-ghost">Apply</button>
+    {% if filters.q or filters.in_ads or filters.min_pos or filters.max_pos or filters.min_clicks %}
+    <a href="?per_page={{ per_page }}" class="muted-link" style="align-self:center;">Clear</a>
+    {% endif %}
+  </form>
+
+  {% if not organic_rows and total == 0 %}
     <div class="empty-state" style="padding:24px 4px;">
       <p>No organic queries found for this product's page in the last 90 days.</p>
       <p class="empty-sub">Either the page hasn't ranked yet, or the page URL doesn't match a verified property.</p>
@@ -42,11 +64,11 @@
       <table class="data-table kw-table">
         <thead>
           <tr>
-            <th>Query</th>
-            <th class="num">Position</th>
-            <th class="num">Clicks</th>
-            <th class="num">Impressions</th>
-            <th class="num">CTR</th>
+            {{ sort_th("Query",       "query",       sort, direction, qs_no_sort) }}
+            {{ sort_th("Position",    "position",    sort, direction, qs_no_sort, num=True) }}
+            {{ sort_th("Clicks",      "clicks",      sort, direction, qs_no_sort, num=True) }}
+            {{ sort_th("Impressions", "impressions", sort, direction, qs_no_sort, num=True) }}
+            {{ sort_th("CTR",         "ctr",         sort, direction, qs_no_sort, num=True) }}
             <th>In ads?</th>
           </tr>
         </thead>
@@ -70,6 +92,10 @@
         </tbody>
       </table>
     </div>
+
+    {{ pagination(page, total_pages, total, per_page, qs_no_page) }}
+  {% endif %}
+
   {% endif %}
 </section>
 

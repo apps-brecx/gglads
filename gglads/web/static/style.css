@@ -1918,3 +1918,93 @@ textarea:focus {
   .image-row-grid { grid-template-columns: 1fr; }
   .image-thumb-lg { width: 100%; height: 240px; }
 }
+
+/* ---------- Listing controls (sort + pagination + filter bar) ---------- */
+
+th.sortable a {
+  color: var(--muted);
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+th.sortable a:hover { color: var(--text); }
+
+th.sortable.is-sorted a { color: var(--accent); }
+
+.sort-arrow {
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.listing-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 4px;
+  flex-wrap: wrap;
+}
+
+.listing-page-info {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.listing-per-page {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.listing-per-page select {
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.listing-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.listing-page-num {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.btn-ghost.is-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  display: inline-block;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.filter-bar-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.filter-narrow {
+  max-width: 120px;
+}

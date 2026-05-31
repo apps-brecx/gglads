@@ -56,6 +56,9 @@ class ProductKeyword(Base):
     bucket: Mapped[str] = mapped_column(
         String(15), nullable=False, server_default="unsorted", index=True
     )
+    # JSON-encoded list of SEO field slugs where this keyword should be included
+    # on the next AI generation. e.g. ["title", "meta_description", "description"]
+    seo_targets: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

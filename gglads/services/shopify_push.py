@@ -63,3 +63,81 @@ def update_image_alt(
     if not ok:
         return False, str(body)
     return True, "Image alt updated in Shopify."
+
+
+_PRODUCT_UPDATE_MUTATION = """
+mutation productUpdate($input: ProductInput!) {
+  productUpdate(input: $input) {
+    product { id }
+    userErrors { field message }
+  }
+}
+"""
+
+
+def update_product_seo(
+    db: Session,
+    product_id: int,
+    *,
+    title: str | None = None,
+    description_html: str | None = None,
+    seo_title: str | None = None,
+    seo_description: str | None = None,
+) -> tuple[bool, str]:
+    """Push product SEO fields back to Shopify via GraphQL productUpdate."""
+    cfg = integrations_svc.get_config(db, "shopify")
+    domain = _normalize_domain(cfg.get("store_domain", ""))
+    token = (cfg.get("admin_api_token") or "").strip()
+    version = (cfg.get("api_version") or "2025-01").strip()
+    if not domain or not token:
+        return False, "Shopify is not configured."
+
+    input_data: dict = {"id": f"gid://shopify/Product/{product_id}"}
+    if title is not None:
+        input_data["title"] = title
+    if description_html is not None:
+        input_data["descriptionHtml"] = description_html
+    seo_obj = {}
+    if seo_title is not None:
+        seo_obj["title"] = seo_title
+    if seo_description is not None:
+        seo_obj["description"] = seo_description
+    if seo_obj:
+        input_data["seo"] = seo_obj
+
+    if len(input_data) == 1:
+        return False, "Nothing to update."
+
+    url = f"https://{domain}/admin/api/{version}/graphql.json"
+    try:
+        r = httpx.post(
+            url,
+            json={
+                "query": _PRODUCT_UPDATE_MUTATION,
+                "variables": {"input": input_data},
+            },
+            headers={
+                "X-Shopify-Access-Token": token,
+                "Content-Type": "application/json",
+            },
+            timeout=20.0,
+        )
+    except httpx.HTTPError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if r.status_code >= 400:
+        return False, f"HTTP {r.status_code}: {r.text[:300]}"
+    try:
+        data = r.json()
+    except ValueError:
+        return False, "Non-JSON response from Shopify."
+    if data.get("errors"):
+        return False, f"GraphQL errors: {data['errors']}"
+    user_errors = (
+        data.get("data", {}).get("productUpdate", {}).get("userErrors") or []
+    )
+    if user_errors:
+        msgs = "; ".join(
+            f"{(e.get('field') or [''])[-1]}: {e.get('message')}" for e in user_errors
+        )
+        return False, f"Shopify rejected: {msgs}"
+    return True, "Updated in Shopify."

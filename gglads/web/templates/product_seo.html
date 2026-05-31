@@ -78,8 +78,13 @@
     </div>
     <div class="form-actions" style="margin:0;">
       <form method="post" action="/products/{{ product.id }}/seo/generate" class="inline-form">
-        <button type="submit" class="btn-primary">Generate with AI</button>
+        <button type="submit" class="btn-ghost">Generate with AI</button>
       </form>
+      {% if approved_not_pushed %}
+      <form method="post" action="/products/{{ product.id }}/seo/push" class="inline-form">
+        <button type="submit" class="btn-primary">Send {{ approved_not_pushed }} approved to Shopify ↗</button>
+      </form>
+      {% endif %}
     </div>
   </div>
   {% if no_keywords_warning %}
@@ -116,5 +121,49 @@
   {% else %}
   <div class="conn-desc">No bullet suggestions yet.</div>
   {% endif %}
+</section>
+
+<section class="panel chat-panel">
+  <div class="panel-head">
+    <div>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">
+        Tell Claude about this product
+      </h2>
+      <p class="conn-desc">
+        Add context you want folded into the next SEO generation — price changes,
+        new features, seasonal angles, things to avoid. Claude reads this whenever you
+        click <strong>Generate with AI</strong>.
+      </p>
+    </div>
+  </div>
+
+  {% if chat_messages %}
+  <div class="chat-thread">
+    {% for m in chat_messages %}
+    <div class="chat-msg chat-msg-{{ m.role }}">
+      <div class="chat-meta">
+        <span class="chat-who">{{ 'You' if m.role == 'user' else 'Claude' }}</span>
+        <span class="conn-desc">{{ m.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      </div>
+      <div class="chat-body">{{ m.content }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="conn-desc" style="padding:12px 0;">No messages yet.</div>
+  {% endif %}
+
+  <form method="post" action="/products/{{ product.id }}/seo/chat" class="chat-form">
+    <textarea
+      name="message"
+      placeholder="e.g. We just lowered the price to $7.99. Also call out the 750ml bottle size."
+      rows="3"
+      maxlength="4000"
+      required
+    ></textarea>
+    <div class="form-actions" style="justify-content:flex-end;">
+      <button type="submit" class="btn-primary">Send to Claude</button>
+    </div>
+  </form>
 </section>
 {% endblock %}

@@ -36,6 +36,8 @@ from gglads.models.user import User
 from gglads.services import integration_tests, integrations as integrations_svc
 from gglads.services import keyword_research as kw_research_svc
 from gglads.services import search_console as sc_svc
+from gglads.services import keyword_placement as kw_place_svc
+from gglads.services import seo_chat as seo_chat_svc
 from gglads.services import seo_generation as seo_svc
 from gglads.services import shopify as shopify_svc
 from gglads.web import listing as listing_util
@@ -1269,6 +1271,16 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
         .where(ProductKeyword.bucket.in_(("primary", "secondary")))
     ) or 0
 
+    approved_not_pushed = db.scalar(
+        select(func.count(ProductSeoDraft.id))
+        .where(ProductSeoDraft.product_id == product_id)
+        .where(ProductSeoDraft.field.in_(("seo_title", "meta_description", "description")))
+        .where(ProductSeoDraft.status == "approved")
+        .where(ProductSeoDraft.pushed_to_shopify_at.is_(None))
+    ) or 0
+
+    chat_messages = seo_chat_svc.list_messages(db, product_id, topic="seo")
+
     return templates.TemplateResponse(
         request,
         "product_seo.html",
@@ -1286,6 +1298,8 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
             },
             "current_description_full": p.description_html or "",
             "no_keywords_warning": has_approved == 0,
+            "approved_not_pushed": approved_not_pushed,
+            "chat_messages": chat_messages,
             "flashes": _consume_flashes(request),
         },
     )
@@ -1370,6 +1384,37 @@ def product_images_push_approved_all(
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
         f"/products/{product_id}/images", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/seo/push")
+def product_seo_push(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = seo_svc.push_approved_seo_to_shopify(db, product_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/seo", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/seo/chat")
+async def product_seo_chat(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    message = (form.get("message") or "").strip()
+    ok, detail = seo_chat_svc.send_message(db, product_id, user.id, message)
+    if not ok:
+        _flash(request, detail, "error")
+    return RedirectResponse(
+        f"/products/{product_id}/seo", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -1492,94 +1537,117 @@ def product_image_generate(
 
 # --------- Keyword rank tab ---------
 
-_RANK_SORT_KEYS = {"query", "position", "clicks", "impressions", "ctr"}
+_RANK_SORT_KEYS = {
+    "keyword", "source", "volume", "competition", "position", "clicks",
+    "impressions", "ctr", "score", "bucket",
+}
+
+
+_KW_SOURCE_LABELS = {
+    "ai": "Claude",
+    "keyword_planner": "Keyword Planner",
+    "search_console": "Search Console",
+    "manual": "Manual",
+}
 
 
 @app.get("/products/{product_id}/keyword-rank", response_class=HTMLResponse)
 def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Response:
+    """Master keywords view — every keyword from every source, with coverage and actions."""
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     p, product = _load_product_context(db, product_id)
 
-    sc_cfg = integrations_svc.get_config(db, "google_search_console")
-    sc_connected = integrations_svc.is_configured(
-        sc_cfg, integrations_svc.required_keys("google_search_console")
-    )
-
-    # Filter / sort / page params
+    # Filter / sort / pagination params
     q = (request.query_params.get("q") or "").strip().lower()
+    source_filter = request.query_params.get("source") or ""
     in_ads_filter = request.query_params.get("in_ads") or ""
-    try:
-        min_pos = float(request.query_params["min_pos"]) if request.query_params.get("min_pos") else None
-    except ValueError:
-        min_pos = None
-    try:
-        max_pos = float(request.query_params["max_pos"]) if request.query_params.get("max_pos") else None
-    except ValueError:
-        max_pos = None
-    try:
-        min_clicks = int(request.query_params["min_clicks"]) if request.query_params.get("min_clicks") else None
-    except ValueError:
-        min_clicks = None
-    sort = listing_util.parse_sort(request.query_params.get("sort"), _RANK_SORT_KEYS, "position")
-    direction = listing_util.parse_direction(request.query_params.get("dir"), "asc")
+    missing_filter = request.query_params.get("missing") or ""  # title|meta_title|...
+    sort = listing_util.parse_sort(
+        request.query_params.get("sort"), _RANK_SORT_KEYS, "score"
+    )
+    direction = listing_util.parse_direction(request.query_params.get("dir"), "desc")
     per_page = listing_util.parse_per_page(request.query_params.get("per_page"))
     page = listing_util.parse_page(request.query_params.get("page"))
 
-    organic_rows: list[dict] = []
-    sc_error: str | None = None
-    page_url: str | None = None
+    # Pull every stored keyword (AI/KP/SC/manual)
+    kw_rows = db.execute(
+        select(ProductKeyword).where(ProductKeyword.product_id == product_id)
+    ).scalars().all()
 
-    if sc_connected:
-        page_url = sc_svc.page_url_from_site(sc_cfg.get("site_url") or "", p.handle)
-        if page_url:
-            rows, err = sc_svc.get_queries_for_page(db, page_url, days=90, row_limit=1000)
-            if err:
-                sc_error = err
-            elif rows:
-                paid_keywords = db.execute(
-                    select(ProductKeyword.keyword, ProductKeyword.bucket)
-                    .where(ProductKeyword.product_id == product_id)
-                    .where(ProductKeyword.bucket.in_(("primary", "secondary")))
-                ).all()
-                paid_by_kw = {kw: bucket for kw, bucket in paid_keywords}
-                for r in rows:
-                    q_lower = (r.get("query") or "").lower()
-                    organic_rows.append(
-                        {
-                            **r,
-                            "in_ads": q_lower in paid_by_kw,
-                            "in_ads_bucket": paid_by_kw.get(q_lower, "").title(),
-                        }
-                    )
+    coverage = kw_place_svc.coverage_for_product(db, product_id)
+
+    items: list[dict] = []
+    for kw in kw_rows:
+        cov = coverage.get(kw.keyword.lower(), {})
+        items.append({
+            "id": kw.id,
+            "keyword": kw.keyword,
+            "source": kw.source or "ai",
+            "source_label": _KW_SOURCE_LABELS.get(kw.source or "ai", kw.source or "ai"),
+            "intent": kw.intent,
+            "funnel": kw.funnel,
+            "match_type": kw.match_type,
+            "score": kw.relevance_score,
+            "rationale": kw.rationale,
+            "volume": kw.avg_monthly_searches,
+            "competition": kw.competition,
+            "bid_range": _format_bid_range(kw.low_bid_micros, kw.high_bid_micros),
+            "organic_position": (round(kw.sc_position, 1) if kw.sc_position else None),
+            "organic_clicks": kw.sc_clicks,
+            "organic_impressions": kw.sc_impressions,
+            "organic_ctr": (round((kw.sc_ctr or 0) * 100, 1) if kw.sc_ctr else None),
+            "bucket": kw.bucket,
+            "in_title": cov.get("title", False),
+            "in_meta_title": cov.get("meta_title", False),
+            "in_meta_description": cov.get("meta_description", False),
+            "in_description": cov.get("description", False),
+            "in_image_alts": cov.get("image_alts", False),
+            "seo_targets": kw_place_svc.parse_seo_targets(kw.seo_targets),
+        })
 
     # Apply filters
     if q:
-        organic_rows = [r for r in organic_rows if q in (r["query"] or "").lower()]
-    if min_pos is not None:
-        organic_rows = [r for r in organic_rows if r["position"] >= min_pos]
-    if max_pos is not None:
-        organic_rows = [r for r in organic_rows if r["position"] <= max_pos]
-    if min_clicks is not None:
-        organic_rows = [r for r in organic_rows if r["clicks"] >= min_clicks]
+        items = [r for r in items if q in r["keyword"].lower()]
+    if source_filter:
+        items = [r for r in items if r["source"] == source_filter]
     if in_ads_filter == "yes":
-        organic_rows = [r for r in organic_rows if r["in_ads"]]
+        items = [r for r in items if r["bucket"] in ("primary", "secondary")]
     elif in_ads_filter == "no":
-        organic_rows = [r for r in organic_rows if not r["in_ads"]]
+        items = [r for r in items if r["bucket"] not in ("primary", "secondary")]
+    if missing_filter and missing_filter in kw_place_svc.SEO_FIELDS:
+        items = [r for r in items if not r[f"in_{missing_filter}"]]
 
     # Sort
-    sort_keys = {
-        "query": lambda r: (r.get("query") or "").lower(),
-        "position": lambda r: r.get("position") or 0,
-        "clicks": lambda r: r.get("clicks") or 0,
-        "impressions": lambda r: r.get("impressions") or 0,
-        "ctr": lambda r: r.get("ctr") or 0,
-    }
-    organic_rows.sort(key=sort_keys[sort], reverse=(direction == "desc"))
+    def _sort_key(r: dict):
+        if sort == "keyword":
+            return r["keyword"].lower()
+        if sort == "source":
+            return r["source"]
+        if sort == "volume":
+            return r["volume"] or 0
+        if sort == "competition":
+            order = {"low": 0, "medium": 1, "high": 2}
+            return order.get(r["competition"], 3)
+        if sort == "position":
+            return r["organic_position"] or 9999
+        if sort == "clicks":
+            return r["organic_clicks"] or 0
+        if sort == "impressions":
+            return r["organic_impressions"] or 0
+        if sort == "ctr":
+            return r["organic_ctr"] or 0
+        if sort == "bucket":
+            order = {"primary": 0, "secondary": 1, "unsorted": 2, "negative": 3, "ignore": 4}
+            return order.get(r["bucket"], 5)
+        return r["score"] or 0
+    items.sort(key=_sort_key, reverse=(direction == "desc"))
 
-    # Paginate
-    page_rows, page, total_pages, total = listing_util.paginate(organic_rows, page, per_page)
+    page_items, page, total_pages, total = listing_util.paginate(items, page, per_page)
+
+    # Distinct sources for filter dropdown
+    distinct_sources = sorted({r["source"] for r in items}, key=lambda s: s or "")
 
     return templates.TemplateResponse(
         request,
@@ -1590,18 +1658,15 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "active": "products",
             "tab": "rank",
             "product": product,
-            "sc_connected": sc_connected,
-            "sc_error": sc_error,
-            "organic_rows": page_rows,
-            "page_url": page_url,
-            "last_refreshed": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-            # listing state
+            "items": page_items,
+            "distinct_sources": distinct_sources,
+            "source_labels": _KW_SOURCE_LABELS,
+            "seo_fields": kw_place_svc.SEO_FIELDS,
             "filters": {
                 "q": request.query_params.get("q") or "",
+                "source": source_filter,
                 "in_ads": in_ads_filter,
-                "min_pos": request.query_params.get("min_pos") or "",
-                "max_pos": request.query_params.get("max_pos") or "",
-                "min_clicks": request.query_params.get("min_clicks") or "",
+                "missing": missing_filter,
             },
             "sort": sort,
             "direction": direction,
@@ -1614,6 +1679,85 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "flashes": _consume_flashes(request),
         },
     )
+
+
+@app.post("/products/{product_id}/keywords/{keyword_id}/place")
+async def product_keyword_place(
+    product_id: int, keyword_id: int, request: Request, db: DbDep
+) -> Response:
+    """Multi-place push: set seo_targets (checkboxes) + optional bucket."""
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    seo_fields = form.getlist("seo_field")
+    bucket = (form.get("bucket") or "").strip()
+
+    messages: list[str] = []
+    errors: list[str] = []
+
+    if seo_fields:
+        ok, detail = kw_place_svc.push_to_seo(db, product_id, keyword_id, list(seo_fields))
+        (messages if ok else errors).append(detail)
+    if bucket:
+        ok, detail = kw_place_svc.set_bucket(db, product_id, keyword_id, bucket)
+        (messages if ok else errors).append(detail)
+
+    if not messages and not errors:
+        _flash(request, "Nothing chosen.", "info")
+    elif errors:
+        _flash(request, " | ".join(errors), "error")
+    else:
+        _flash(request, " | ".join(messages), "ok")
+    referer = request.headers.get("referer", f"/products/{product_id}/keyword-rank")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/{product_id}/keywords/{keyword_id}/clear-seo")
+def product_keyword_clear_seo(
+    product_id: int, keyword_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = kw_place_svc.clear_seo_targets(db, product_id, keyword_id)
+    _flash(request, detail, "ok" if ok else "error")
+    referer = request.headers.get("referer", f"/products/{product_id}/keyword-rank")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/{product_id}/keywords/{keyword_id}/ai-suggest")
+def product_keyword_ai_suggest(
+    product_id: int, keyword_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail, data = kw_place_svc.ai_suggest_placement(db, product_id, keyword_id)
+    if ok and data:
+        pieces = []
+        if data["seo_fields"]:
+            pieces.append("SEO: " + ", ".join(data["seo_fields"]))
+        if data["ads_bucket"]:
+            pieces.append(f"Ads bucket: {data['ads_bucket']}")
+        if pieces:
+            _flash(
+                request,
+                f"AI suggests — {' · '.join(pieces)}. {data['rationale']}",
+                "info",
+            )
+        else:
+            _flash(request, f"AI says: leave as-is. {data['rationale']}", "info")
+    else:
+        _flash(request, detail, "error")
+    referer = request.headers.get("referer", f"/products/{product_id}/keyword-rank")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/products/{product_id}/keyword-rank/refresh")

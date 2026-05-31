@@ -1,112 +1,157 @@
 {% extends "product_layout.html" %}
 {% from "_listing.html" import sort_th, pagination %}
 
+{% macro coverage_cell(label, present) -%}
+  {% if present %}
+    <span class="cov cov-yes" title="{{ label }} ✓">✓</span>
+  {% else %}
+    <span class="cov cov-no" title="{{ label }} —">·</span>
+  {% endif %}
+{%- endmacro %}
+
 {% block product_content %}
 <section class="panel">
   <div class="panel-head">
     <div>
-      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Keyword rank</h2>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Keywords</h2>
       <p class="conn-desc">
-        Terms this product already ranks for — organic via Search Console, paid via Google Ads. The
-        "In ads?" column tells you whether you're already bidding on a query.
+        Every keyword from every source — Claude research, Google Keyword Planner, Search Console organic.
+        See where it ranks, where it's used on this page, and push it to SEO or ads in one click.
       </p>
     </div>
-    <div class="form-actions" style="margin:0;">
-      <form method="post" action="/products/{{ product.id }}/keyword-rank/refresh" class="inline-form">
-        <button type="submit" class="btn-primary">Refresh</button>
-      </form>
-    </div>
   </div>
-  {% if last_refreshed %}
-  <p class="conn-desc" style="margin-top:8px;">Last refresh: {{ last_refreshed }} · page queried: <code>{{ page_url or '—' }}</code></p>
-  {% endif %}
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>Organic — Search Console</h2></div>
-  {% if not sc_connected %}
-    <div class="empty-state" style="padding:24px 4px;">
-      <p>Search Console isn't connected.</p>
-      <p class="empty-sub">Add it under <a href="/connections" class="muted-link">Connections</a>.</p>
-    </div>
-  {% elif sc_error %}
-    <div class="empty-state" style="padding:24px 4px;">
-      <p class="conn-desc" style="color:var(--fail);">Search Console error: {{ sc_error }}</p>
-    </div>
-  {% else %}
-
   <form method="get" class="filter-bar-form">
-    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search query…" class="filter-search" />
-    <input type="number" step="0.1" name="min_pos" value="{{ filters.min_pos }}" placeholder="Min position" class="filter-search filter-narrow" />
-    <input type="number" step="0.1" name="max_pos" value="{{ filters.max_pos }}" placeholder="Max position" class="filter-search filter-narrow" />
-    <input type="number" name="min_clicks" value="{{ filters.min_clicks }}" placeholder="Min clicks" class="filter-search filter-narrow" />
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search keyword…" class="filter-search" />
+
+    <select name="source" class="filter-select">
+      <option value="" {{ 'selected' if not filters.source }}>All sources</option>
+      {% for s in distinct_sources %}
+      <option value="{{ s }}" {{ 'selected' if filters.source == s }}>{{ source_labels.get(s, s) }}</option>
+      {% endfor %}
+    </select>
+
     <select name="in_ads" class="filter-select">
       <option value=""    {{ 'selected' if not filters.in_ads }}>In ads — any</option>
       <option value="yes" {{ 'selected' if filters.in_ads == 'yes' }}>In ads only</option>
       <option value="no"  {{ 'selected' if filters.in_ads == 'no' }}>Not in ads</option>
     </select>
+
+    <select name="missing" class="filter-select">
+      <option value=""                  {{ 'selected' if not filters.missing }}>Missing from — any</option>
+      <option value="title"             {{ 'selected' if filters.missing == 'title' }}>Missing from title</option>
+      <option value="meta_title"        {{ 'selected' if filters.missing == 'meta_title' }}>Missing from meta title</option>
+      <option value="meta_description"  {{ 'selected' if filters.missing == 'meta_description' }}>Missing from meta description</option>
+      <option value="description"       {{ 'selected' if filters.missing == 'description' }}>Missing from description</option>
+      <option value="image_alts"        {{ 'selected' if filters.missing == 'image_alts' }}>Missing from image alts</option>
+    </select>
+
     <input type="hidden" name="sort" value="{{ sort }}" />
     <input type="hidden" name="dir" value="{{ direction }}" />
     <input type="hidden" name="per_page" value="{{ per_page }}" />
+
     <button type="submit" class="btn-ghost">Apply</button>
-    {% if filters.q or filters.in_ads or filters.min_pos or filters.max_pos or filters.min_clicks %}
+    {% if filters.q or filters.source or filters.in_ads or filters.missing %}
     <a href="?per_page={{ per_page }}" class="muted-link" style="align-self:center;">Clear</a>
     {% endif %}
   </form>
 
-  {% if not organic_rows and total == 0 %}
-    <div class="empty-state" style="padding:24px 4px;">
-      <p>No organic queries found for this product's page in the last 90 days.</p>
-      <p class="empty-sub">Either the page hasn't ranked yet, or the page URL doesn't match a verified property.</p>
-    </div>
-  {% else %}
-    <div class="kw-table-wrap">
-      <table class="data-table kw-table">
-        <thead>
-          <tr>
-            {{ sort_th("Query",       "query",       sort, direction, qs_no_sort) }}
-            {{ sort_th("Position",    "position",    sort, direction, qs_no_sort, num=True) }}
-            {{ sort_th("Clicks",      "clicks",      sort, direction, qs_no_sort, num=True) }}
-            {{ sort_th("Impressions", "impressions", sort, direction, qs_no_sort, num=True) }}
-            {{ sort_th("CTR",         "ctr",         sort, direction, qs_no_sort, num=True) }}
-            <th>In ads?</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in organic_rows %}
-          <tr>
-            <td>{{ r.query }}</td>
-            <td class="num">{{ '%.1f'|format(r.position) }}</td>
-            <td class="num">{{ r.clicks }}</td>
-            <td class="num">{{ r.impressions }}</td>
-            <td class="num">{{ '%.1f'|format(r.ctr * 100) }}%</td>
-            <td>
-              {% if r.in_ads %}
-                <span class="tag tag-primary">{{ r.in_ads_bucket }}</span>
-              {% else %}
-                <span class="conn-desc">no</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {{ pagination(page, total_pages, total, per_page, qs_no_page) }}
-  {% endif %}
-
-  {% endif %}
-</section>
-
-<section class="panel">
-  <div class="panel-head"><h2>Paid — Google Ads</h2></div>
+  {% if not items %}
   <div class="empty-state" style="padding:24px 4px;">
-    <p>Awaiting Google Ads campaign sync.</p>
-    <p class="empty-sub">
-      Connection is verified, but we don't sync individual campaign / ad-group / search-term data yet.
-      That's the next backend after this batch.
-    </p>
+    <p>No keywords match — or none have been generated yet.</p>
+    <p class="empty-sub">Run <a href="/products/{{ product.id }}/ads" class="muted-link">keyword research</a> on the Ads tab to seed the table.</p>
   </div>
+  {% else %}
+  <div class="kw-table-wrap">
+    <table class="data-table kw-table master-kw">
+      <thead>
+        <tr>
+          {{ sort_th("Keyword", "keyword", sort, direction, qs_no_sort) }}
+          {{ sort_th("Source", "source", sort, direction, qs_no_sort) }}
+          {{ sort_th("Vol/mo", "volume", sort, direction, qs_no_sort, num=True) }}
+          {{ sort_th("Comp", "competition", sort, direction, qs_no_sort) }}
+          {{ sort_th("Org pos", "position", sort, direction, qs_no_sort, num=True) }}
+          {{ sort_th("Org clicks", "clicks", sort, direction, qs_no_sort, num=True) }}
+          {{ sort_th("Org impr", "impressions", sort, direction, qs_no_sort, num=True) }}
+          <th class="cov-group" title="Title / Meta title / Meta description / Description / Image alts">In…</th>
+          {{ sort_th("Ads", "bucket", sort, direction, qs_no_sort) }}
+          {{ sort_th("Score", "score", sort, direction, qs_no_sort, num=True) }}
+          <th class="actions-col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in items %}
+        <tr>
+          <td>
+            <div class="kw-text">{{ r.keyword }}</div>
+            {% if r.rationale %}<div class="kw-rationale">{{ r.rationale }}</div>{% endif %}
+            {% if r.seo_targets %}
+            <div class="kw-targets">
+              targeted for: {{ r.seo_targets|join(', ') }}
+              <form method="post" action="/products/{{ product.id }}/keywords/{{ r.id }}/clear-seo" class="inline-form">
+                <button type="submit" class="link-danger">clear</button>
+              </form>
+            </div>
+            {% endif %}
+          </td>
+          <td><span class="tag">{{ r.source_label }}</span></td>
+          <td class="num">{{ r.volume if r.volume else '—' }}</td>
+          <td>{% if r.competition %}<span class="tag tag-comp-{{ r.competition }}">{{ r.competition }}</span>{% else %}—{% endif %}</td>
+          <td class="num">{{ '%.1f'|format(r.organic_position) if r.organic_position else '—' }}</td>
+          <td class="num">{{ r.organic_clicks if r.organic_clicks else '—' }}</td>
+          <td class="num">{{ r.organic_impressions if r.organic_impressions else '—' }}</td>
+          <td class="cov-cell">
+            {{ coverage_cell("Title", r.in_title) }}
+            {{ coverage_cell("Meta title", r.in_meta_title) }}
+            {{ coverage_cell("Meta description", r.in_meta_description) }}
+            {{ coverage_cell("Description", r.in_description) }}
+            {{ coverage_cell("Image alts", r.in_image_alts) }}
+          </td>
+          <td>
+            {% if r.bucket == 'primary' %}<span class="tag tag-primary">primary</span>
+            {% elif r.bucket == 'secondary' %}<span class="tag">secondary</span>
+            {% elif r.bucket == 'negative' %}<span class="tag tag-neg">negative</span>
+            {% else %}<span class="conn-desc">—</span>{% endif %}
+          </td>
+          <td class="num">
+            {% if r.score is not none %}
+            <span class="score-mini score-{{ 'good' if r.score >= 80 else 'ok' if r.score >= 60 else 'warn' if r.score >= 40 else 'bad' }}">{{ r.score }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td class="actions-col">
+            <details class="kw-actions-menu">
+              <summary class="btn-ghost" style="padding:4px 10px;font-size:12px;">Push ▾</summary>
+              <form method="post" action="/products/{{ product.id }}/keywords/{{ r.id }}/place" class="kw-place-form">
+                <div class="place-section">
+                  <div class="place-label">Use in SEO</div>
+                  <label><input type="checkbox" name="seo_field" value="title"            {{ 'checked' if 'title' in r.seo_targets }}> Title</label>
+                  <label><input type="checkbox" name="seo_field" value="meta_title"       {{ 'checked' if 'meta_title' in r.seo_targets }}> Meta title</label>
+                  <label><input type="checkbox" name="seo_field" value="meta_description" {{ 'checked' if 'meta_description' in r.seo_targets }}> Meta description</label>
+                  <label><input type="checkbox" name="seo_field" value="description"      {{ 'checked' if 'description' in r.seo_targets }}> Description</label>
+                  <label><input type="checkbox" name="seo_field" value="image_alts"       {{ 'checked' if 'image_alts' in r.seo_targets }}> Image alts</label>
+                </div>
+                <div class="place-section">
+                  <div class="place-label">Ads bucket</div>
+                  <label><input type="radio" name="bucket" value=""          {{ 'checked' if not r.bucket or r.bucket == 'unsorted' }}> (no change)</label>
+                  <label><input type="radio" name="bucket" value="primary"   {{ 'checked' if r.bucket == 'primary' }}> Primary</label>
+                  <label><input type="radio" name="bucket" value="secondary" {{ 'checked' if r.bucket == 'secondary' }}> Secondary</label>
+                  <label><input type="radio" name="bucket" value="negative"  {{ 'checked' if r.bucket == 'negative' }}> Negative</label>
+                </div>
+                <div class="form-actions" style="margin-top:8px;">
+                  <button type="submit" formaction="/products/{{ product.id }}/keywords/{{ r.id }}/ai-suggest" class="btn-ghost" style="font-size:12px;">AI suggest</button>
+                  <button type="submit" class="btn-primary" style="font-size:12px;">Apply</button>
+                </div>
+              </form>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pagination(page, total_pages, total, per_page, qs_no_page) }}
+  {% endif %}
 </section>
 {% endblock %}

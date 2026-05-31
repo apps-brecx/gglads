@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from gglads.models.product_chat import ProductChatMessage
 from gglads.models.product_keywords import ProductKeyword
 from gglads.models.shopify_product import (
     ProductSeoDraft,
@@ -178,10 +179,47 @@ def generate_seo_drafts(
             "No approved keywords yet. Run keyword research on the Ads tab and approve some Primary/Secondary keywords first.",
         )
 
-    user_msg = (
-        f"{_product_brief(db, product)}\n"
-        f"Target keywords (use 2-4 naturally): {', '.join(keywords[:12])}\n"
-    )
+    # Keywords the user pushed to specific SEO fields — must include
+    targeted = db.execute(
+        select(ProductKeyword.keyword, ProductKeyword.seo_targets)
+        .where(ProductKeyword.product_id == product_id)
+        .where(ProductKeyword.seo_targets.is_not(None))
+    ).all()
+    must_include_lines: list[str] = []
+    for kw, targets_json in targeted:
+        try:
+            targets = json.loads(targets_json) if targets_json else []
+        except (ValueError, TypeError):
+            targets = []
+        if targets:
+            must_include_lines.append(
+                f"- \"{kw}\" → must appear in: {', '.join(targets)}"
+            )
+
+    # User chat context (last 20 messages, oldest first) so Claude has the story
+    chat_rows = db.execute(
+        select(ProductChatMessage)
+        .where(ProductChatMessage.product_id == product_id)
+        .where(ProductChatMessage.topic == "seo")
+        .order_by(ProductChatMessage.created_at.desc())
+        .limit(20)
+    ).scalars().all()
+    chat_rows = list(reversed(chat_rows))
+    chat_lines = "\n".join(
+        f"  [{m.role}] {m.content[:500]}" for m in chat_rows
+    ) or "  (no prior chat)"
+
+    user_msg_parts = [
+        _product_brief(db, product),
+        f"Target keywords (use 2-4 naturally): {', '.join(keywords[:12])}",
+    ]
+    if must_include_lines:
+        user_msg_parts.append(
+            "Mandatory placements (these MUST be naturally included where listed):\n"
+            + "\n".join(must_include_lines)
+        )
+    user_msg_parts.append(f"Recent chat context from the user:\n{chat_lines}")
+    user_msg = "\n\n".join(user_msg_parts)
     text, err = claude_svc.chat(
         db, system=SEO_SYSTEM, user_message=user_msg, max_tokens=4000
     )
@@ -388,6 +426,57 @@ def push_all_approved_image_alts(
     if failures:
         return pushed > 0, f"Pushed {pushed}/{len(drafts)}. Errors: {'; '.join(failures)}"
     return True, f"Pushed {pushed} image alt(s) to Shopify."
+
+
+def push_approved_seo_to_shopify(
+    db: Session, product_id: int
+) -> tuple[bool, str]:
+    """Push every approved-not-yet-pushed SEO draft (title / meta / description)
+    to Shopify in one productUpdate call, then mark them as pushed."""
+    drafts = db.execute(
+        select(ProductSeoDraft)
+        .where(ProductSeoDraft.product_id == product_id)
+        .where(ProductSeoDraft.field.in_(("seo_title", "meta_description", "description")))
+        .where(ProductSeoDraft.status == "approved")
+        .where(ProductSeoDraft.pushed_to_shopify_at.is_(None))
+    ).scalars().all()
+    if not drafts:
+        return False, "No approved SEO drafts waiting to be pushed."
+
+    by_field = {d.field: d for d in drafts}
+    seo_title = by_field["seo_title"].suggested_value if "seo_title" in by_field else None
+    meta_desc = (
+        by_field["meta_description"].suggested_value if "meta_description" in by_field else None
+    )
+    description_html = (
+        by_field["description"].suggested_value if "description" in by_field else None
+    )
+
+    ok, msg = shopify_push_svc.update_product_seo(
+        db,
+        product_id,
+        description_html=description_html,
+        seo_title=seo_title,
+        seo_description=meta_desc,
+    )
+    if not ok:
+        return False, msg
+
+    # Mark all pushed and mirror values locally so the UI shows them as current.
+    product = db.get(ShopifyProduct, product_id)
+    now = datetime.now(timezone.utc)
+    for d in drafts:
+        d.pushed_to_shopify_at = now
+        if product is not None:
+            if d.field == "seo_title":
+                product.seo_title = d.suggested_value
+            elif d.field == "meta_description":
+                product.seo_meta_description = d.suggested_value
+            elif d.field == "description":
+                product.description_html = d.suggested_value
+    db.commit()
+    pushed_names = ", ".join(sorted(by_field.keys()))
+    return True, f"Pushed to Shopify: {pushed_names}."
 
 
 def approve_and_push_all_pending_image_alts(

@@ -43,7 +43,12 @@
       {% endif %}
     </div>
     <div class="form-actions" style="margin:0;">
-      <form method="post" action="/products/{{ product.id }}/keywords/research" class="inline-form">
+      <form method="post" action="/products/{{ product.id }}/keywords/apply-chat" class="inline-form"
+            title="Re-evaluate existing keywords against your latest chat rules. No KP/SC calls.">
+        <button type="submit" class="btn-ghost">Apply chat now</button>
+      </form>
+      <form method="post" action="/products/{{ product.id }}/keywords/research" class="inline-form"
+            title="Full re-research: Claude + Keyword Planner + Search Console">
         <button type="submit" class="btn-primary">Re-research (all sources)</button>
       </form>
     </div>
@@ -121,6 +126,35 @@
     <p class="empty-sub">Run <a href="/products/{{ product.id }}/ads" class="muted-link">keyword research</a> on the Ads tab to seed the table.</p>
   </div>
   {% else %}
+
+  <form method="post" action="/products/{{ product.id }}/keywords/bulk-place" id="bulk-kw-form" class="bulk-bar">
+    <span class="bulk-bar-label">
+      Bulk: <span id="bulk-count">0</span> selected
+      <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all on page</button>
+      <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+    </span>
+    <div class="bulk-bar-controls">
+      <label class="bulk-bar-group">
+        <span class="conn-desc">Push to SEO</span>
+        <label><input type="checkbox" name="seo_field" value="title" /> Title</label>
+        <label><input type="checkbox" name="seo_field" value="meta_title" /> Meta T</label>
+        <label><input type="checkbox" name="seo_field" value="meta_description" /> Meta D</label>
+        <label><input type="checkbox" name="seo_field" value="description" /> Desc</label>
+        <label><input type="checkbox" name="seo_field" value="image_alts" /> Alts</label>
+      </label>
+      <label class="bulk-bar-group">
+        <span class="conn-desc">Ads bucket</span>
+        <select name="bucket">
+          <option value="">(no change)</option>
+          <option value="primary">Primary</option>
+          <option value="secondary">Secondary</option>
+          <option value="negative">Negative</option>
+          <option value="ignore">Ignore</option>
+        </select>
+      </label>
+      <button type="submit" class="btn-primary">Apply to selected</button>
+    </div>
+  </form>
   <div class="kw-table-wrap">
     <table class="data-table kw-table master-kw">
       <thead>
@@ -146,7 +180,10 @@
         {% for r in items %}
         <tr>
           <td>
-            <div class="kw-text">{{ r.keyword }}</div>
+            <label class="kw-row-pick">
+              <input type="checkbox" name="kw_id" value="{{ r.id }}" form="bulk-kw-form" class="bulk-kw-cb" />
+              <span class="kw-text">{{ r.keyword }}</span>
+            </label>
             {% if 'rationale' in cols and r.rationale %}<div class="kw-rationale">{{ r.rationale }}</div>{% endif %}
             {% if r.seo_targets %}
             <div class="kw-targets">
@@ -217,4 +254,29 @@
   {{ pagination(page, total_pages, total, per_page, qs_no_page) }}
   {% endif %}
 </section>
+
+<script>
+  (function() {
+    const cbs = document.querySelectorAll('.bulk-kw-cb');
+    const count = document.getElementById('bulk-count');
+    const selectPage = document.getElementById('bulk-select-page');
+    const clearBtn = document.getElementById('bulk-clear');
+    function refresh() {
+      if (!count) return;
+      count.textContent = String(document.querySelectorAll('.bulk-kw-cb:checked').length);
+    }
+    cbs.forEach(cb => cb.addEventListener('change', refresh));
+    if (selectPage) selectPage.addEventListener('click', e => {
+      e.preventDefault();
+      cbs.forEach(cb => { cb.checked = true; });
+      refresh();
+    });
+    if (clearBtn) clearBtn.addEventListener('click', e => {
+      e.preventDefault();
+      cbs.forEach(cb => { cb.checked = false; });
+      refresh();
+    });
+    refresh();
+  })();
+</script>
 {% endblock %}

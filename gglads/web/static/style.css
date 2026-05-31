@@ -2537,6 +2537,76 @@ textarea:focus {
   white-space: nowrap;
 }
 
+/* ---------- Bulk push action bar ---------- */
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: rgba(124, 156, 255, 0.04);
+  border: 1px dashed rgba(124, 156, 255, 0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 10px 0;
+}
+
+.bulk-bar-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.bulk-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.bulk-bar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.bulk-bar-group > span.conn-desc {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.bulk-bar-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.bulk-bar-group select {
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.kw-row-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.kw-row-pick input[type="checkbox"] {
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
 .source-error-msg {
   color: var(--text);
   word-break: break-word;

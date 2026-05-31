@@ -1843,6 +1843,33 @@ async def product_keyword_place(
     return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
 
 
+@app.post("/products/{product_id}/keywords/bulk-place")
+async def product_keywords_bulk_place(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    raw_ids = form.getlist("kw_id")
+    keyword_ids: list[int] = []
+    for v in raw_ids:
+        try:
+            keyword_ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    seo_fields = form.getlist("seo_field")
+    bucket = (form.get("bucket") or "").strip()
+    ok, detail = kw_place_svc.bulk_place(
+        db, product_id, keyword_ids, list(seo_fields), bucket or None
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    referer = request.headers.get("referer", f"/products/{product_id}/keyword-rank")
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.post("/products/{product_id}/keywords/{keyword_id}/clear-seo")
 def product_keyword_clear_seo(
     product_id: int, keyword_id: int, request: Request, db: DbDep
@@ -1935,6 +1962,24 @@ def product_keywords_research(product_id: int, request: Request, db: DbDep) -> R
            "ok" if ok else "error")
     return RedirectResponse(
         f"/products/{product_id}/ads", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/products/{product_id}/keywords/apply-chat")
+def product_keywords_apply_chat(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    """Cheap refresh: Claude re-evaluates existing keywords against chat rules.
+    No Keyword Planner, no Search Console — just Claude."""
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    ok, detail = kw_research_svc.apply_chat_to_keywords(db, product_id, user.id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/products/{product_id}/keyword-rank", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

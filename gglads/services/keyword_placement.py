@@ -130,6 +130,51 @@ Only include fields that are actually a good fit. Empty list is OK if none.
 """
 
 
+def bulk_place(
+    db: Session,
+    product_id: int,
+    keyword_ids: list[int],
+    seo_fields: list[str],
+    bucket: str | None,
+) -> tuple[bool, str]:
+    """Apply the same SEO targets + bucket to many keywords at once."""
+    if not keyword_ids:
+        return False, "No keywords selected."
+    valid_fields = [f for f in seo_fields if f in SEO_FIELDS]
+    if bucket and bucket not in BUCKETS:
+        return False, "Invalid bucket."
+
+    bucketed = 0
+    pushed = 0
+    not_found = 0
+    for kid in keyword_ids:
+        kw = db.get(ProductKeyword, kid)
+        if kw is None or kw.product_id != product_id:
+            not_found += 1
+            continue
+        if valid_fields:
+            existing = parse_seo_targets(kw.seo_targets)
+            merged = sorted(set(existing) | set(valid_fields))
+            kw.seo_targets = json.dumps(merged)
+            kw.updated_at = datetime.now(timezone.utc)
+            pushed += 1
+        if bucket:
+            kw.bucket = bucket
+            kw.updated_at = datetime.now(timezone.utc)
+            bucketed += 1
+    db.commit()
+
+    bits: list[str] = []
+    if pushed:
+        bits.append(f"SEO targets added to {pushed} keyword(s)")
+    if bucketed:
+        bits.append(f"{bucketed} moved to {bucket}")
+    if not bits:
+        return False, "Nothing chosen — pick SEO fields or a bucket."
+    suffix = f" ({not_found} not found)" if not_found else ""
+    return True, " · ".join(bits) + suffix + "."
+
+
 def ai_suggest_placement(
     db: Session, product_id: int, keyword_id: int
 ) -> tuple[bool, str, dict | None]:

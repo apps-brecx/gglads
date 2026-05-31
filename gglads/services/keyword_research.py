@@ -7,7 +7,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
@@ -126,7 +126,147 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-def _normalize_candidate(raw: dict) -> dict | None:
+def apply_chat_to_keywords(
+    db: Session, product_id: int, started_by_user_id: int | None
+) -> tuple[bool, str]:
+    """Re-evaluate existing product_keywords against the user's chat rules.
+
+    Cheaper than full research — Claude only, no Keyword Planner, no Search
+    Console. Useful when the user has just sent a chat message and wants the
+    current keyword set rewritten to obey it. Can remove / re-bucket
+    keywords but does NOT add new ones.
+    """
+    product = db.get(ShopifyProduct, product_id)
+    if product is None:
+        return False, "Product not found."
+
+    existing = db.execute(
+        select(ProductKeyword).where(ProductKeyword.product_id == product_id)
+    ).scalars().all()
+    if not existing:
+        return False, "No keywords yet. Run full research first."
+
+    chat_rows = chat_svc.list_context_for_product(
+        db, product_id, topics=("seo", "general", "keywords")
+    )
+    if not chat_rows:
+        return False, "No chat rules to apply. Send a chat message first."
+
+    chat_lines = "\n".join(
+        f"  [{('GLOBAL' if m.product_id is None else 'product')}/{m.role}] {m.content[:500]}"
+        for m in chat_rows[-20:]
+    )
+
+    # Build a numbered list Claude can refer to by index
+    rows_str = "\n".join(
+        f"  {i}. \"{kw.keyword}\" | bucket={kw.bucket} | "
+        f"score={kw.relevance_score or '?'} | source={kw.source}"
+        for i, kw in enumerate(existing)
+    )
+
+    system = (
+        "You are a Google Ads keyword reviewer. Apply the user's chat rules "
+        "strictly to the existing keyword list. For each keyword, decide an "
+        "action. DO NOT invent new keywords — only process the listed ones. "
+        "If a keyword obviously violates the chat rules, remove or "
+        "negative-match it. Return JSON only.\n\n"
+        "Actions:\n"
+        '  - "keep"       — meets all rules, leave alone\n'
+        '  - "remove"     — violates rules, delete entirely\n'
+        '  - "negative"   — should be a negative match\n'
+        '  - "secondary"  — keep but lower priority\n'
+        '  - "primary"    — keep at top priority\n\n'
+        "Format:\n"
+        '{ "decisions": [{"index": 0, "action": "keep", "reason": "..."}, ...] }\n'
+    )
+    user_msg = (
+        f"Product: {product.title}\n"
+        f"Type: {product.product_type or '—'}\n"
+        f"Vendor: {product.vendor or '—'}\n\n"
+        f"User chat rules (apply these strictly):\n{chat_lines}\n\n"
+        f"Existing keywords ({len(existing)}):\n{rows_str}"
+    )
+
+    run = KeywordResearchRun(
+        product_id=product_id, started_by_user_id=started_by_user_id
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    text, err = claude_svc.chat(
+        db, system=system, user_message=user_msg, max_tokens=4000
+    )
+    if err or not text:
+        run.finished_at = datetime.now(timezone.utc)
+        run.ok = False
+        run.sources_used = "chat_apply"
+        run.detail = f"Claude error: {err or 'no response'}"
+        run.source_errors = json.dumps({"ai": err or "no response"})
+        db.commit()
+        return False, run.detail
+
+    parsed = _extract_json(text)
+    decisions = (parsed or {}).get("decisions") if isinstance(parsed, dict) else None
+    if not decisions or not isinstance(decisions, list):
+        run.finished_at = datetime.now(timezone.utc)
+        run.ok = False
+        run.sources_used = "chat_apply"
+        run.detail = "Claude response wasn't parseable as decisions."
+        db.commit()
+        return False, run.detail
+
+    removed = 0
+    rebucketed = 0
+    for d in decisions:
+        if not isinstance(d, dict):
+            continue
+        try:
+            idx = int(d.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if idx < 0 or idx >= len(existing):
+            continue
+        action = (d.get("action") or "").strip().lower()
+        kw = existing[idx]
+        if action == "remove":
+            db.delete(kw)
+            removed += 1
+        elif action == "negative":
+            if kw.bucket != "negative":
+                kw.bucket = "negative"
+                kw.updated_at = datetime.now(timezone.utc)
+                rebucketed += 1
+        elif action == "secondary":
+            if kw.bucket != "secondary":
+                kw.bucket = "secondary"
+                kw.updated_at = datetime.now(timezone.utc)
+                rebucketed += 1
+        elif action == "primary":
+            if kw.bucket != "primary":
+                kw.bucket = "primary"
+                kw.updated_at = datetime.now(timezone.utc)
+                rebucketed += 1
+        # 'keep' (and unknown actions) → no change
+
+    db.commit()
+
+    total = db.scalar(
+        select(func.count(ProductKeyword.id))
+        .where(ProductKeyword.product_id == product_id)
+    ) or 0
+    run.finished_at = datetime.now(timezone.utc)
+    run.ok = True
+    run.sources_used = "chat_apply"
+    run.keywords_added = 0
+    run.keywords_total = total
+    run.detail = (
+        f"Applied chat rules: {removed} removed, {rebucketed} re-bucketed, "
+        f"{total} keywords now total."
+    )
+    db.commit()
+    return True, run.detail
+
     keyword = (raw.get("keyword") or "").strip().lower()
     if not keyword or len(keyword) > 250:
         return None

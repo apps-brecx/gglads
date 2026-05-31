@@ -2526,6 +2526,23 @@ textarea:focus {
   background: var(--bg-hover);
 }
 
+/* Pushed-to-ads visual indicator — accent stripe down the keyword cell */
+.master-kw tbody tr.is-pushed td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent), 1px 0 0 var(--border);
+}
+
+.master-kw tbody tr.pushed-primary td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent), 1px 0 0 var(--border);
+}
+
+.master-kw tbody tr.pushed-secondary td:first-child {
+  box-shadow: inset 3px 0 0 var(--muted-strong), 1px 0 0 var(--border);
+}
+
+.master-kw tbody tr.pushed-negative td:first-child {
+  box-shadow: inset 3px 0 0 var(--fail), 1px 0 0 var(--border);
+}
+
 .cov-th {
   font-size: 10px;
   letter-spacing: 0.05em;

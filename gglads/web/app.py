@@ -1978,9 +1978,8 @@ def product_keywords_apply_chat(
         return PlainTextResponse("Forbidden", status_code=403)
     ok, detail = kw_research_svc.apply_chat_to_keywords(db, product_id, user.id)
     _flash(request, detail, "ok" if ok else "error")
-    return RedirectResponse(
-        f"/products/{product_id}/keyword-rank", status_code=status.HTTP_303_SEE_OTHER
-    )
+    referer = request.headers.get("referer") or f"/products/{product_id}/keyword-rank"
+    return RedirectResponse(referer, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/products/{product_id}/keywords/{keyword_id}/bucket")

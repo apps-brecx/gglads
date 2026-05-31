@@ -3,7 +3,10 @@
 {% macro kw_row(k, product) -%}
 <tr>
   <td>
-    <div class="kw-text">{{ k.keyword }}</div>
+    <label class="kw-row-pick">
+      <input type="checkbox" name="kw_id" value="{{ k.id }}" form="ads-bulk-form" class="bulk-kw-cb" />
+      <span class="kw-text">{{ k.keyword }}</span>
+    </label>
     {% if k.rationale %}<div class="kw-rationale">{{ k.rationale }}</div>{% endif %}
   </td>
   <td>{% if k.intent %}<span class="tag">{{ k.intent }}</span>{% endif %}</td>
@@ -53,7 +56,14 @@
       {% endif %}
     </div>
     <div class="form-actions" style="margin:0;">
-      <form method="post" action="/products/{{ product.id }}/keywords/research" class="inline-form">
+      {% if kw.total %}
+      <form method="post" action="/products/{{ product.id }}/keywords/apply-chat" class="inline-form"
+            title="Re-evaluate existing keywords against your latest chat rules. No KP/SC calls.">
+        <button type="submit" class="btn-ghost">Apply chat now</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/products/{{ product.id }}/keywords/research" class="inline-form"
+            title="Full re-research: Claude + Keyword Planner + Search Console">
         <button type="submit" class="btn-primary">
           {% if kw.total %}Re-run research{% else %}Research keywords ↻{% endif %}
         </button>
@@ -74,40 +84,34 @@
 </section>
 {% else %}
 
-<section class="panel">
-  <div class="panel-head">
-    <h2>Candidates to triage <span class="conn-desc">{{ kw.candidates|length }}</span></h2>
-    <p class="conn-desc">Click P / S / N / ✕ to assign. Use the bucket sections below to review later.</p>
+{% if kw.candidates %}
+<div class="auth-error" style="background:rgba(124,156,255,0.06);border-color:rgba(124,156,255,0.2);color:var(--accent);">
+  <strong>{{ kw.candidates|length }} keywords are still untriaged</strong> —
+  visit the <a href="/products/{{ product.id }}/keyword-rank" class="muted-link" style="color:var(--accent);text-decoration:underline;">Keywords tab</a>
+  to push them to Primary / Secondary / Negative so they show up here.
+</div>
+{% endif %}
+
+<form method="post" action="/products/{{ product.id }}/keywords/bulk-place" id="ads-bulk-form" class="bulk-bar">
+  <span class="bulk-bar-label">
+    Bulk: <span id="ads-bulk-count">0</span> selected
+    <button type="button" id="ads-bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all visible</button>
+    <button type="button" id="ads-bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+  </span>
+  <div class="bulk-bar-controls">
+    <label class="bulk-bar-group">
+      <span class="conn-desc">Move to bucket</span>
+      <select name="bucket">
+        <option value="">(no change)</option>
+        <option value="primary">Primary</option>
+        <option value="secondary">Secondary</option>
+        <option value="negative">Negative</option>
+        <option value="unsorted">Remove from ads</option>
+      </select>
+    </label>
+    <button type="submit" class="btn-primary">Apply to selected</button>
   </div>
-  {% if kw.candidates %}
-  <div class="kw-table-wrap">
-    <table class="data-table kw-table">
-      <thead>
-        <tr>
-          <th>Keyword</th>
-          <th>Intent</th>
-          <th>Funnel</th>
-          <th>Match</th>
-          <th class="num">Vol/mo</th>
-          <th>Comp</th>
-          <th>Bid</th>
-          <th class="num">Organic</th>
-          <th class="num">Score</th>
-          <th>Bucket</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for k in kw.candidates %}{{ kw_row(k, product) }}{% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state" style="padding:20px 4px;">
-    <p>All candidates triaged.</p>
-    <p class="empty-sub">Re-run research to find new keywords.</p>
-  </div>
-  {% endif %}
-</section>
+</form>
 
 {% for bucket_key, bucket_label, bucket_color in [
   ('primary', 'Primary — must-bid', 'primary'),
@@ -139,6 +143,30 @@
   {% endif %}
 </section>
 {% endfor %}
+
+<script>
+  (function() {
+    var cbs = document.querySelectorAll('.bulk-kw-cb');
+    var count = document.getElementById('ads-bulk-count');
+    var selectPage = document.getElementById('ads-bulk-select-page');
+    var clearBtn = document.getElementById('ads-bulk-clear');
+    function refresh() {
+      if (count) count.textContent = String(document.querySelectorAll('.bulk-kw-cb:checked').length);
+    }
+    cbs.forEach(function(cb) { cb.addEventListener('change', refresh); });
+    if (selectPage) selectPage.addEventListener('click', function(e) {
+      e.preventDefault();
+      cbs.forEach(function(cb) { cb.checked = true; });
+      refresh();
+    });
+    if (clearBtn) clearBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      cbs.forEach(function(cb) { cb.checked = false; });
+      refresh();
+    });
+    refresh();
+  })();
+</script>
 
 {% endif %}
 

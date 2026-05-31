@@ -536,20 +536,27 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
         }
     except httpx.HTTPError as exc:
         msg = f"Network error: {type(exc).__name__}: {exc}"
-        run.finished_at = datetime.now(timezone.utc)
-        run.ok = False
-        run.detail = msg
-        db.commit()
         logger.exception("Shopify sync failed")
-        return False, msg, {}
-    except Exception as exc:
+        return _finish_run_with_error(db, run, msg), msg, {}
+    except Exception as exc:  # noqa: BLE001 — catch-all so the request doesn't 500
         msg = f"{type(exc).__name__}: {exc}"
-        run.finished_at = datetime.now(timezone.utc)
-        run.ok = False
-        run.detail = msg
-        db.commit()
         logger.exception("Shopify sync failed")
-        return False, msg, {}
+        return _finish_run_with_error(db, run, msg), msg, {}
+
+
+def _finish_run_with_error(db: Session, run: ShopifySyncRun, msg: str) -> bool:
+    """Record the failure on the run row even if the session was rolled back."""
+    db.rollback()  # safe if there's nothing to roll back
+    fresh_run = db.get(ShopifySyncRun, run.id)
+    if fresh_run is not None:
+        fresh_run.finished_at = datetime.now(timezone.utc)
+        fresh_run.ok = False
+        fresh_run.detail = msg[:1000]
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+    return False
 
 
 def last_sync_run(db: Session) -> ShopifySyncRun | None:

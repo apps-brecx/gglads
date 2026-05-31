@@ -135,11 +135,14 @@ class ShopifyProductPublication(Base):
 class ShopifyProductImage(Base):
     __tablename__ = "shopify_product_images"
 
+    # Composite PK so the same Shopify image can be attached to multiple
+    # products (Shopify allows shared media — e.g. a brand-collection shot
+    # reused across SKUs).
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     product_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("shopify_products.id", ondelete="CASCADE"),
-        nullable=False,
+        primary_key=True,
         index=True,
     )
     position: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)

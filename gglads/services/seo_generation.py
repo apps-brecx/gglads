@@ -380,7 +380,11 @@ def push_image_alt(
     if not ok:
         return False, msg
     draft.pushed_to_shopify_at = datetime.now(timezone.utc)
-    img = db.get(ShopifyProductImage, draft.image_id)
+    img = db.scalar(
+        select(ShopifyProductImage)
+        .where(ShopifyProductImage.id == draft.image_id)
+        .where(ShopifyProductImage.product_id == product_id)
+    )
     if img is not None:
         img.alt_text = draft.suggested_value
     db.commit()

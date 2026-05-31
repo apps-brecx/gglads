@@ -1,54 +1,57 @@
 {% extends "product_layout.html" %}
 
-{% macro draft_card(label, current_value, charlimit, draft, product, render_html=False) -%}
-<section class="panel seo-field">
-  <div class="panel-head">
-    <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:14px;color:var(--text);">{{ label }}</h2>
-    {% if charlimit %}<span class="conn-desc">limit {{ charlimit }} chars</span>{% endif %}
-  </div>
+{% macro draft_card(label, current_value, charlimit, draft, product, render_html=False, label_help="") -%}
+{% set is_over = charlimit and current_value and (current_value|length > charlimit) %}
+<section class="seo-card">
+  <header class="seo-card-head">
+    <div>
+      <h2>{{ label }}</h2>
+      {% if label_help %}<p>{{ label_help }}</p>{% endif %}
+    </div>
+    {% if charlimit %}<span class="seo-char-budget">limit {{ charlimit }} chars</span>{% endif %}
+  </header>
 
-  <div class="seo-current">
-    <div class="seo-label-row">
-      <span class="meta-key">Current (in Shopify)</span>
-      {% if charlimit and current_value %}<span class="conn-desc">{{ current_value|length }} chars</span>{% endif %}
+  <div class="seo-block seo-block-current">
+    <div class="seo-block-row">
+      <span class="seo-block-label">Current (in Shopify)</span>
+      {% if charlimit and current_value %}
+        <span class="seo-block-meta {{ 'is-over' if is_over }}">
+          {{ current_value|length }} chars{% if is_over %} · over by {{ current_value|length - charlimit }}{% endif %}
+        </span>
+      {% endif %}
     </div>
     {% if render_html %}
-    <div class="seo-rendered">
-      {% if current_value %}{{ current_value|safe }}{% else %}<em class="conn-desc">empty</em>{% endif %}
-    </div>
+      <div class="seo-rendered">
+        {% if current_value %}{{ current_value|safe }}{% else %}<em class="seo-block-meta">empty</em>{% endif %}
+      </div>
     {% else %}
-    <div class="alt-current-box">
-      {% if current_value %}{{ current_value }}{% else %}<em class="conn-desc">empty</em>{% endif %}
-    </div>
+      <div class="seo-block-value">
+        {% if current_value %}{{ current_value }}{% else %}<em class="seo-block-meta">empty</em>{% endif %}
+      </div>
     {% endif %}
   </div>
 
   {% if draft %}
     {% if draft.verdict == 'keep' %}
-    <div class="verdict-block verdict-keep">
-      <div class="verdict-head">
-        <span class="verdict-pill verdict-pill-keep">AI says: keep current ❤</span>
-        {% if charlimit %}<span class="conn-desc">{{ draft.suggested_value|length }} chars</span>{% endif %}
+    <div class="seo-block seo-block-suggestion is-keep">
+      <div class="seo-block-row">
+        <span class="verdict-pill verdict-pill-keep">AI approves current ✓</span>
       </div>
-      {% if draft.rationale %}
-      <div class="verdict-rationale">"{{ draft.rationale }}"</div>
-      {% endif %}
+      {% if draft.rationale %}<div class="seo-block-rationale">{{ draft.rationale }}</div>{% endif %}
     </div>
     {% else %}
-    <div class="seo-suggestion">
-      <div class="verdict-head">
+    <div class="seo-block seo-block-suggestion is-improve">
+      <div class="seo-block-row">
         <span class="verdict-pill verdict-pill-improve">AI suggests improving</span>
-        {% if charlimit %}<span class="conn-desc">{{ draft.suggested_value|length }} chars</span>{% endif %}
+        {% if charlimit %}<span class="seo-block-meta">{{ draft.suggested_value|length }} chars</span>{% endif %}
       </div>
-      {% if draft.rationale %}
-      <div class="verdict-rationale">Why: {{ draft.rationale }}</div>
-      {% endif %}
+      {% if draft.rationale %}<div class="seo-block-rationale">{{ draft.rationale }}</div>{% endif %}
       {% if render_html %}
-      <div class="seo-rendered seo-rendered-suggestion">{{ draft.suggested_value|safe }}</div>
+        <div class="seo-rendered seo-rendered-suggestion">{{ draft.suggested_value|safe }}</div>
       {% else %}
-      <div class="alt-suggestion">{{ draft.suggested_value }}</div>
+        <div class="seo-block-value">{{ draft.suggested_value }}</div>
       {% endif %}
-      <div class="form-actions" style="margin-top:8px;">
+      <div class="seo-block-actions">
         <form method="post" action="/products/{{ product.id }}/seo/drafts/{{ draft.id }}/reject" class="inline-form">
           <button type="submit" class="btn-ghost btn-danger">Reject</button>
         </form>
@@ -59,8 +62,8 @@
     </div>
     {% endif %}
   {% else %}
-    <div class="seo-suggestion">
-      <div class="conn-desc">No suggestion yet — click <strong>Generate with AI</strong> at the top of the page.</div>
+    <div class="seo-block seo-block-suggestion">
+      <span class="seo-block-meta">No suggestion yet — click <strong>Generate with AI</strong> at the top of the page.</span>
     </div>
   {% endif %}
 </section>
@@ -94,9 +97,9 @@
   {% endif %}
 </section>
 
-{{ draft_card("SEO title (meta title)", seo.current_title, 60, seo.drafts.seo_title, product) }}
-{{ draft_card("Meta description", seo.current_meta, 155, seo.drafts.meta_description, product) }}
-{{ draft_card("Product description", current_description_full, None, seo.drafts.description, product, render_html=True) }}
+{{ draft_card("SEO title (meta title)", seo.current_title, 60, seo.drafts.seo_title, product, label_help="Shown as the page title in Google search results.") }}
+{{ draft_card("Meta description", seo.current_meta, 155, seo.drafts.meta_description, product, label_help="Snippet under the title in search results — first impression for click-through.") }}
+{{ draft_card("Product description", current_description_full, None, seo.drafts.description, product, render_html=True, label_help="Body content on the product page. Affects ranking + quality score.") }}
 
 <section class="panel seo-field">
   <div class="panel-head">

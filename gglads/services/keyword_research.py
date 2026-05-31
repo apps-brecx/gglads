@@ -166,25 +166,19 @@ def apply_chat_to_keywords(
 
     system = (
         "You are a Google Ads keyword reviewer. Apply the user's chat rules "
-        "strictly to the existing keyword list. For each keyword, decide an "
+        "strictly to the keyword batch provided. For each keyword, decide an "
         "action. DO NOT invent new keywords — only process the listed ones. "
         "If a keyword obviously violates the chat rules, remove or "
-        "negative-match it. Return JSON only.\n\n"
+        "negative-match it. Return JSON only — no commentary, no markdown.\n\n"
         "Actions:\n"
         '  - "keep"       — meets all rules, leave alone\n'
         '  - "remove"     — violates rules, delete entirely\n'
         '  - "negative"   — should be a negative match\n'
         '  - "secondary"  — keep but lower priority\n'
         '  - "primary"    — keep at top priority\n\n'
-        "Format:\n"
-        '{ "decisions": [{"index": 0, "action": "keep", "reason": "..."}, ...] }\n'
-    )
-    user_msg = (
-        f"Product: {product.title}\n"
-        f"Type: {product.product_type or '—'}\n"
-        f"Vendor: {product.vendor or '—'}\n\n"
-        f"User chat rules (apply these strictly):\n{chat_lines}\n\n"
-        f"Existing keywords ({len(existing)}):\n{rows_str}"
+        "Format (exact JSON, one entry per keyword you receive):\n"
+        '{ "decisions": [{"index": 0, "action": "keep"}, '
+        '{"index": 1, "action": "remove"}, ...] }\n'
     )
 
     run = KeywordResearchRun(
@@ -194,78 +188,106 @@ def apply_chat_to_keywords(
     db.commit()
     db.refresh(run)
 
-    text, err = claude_svc.chat(
-        db, system=system, user_message=user_msg, max_tokens=4000
-    )
-    if err or not text:
-        run.finished_at = datetime.now(timezone.utc)
-        run.ok = False
-        run.sources_used = "chat_apply"
-        run.detail = f"Claude error: {err or 'no response'}"
-        run.source_errors = json.dumps({"ai": err or "no response"})
-        db.commit()
-        return False, run.detail
-
-    parsed = _extract_json(text)
-    decisions = (parsed or {}).get("decisions") if isinstance(parsed, dict) else None
-    if not decisions or not isinstance(decisions, list):
-        run.finished_at = datetime.now(timezone.utc)
-        run.ok = False
-        run.sources_used = "chat_apply"
-        run.detail = "Claude response wasn't parseable as decisions."
-        db.commit()
-        return False, run.detail
-
+    # Batch: a single Claude call can't return 200+ decisions within the token
+    # budget — JSON gets truncated and unparseable. 50 per batch is a safe sweet
+    # spot. Each batch is independent: a failure in one doesn't stop the others.
+    BATCH_SIZE = 50
     removed = 0
     rebucketed = 0
-    for d in decisions:
-        if not isinstance(d, dict):
-            continue
-        try:
-            idx = int(d.get("index"))
-        except (TypeError, ValueError):
-            continue
-        if idx < 0 or idx >= len(existing):
-            continue
-        action = (d.get("action") or "").strip().lower()
-        kw = existing[idx]
-        if action == "remove":
-            db.delete(kw)
-            removed += 1
-        elif action == "negative":
-            if kw.bucket != "negative":
-                kw.bucket = "negative"
-                kw.updated_at = datetime.now(timezone.utc)
-                rebucketed += 1
-        elif action == "secondary":
-            if kw.bucket != "secondary":
-                kw.bucket = "secondary"
-                kw.updated_at = datetime.now(timezone.utc)
-                rebucketed += 1
-        elif action == "primary":
-            if kw.bucket != "primary":
-                kw.bucket = "primary"
-                kw.updated_at = datetime.now(timezone.utc)
-                rebucketed += 1
-        # 'keep' (and unknown actions) → no change
+    failed_batches: list[str] = []
 
-    db.commit()
+    for batch_start in range(0, len(existing), BATCH_SIZE):
+        batch = existing[batch_start : batch_start + BATCH_SIZE]
+        rows_str = "\n".join(
+            f"  {batch_start + i}. \"{kw.keyword}\" | bucket={kw.bucket} | "
+            f"source={kw.source}"
+            for i, kw in enumerate(batch)
+        )
+        user_msg = (
+            f"Product: {product.title}\n"
+            f"Type: {product.product_type or '—'}\n"
+            f"Vendor: {product.vendor or '—'}\n\n"
+            f"User chat rules (apply these strictly):\n{chat_lines}\n\n"
+            f"Keyword batch {batch_start // BATCH_SIZE + 1} "
+            f"(indices {batch_start}-{batch_start + len(batch) - 1}, "
+            f"{len(batch)} keywords). Return one decision per index.\n"
+            f"{rows_str}"
+        )
+        text, err = claude_svc.chat(
+            db, system=system, user_message=user_msg, max_tokens=8000
+        )
+        if err or not text:
+            failed_batches.append(
+                f"batch {batch_start // BATCH_SIZE + 1}: {err or 'no response'}"
+            )
+            continue
+        parsed = _extract_json(text)
+        decisions = (parsed or {}).get("decisions") if isinstance(parsed, dict) else None
+        if not decisions or not isinstance(decisions, list):
+            preview = text.strip()[:160].replace("\n", " ")
+            failed_batches.append(
+                f"batch {batch_start // BATCH_SIZE + 1}: unparseable — "
+                f"response started with: {preview!r}"
+            )
+            continue
+
+        for d in decisions:
+            if not isinstance(d, dict):
+                continue
+            try:
+                idx = int(d.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if idx < batch_start or idx >= batch_start + len(batch):
+                continue
+            action = (d.get("action") or "").strip().lower()
+            kw = existing[idx]
+            if action == "remove":
+                db.delete(kw)
+                removed += 1
+            elif action == "negative":
+                if kw.bucket != "negative":
+                    kw.bucket = "negative"
+                    kw.updated_at = datetime.now(timezone.utc)
+                    rebucketed += 1
+            elif action == "secondary":
+                if kw.bucket != "secondary":
+                    kw.bucket = "secondary"
+                    kw.updated_at = datetime.now(timezone.utc)
+                    rebucketed += 1
+            elif action == "primary":
+                if kw.bucket != "primary":
+                    kw.bucket = "primary"
+                    kw.updated_at = datetime.now(timezone.utc)
+                    rebucketed += 1
+            # 'keep' and unknown actions → no change
+
+        db.commit()  # flush each batch so partial progress is durable
 
     total = db.scalar(
         select(func.count(ProductKeyword.id))
         .where(ProductKeyword.product_id == product_id)
     ) or 0
+    total_batches = (len(existing) + BATCH_SIZE - 1) // BATCH_SIZE
+    succeeded_batches = total_batches - len(failed_batches)
+
+    detail = (
+        f"Applied chat rules: {removed} removed, {rebucketed} re-bucketed, "
+        f"{total} keywords now total"
+    )
+    if failed_batches:
+        detail += f" — {succeeded_batches}/{total_batches} batches succeeded"
+
     run.finished_at = datetime.now(timezone.utc)
-    run.ok = True
+    run.ok = succeeded_batches > 0  # partial success still counts
     run.sources_used = "chat_apply"
     run.keywords_added = 0
     run.keywords_total = total
-    run.detail = (
-        f"Applied chat rules: {removed} removed, {rebucketed} re-bucketed, "
-        f"{total} keywords now total."
-    )
+    run.detail = detail
+    if failed_batches:
+        run.source_errors = json.dumps({"ai": " | ".join(failed_batches)[:1500]})
     db.commit()
-    return True, run.detail
+    return run.ok, detail
 
     keyword = (raw.get("keyword") or "").strip().lower()
     if not keyword or len(keyword) > 250:

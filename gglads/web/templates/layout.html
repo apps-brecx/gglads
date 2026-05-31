@@ -4,12 +4,30 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}gglads{% endblock %}</title>
+  <script>
+    // Theme init — runs before paint so there's no flash of wrong theme
+    (function () {
+      try {
+        var stored = localStorage.getItem('gglads-theme');
+        var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', stored || sys);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body class="app-body">
   <header class="app-header">
     <a href="/" class="app-logo">gglads</a>
     <div class="app-header-right">
+      <button class="theme-toggle" type="button"
+              title="Toggle theme"
+              onclick="(function(){var cur=document.documentElement.getAttribute('data-theme');var nxt=cur==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',nxt);try{localStorage.setItem('gglads-theme',nxt);}catch(e){}})()">
+        <span class="icon-go-light">☼</span>
+        <span class="icon-go-dark">☾</span>
+      </button>
       <div class="app-user">
         <span class="app-user-name">{{ user.name or user.email }}</span>
         <span class="app-user-role">{{ user.role }}</span>

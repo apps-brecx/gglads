@@ -1,3 +1,4 @@
+import json
 import logging
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -1750,6 +1751,11 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "distinct_sources": distinct_sources,
             "source_counts": source_counts,
             "last_research": last_research,
+            "last_research_errors": (
+                json.loads(last_research.source_errors)
+                if last_research and last_research.source_errors
+                else {}
+            ),
             "source_labels": _KW_SOURCE_LABELS,
             "seo_fields": kw_place_svc.SEO_FIELDS,
             "filters": {

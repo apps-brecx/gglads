@@ -87,6 +87,8 @@ class KeywordResearchRun(Base):
     keywords_added: Mapped[int | None] = mapped_column(Integer, nullable=True)
     keywords_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON dict: {source_slug: error_message or null}
+    source_errors: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

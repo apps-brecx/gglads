@@ -2443,6 +2443,96 @@ textarea:focus {
   border-color: var(--border);
 }
 
+/* ---------- Master Keywords: sticky header, sticky first column, coverage cols ---------- */
+
+.master-kw {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.master-kw thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 2;
+  border-bottom: 1px solid var(--border);
+}
+
+.master-kw thead th:first-child,
+.master-kw tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+  z-index: 1;
+  box-shadow: 1px 0 0 var(--border);
+  min-width: 240px;
+}
+
+.master-kw thead th:first-child {
+  z-index: 3; /* top-left sits above both sticky axes */
+}
+
+.master-kw tbody tr:hover td:first-child {
+  background: #161a22;  /* keep sticky col background matched on hover */
+}
+
+.cov-th {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  width: 50px;
+  padding: 8px 4px;
+}
+
+.cov-td {
+  text-align: center;
+  padding: 6px 4px;
+}
+
+.cov {
+  display: inline-block;
+  width: 14px;
+  font-weight: 700;
+}
+.cov-yes { color: var(--ok); }
+.cov-no  { color: rgba(255,255,255,0.18); }
+
+/* Per-source error chips on the keywords header */
+.source-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.source-error {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  background: rgba(248, 113, 113, 0.06);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.source-error-label {
+  font-weight: 700;
+  color: var(--fail);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.source-error-msg {
+  color: var(--text);
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
 /* ---------- Listing controls (sort + pagination + filter bar) ---------- */
 
 th.sortable a {

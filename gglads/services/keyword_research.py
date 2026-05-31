@@ -174,6 +174,7 @@ def research_keywords(
     db.refresh(run)
 
     sources_used: list[str] = []
+    source_errors: dict[str, str] = {}
     candidates: dict[str, dict] = {}  # keyword → candidate
 
     # 1) Claude generation
@@ -208,6 +209,8 @@ def research_keywords(
                 candidates[norm["keyword"]] = norm
         else:
             claude_error = "Claude returned unparseable response"
+    if claude_error:
+        source_errors["ai"] = claude_error
 
     # 2) Google Keyword Planner enrichment (use the top AI candidates as seeds)
     if candidates:
@@ -242,7 +245,10 @@ def research_keywords(
                         "high_bid_micros": row["high_bid_micros"],
                     }
         else:
+            source_errors["keyword_planner"] = kp_err or "no rows returned"
             logger.warning("Keyword Planner skipped: %s", kp_err)
+    else:
+        source_errors["keyword_planner"] = "no seed candidates (Claude failed)"
 
     # 3) Search Console enrichment (organic queries on this product's page)
     page_url = _product_public_url(db, product)
@@ -276,7 +282,10 @@ def research_keywords(
                         "sc_position": row["position"],
                     }
         else:
+            source_errors["search_console"] = sc_err or "no rows returned"
             logger.warning("Search Console skipped: %s", sc_err)
+    else:
+        source_errors["search_console"] = "Search Console not configured (no site URL)"
 
     # 4) Persist
     added = 0
@@ -340,14 +349,15 @@ def research_keywords(
     run.sources_used = ",".join(sources_used)
     run.keywords_added = added
     run.keywords_total = total_count
+    run.source_errors = json.dumps(source_errors) if source_errors else None
     if not sources_used:
-        run.detail = f"No sources available. Claude error: {claude_error or '—'}."
+        run.detail = f"No sources available. See per-source errors above."
     else:
         detail = (
             f"{added} new, {total_count} total. Sources: {', '.join(sources_used)}."
         )
-        if claude_error:
-            detail += f" Claude: {claude_error}"
+        if source_errors:
+            detail += f" Errors on: {', '.join(source_errors.keys())}."
         run.detail = detail
     db.commit()
 

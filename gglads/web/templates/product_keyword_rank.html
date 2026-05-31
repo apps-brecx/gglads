@@ -1,12 +1,8 @@
 {% extends "product_layout.html" %}
 {% from "_listing.html" import sort_th, pagination %}
 
-{% macro coverage_cell(label, present) -%}
-  {% if present %}
-    <span class="cov cov-yes" title="{{ label }} ✓">✓</span>
-  {% else %}
-    <span class="cov cov-no" title="{{ label }} —">·</span>
-  {% endif %}
+{% macro cov(present) -%}
+  {% if present %}<span class="cov cov-yes">✓</span>{% else %}<span class="cov cov-no">·</span>{% endif %}
 {%- endmacro %}
 
 {% block product_content %}
@@ -33,10 +29,17 @@
         {% if last_research.ok == false %}
         · <span style="color:var(--fail);">failed</span>
         {% endif %}
-        {% if last_research.detail %}
-        <br/><span style="font-size:11px;">{{ last_research.detail }}</span>
-        {% endif %}
       </p>
+      {% endif %}
+      {% if last_research_errors %}
+      <div class="source-errors">
+        {% for source, err in last_research_errors.items() %}
+        <div class="source-error">
+          <span class="source-error-label">{{ source_labels.get(source, source) }}</span>
+          <span class="source-error-msg">{{ err }}</span>
+        </div>
+        {% endfor %}
+      </div>
       {% endif %}
     </div>
     <div class="form-actions" style="margin:0;">
@@ -100,7 +103,11 @@
           {{ sort_th("Org pos", "position", sort, direction, qs_no_sort, num=True) }}
           {{ sort_th("Org clicks", "clicks", sort, direction, qs_no_sort, num=True) }}
           {{ sort_th("Org impr", "impressions", sort, direction, qs_no_sort, num=True) }}
-          <th class="cov-group" title="Title / Meta title / Meta description / Description / Image alts">In…</th>
+          <th class="cov-th" title="Is the keyword in the product title?">Title</th>
+          <th class="cov-th" title="Is the keyword in the SEO meta title?">Meta T</th>
+          <th class="cov-th" title="Is the keyword in the SEO meta description?">Meta D</th>
+          <th class="cov-th" title="Is the keyword in the product description body?">Desc</th>
+          <th class="cov-th" title="Is the keyword in any image alt text?">Alts</th>
           {{ sort_th("Ads", "bucket", sort, direction, qs_no_sort) }}
           {{ sort_th("Score", "score", sort, direction, qs_no_sort, num=True) }}
           <th class="actions-col">Actions</th>
@@ -127,13 +134,11 @@
           <td class="num">{{ '%.1f'|format(r.organic_position) if r.organic_position else '—' }}</td>
           <td class="num">{{ r.organic_clicks if r.organic_clicks else '—' }}</td>
           <td class="num">{{ r.organic_impressions if r.organic_impressions else '—' }}</td>
-          <td class="cov-cell">
-            {{ coverage_cell("Title", r.in_title) }}
-            {{ coverage_cell("Meta title", r.in_meta_title) }}
-            {{ coverage_cell("Meta description", r.in_meta_description) }}
-            {{ coverage_cell("Description", r.in_description) }}
-            {{ coverage_cell("Image alts", r.in_image_alts) }}
-          </td>
+          <td class="cov-td">{{ cov(r.in_title) }}</td>
+          <td class="cov-td">{{ cov(r.in_meta_title) }}</td>
+          <td class="cov-td">{{ cov(r.in_meta_description) }}</td>
+          <td class="cov-td">{{ cov(r.in_description) }}</td>
+          <td class="cov-td">{{ cov(r.in_image_alts) }}</td>
           <td>
             {% if r.bucket == 'primary' %}<span class="tag tag-primary">primary</span>
             {% elif r.bucket == 'secondary' %}<span class="tag">secondary</span>

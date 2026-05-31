@@ -1,0 +1,250 @@
+<div class="page-head">
+  <div>
+    <p class="page-subtitle" style="margin:0 0 4px;">
+      <a href="{{ back_url or '/campaigns' }}" class="muted-link">← {{ back_label or 'Campaigns' }}</a>
+    </p>
+    <h1 class="page-title">{{ campaign.name }}</h1>
+    <div class="product-head-meta">
+      <span class="pill {{ 'pill-ok' if campaign.status == 'active' else 'pill-warn' if campaign.status == 'paused' else 'pill-info' if campaign.status == 'draft' else '' }}">{{ campaign.status }}</span>
+      <span class="muted">·</span>
+      <span class="tag">{{ scope.kind }}</span>
+      <span class="muted">·</span>
+      <span class="muted">${{ '%.2f'|format(campaign.daily_budget_cents / 100) }}/day</span>
+      {% if campaign.ai_managed %}<span class="pill pill-ok">AI managed</span>{% endif %}
+    </div>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/campaigns/{{ campaign.id }}/delete" class="inline-form"
+          onsubmit="return confirm('Delete this campaign? This cannot be undone.');">
+      <button type="submit" class="btn-ghost btn-danger">Delete campaign</button>
+    </form>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+{% if not campaign.google_ads_campaign_id %}
+<div class="auth-error" style="background:rgba(124,156,255,0.06);border-color:rgba(124,156,255,0.2);color:var(--accent);">
+  This campaign hasn't been pushed to Google Ads yet — it lives only in gglads.
+  Sync to Google Ads is the next backend.
+</div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head"><h2>Basics</h2></div>
+  <form method="post" action="/campaigns/{{ campaign.id }}/basics" class="conn-form">
+    <div class="field">
+      <label for="name">Campaign name</label>
+      <input type="text" id="name" name="name" value="{{ campaign.name }}" required />
+    </div>
+    <div class="field-row-2">
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="draft" {{ 'selected' if campaign.status == 'draft' }}>Draft</option>
+          <option value="active" {{ 'selected' if campaign.status == 'active' }}>Active</option>
+          <option value="paused" {{ 'selected' if campaign.status == 'paused' }}>Paused</option>
+          <option value="archived" {{ 'selected' if campaign.status == 'archived' }}>Archived</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="daily_budget">Daily budget (USD)</label>
+        <input type="number" step="0.01" min="0" id="daily_budget" name="daily_budget"
+               value="{{ '%.2f'|format(campaign.daily_budget_cents / 100) }}" />
+      </div>
+    </div>
+    <div class="field-row-2">
+      <div class="field">
+        <label for="bid_strategy">Bid strategy</label>
+        <select id="bid_strategy" name="bid_strategy">
+          {% for slug, label in bid_strategies %}
+          <option value="{{ slug }}" {{ 'selected' if campaign.bid_strategy == slug }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="target_cpa">Target CPA (USD) <span class="muted">— if using Target CPA</span></label>
+        <input type="number" step="0.01" min="0" id="target_cpa" name="target_cpa"
+               value="{{ '%.2f'|format(campaign.target_cpa_cents / 100) if campaign.target_cpa_cents else '' }}" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="landing_page_url">Landing page URL</label>
+      <input type="text" id="landing_page_url" name="landing_page_url" value="{{ campaign.landing_page_url or '' }}" />
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Save basics</button>
+    </div>
+  </form>
+</section>
+
+<h2 style="margin:24px 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">
+  Ad groups ({{ ad_groups|length }})
+</h2>
+
+{% for view in ad_groups %}
+{% set ag = view.ag %}
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">
+        {{ ag.name }}
+      </h2>
+      <p class="conn-desc">Match type: <strong>{{ match_type_labels[ag.match_type] }}</strong>
+        · {{ view.positive_kw|length }} keywords · {{ view.negative_kw|length }} negatives</p>
+    </div>
+    <div class="form-actions" style="margin:0;">
+      <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/generate-copy" class="inline-form">
+        <button type="submit" class="btn-primary">Generate ad copy with AI</button>
+      </form>
+      <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/delete" class="inline-form"
+            onsubmit="return confirm('Delete this ad group?');">
+        <button type="submit" class="btn-ghost btn-danger">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel-head" style="margin-top:14px;">
+    <h2 style="font-size:13px;">Keywords ({{ match_type_labels[ag.match_type] }})</h2>
+  </div>
+  {% if view.positive_kw %}
+  <div class="kw-row">
+    {% for kw in view.positive_kw %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/keywords/{{ kw.id }}/remove" class="inline-form">
+      <button type="submit" class="tag tag-primary" title="Click to remove">{{ kw.text }} ✕</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="conn-desc" style="padding:8px 0;">No keywords yet in this ad group.</div>
+  {% endif %}
+
+  {% if view.negative_kw %}
+  <div class="panel-head" style="margin-top:14px;">
+    <h2 style="font-size:13px;">Negatives</h2>
+  </div>
+  <div class="kw-row">
+    {% for kw in view.negative_kw %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/keywords/{{ kw.id }}/remove" class="inline-form">
+      <button type="submit" class="tag tag-neg" title="Click to remove">{{ kw.text }} ✕</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/keywords/add" class="conn-form" style="margin-top:12px;">
+    <div class="field-row-2">
+      <div class="field">
+        <label for="kw_text_{{ ag.id }}">Add keyword</label>
+        <input type="text" id="kw_text_{{ ag.id }}" name="text" placeholder="e.g. sugar free syrup" required />
+      </div>
+      <div class="field" style="display:flex;align-items:end;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <input type="checkbox" name="is_negative" />
+          Add as negative
+        </label>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-ghost">Add</button>
+    </div>
+  </form>
+
+  <div class="panel-head" style="margin-top:14px;">
+    <h2 style="font-size:13px;">Ad copy</h2>
+    <span class="conn-desc">15 headlines (≤30 chars) · 4 descriptions (≤90 chars)</span>
+  </div>
+  <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/ad-copy" class="conn-form">
+    <div class="headline-grid">
+      {% for i in range(15) %}
+      {% set existing = view.headlines[i] if i < view.headlines|length else '' %}
+      <div class="headline-row">
+        <input type="text" name="headline" value="{{ existing }}" maxlength="30" placeholder="Headline {{ i + 1 }}" />
+        <span class="charcount">{{ existing|length }}/30</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="desc-list" style="margin-top:12px;">
+      {% for i in range(4) %}
+      {% set existing = view.descriptions[i] if i < view.descriptions|length else '' %}
+      <div class="desc-row">
+        <textarea name="description" rows="2" maxlength="90" placeholder="Description {{ i + 1 }}">{{ existing }}</textarea>
+        <span class="charcount">{{ existing|length }}/90</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="field-row-2" style="margin-top:12px;">
+      <div class="field">
+        <label for="path1_{{ ag.id }}">Display path 1 <span class="muted">(≤15 chars)</span></label>
+        <input type="text" id="path1_{{ ag.id }}" name="path1" maxlength="15" value="{{ ag.path1 or '' }}" />
+      </div>
+      <div class="field">
+        <label for="path2_{{ ag.id }}">Display path 2 <span class="muted">(≤15 chars)</span></label>
+        <input type="text" id="path2_{{ ag.id }}" name="path2" maxlength="15" value="{{ ag.path2 or '' }}" />
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Save ad copy</button>
+    </div>
+  </form>
+</section>
+{% endfor %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>AI settings</h2>
+    <span class="conn-desc">Rules the autonomous actor must respect (when wired up next push)</span>
+  </div>
+  <form method="post" action="/campaigns/{{ campaign.id }}/ai-settings" class="conn-form">
+    <label style="display:flex;align-items:center;gap:10px;">
+      <input type="checkbox" name="ai_managed" {{ 'checked' if campaign.ai_managed }} />
+      <span><strong>Let AI manage this campaign</strong> — apply allowed actions automatically.</span>
+    </label>
+
+    <div class="field-row-2" style="margin-top:14px;">
+      <div class="field">
+        <label for="ai_target_cpa">Target CPA cap (USD)</label>
+        <input type="number" step="0.01" min="0" id="ai_target_cpa" name="ai_target_cpa"
+               value="{{ '%.2f'|format(campaign.ai_target_cpa_cents / 100) if campaign.ai_target_cpa_cents else '' }}" />
+      </div>
+      <div class="field">
+        <label for="ai_min_data_clicks">Wait for data — min clicks</label>
+        <input type="number" min="0" id="ai_min_data_clicks" name="ai_min_data_clicks"
+               value="{{ campaign.ai_min_data_clicks }}" />
+      </div>
+    </div>
+
+    <div class="field-row-2">
+      <div class="field">
+        <label for="ai_min_daily_budget">Min daily budget (USD)</label>
+        <input type="number" step="0.01" min="0" id="ai_min_daily_budget" name="ai_min_daily_budget"
+               value="{{ '%.2f'|format(campaign.ai_min_daily_budget_cents / 100) if campaign.ai_min_daily_budget_cents else '' }}" />
+      </div>
+      <div class="field">
+        <label for="ai_max_daily_budget">Max daily budget (USD)</label>
+        <input type="number" step="0.01" min="0" id="ai_max_daily_budget" name="ai_max_daily_budget"
+               value="{{ '%.2f'|format(campaign.ai_max_daily_budget_cents / 100) if campaign.ai_max_daily_budget_cents else '' }}" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Allowed actions</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+        {% for slug, label in ai_actions %}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <input type="checkbox" name="action" value="{{ slug }}" {{ 'checked' if slug in ai_actions_selected }} />
+          {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Save AI settings</button>
+    </div>
+  </form>
+</section>

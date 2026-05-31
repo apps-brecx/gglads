@@ -85,8 +85,8 @@
     </thead>
     <tbody>
       {% for c in items %}
-      <tr onclick="window.location='/campaigns/{{ c.id }}'" style="cursor:pointer;">
-        <td><a href="/campaigns/{{ c.id }}" class="row-link">{{ c.name }}</a></td>
+      <tr onclick="window.location='/products/{{ product.id }}/campaigns/{{ c.id }}'" style="cursor:pointer;">
+        <td><a href="/products/{{ product.id }}/campaigns/{{ c.id }}" class="row-link">{{ c.name }}</a></td>
         <td><span class="pill {{ 'pill-ok' if c.status == 'active' else 'pill-warn' if c.status == 'paused' else 'pill-info' if c.status == 'draft' else '' }}">{{ c.status }}</span></td>
         <td class="num">{{ c.ad_group_count }}</td>
         <td>{{ c.budget }}</td>

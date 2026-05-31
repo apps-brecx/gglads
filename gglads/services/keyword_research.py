@@ -20,6 +20,7 @@ from gglads.services import claude as claude_svc
 from gglads.services import google_ads_keywords as kp_svc
 from gglads.services import integrations as integrations_svc
 from gglads.services import search_console as sc_svc
+from gglads.services import seo_chat as chat_svc
 
 logger = logging.getLogger("gglads.kw_research")
 
@@ -32,6 +33,10 @@ VALID_BUCKETS = {"primary", "secondary", "negative", "ignore"}
 
 SYSTEM_PROMPT = """You are a Google Ads keyword research expert. Given a product, \
 generate 30-50 highly relevant keyword candidates for Google Ads search campaigns.
+
+CRITICAL: If the user has provided chat context with rules ("only product-specific \
+keywords, no category-wide terms" / "never mention competitor X" / etc.), those \
+rules OVERRIDE everything else. Apply them strictly.
 
 For each keyword, classify:
 - intent: branded | generic | long-tail | question | comparison | discount | local
@@ -181,9 +186,24 @@ def research_keywords(
     brief = _build_product_brief(db, product)
     existing = _existing_keywords(db, product_id)
     existing_str = ", ".join(existing[:50]) or "(none)"
+
+    # Chat context: product-scoped + global ("all products") messages.
+    # Anything the user typed in the floating chat is rules Claude must follow.
+    chat_rows = chat_svc.list_context_for_product(
+        db, product_id, topics=("seo", "general", "keywords")
+    )
+    if chat_rows:
+        chat_lines = "\n".join(
+            f"  [{('GLOBAL' if m.product_id is None else 'product')}/{m.role}] {m.content[:500]}"
+            for m in chat_rows[-20:]
+        )
+    else:
+        chat_lines = "  (no chat rules yet)"
+
     user_msg = (
         f"{brief}\n"
         f"Existing keywords already on this product (don't repeat exactly): {existing_str}\n\n"
+        f"User chat rules (MUST be followed strictly):\n{chat_lines}\n\n"
         "Generate keyword candidates."
     )
     text, err = claude_svc.chat(

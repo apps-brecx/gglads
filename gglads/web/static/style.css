@@ -1802,9 +1802,11 @@ textarea:focus {
 /* ---------- Keyword triage table ---------- */
 
 .kw-table-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 320px);
+  min-height: 420px;
   margin: -8px -20px;
-  padding: 8px 20px;
+  padding: 0 20px;
 }
 
 .kw-table {
@@ -2456,6 +2458,11 @@ textarea:focus {
   background: var(--panel);
   z-index: 2;
   border-bottom: 1px solid var(--border);
+  /* Solid background needed because content scrolls beneath */
+}
+
+.master-kw tbody td {
+  background: var(--panel);
 }
 
 .master-kw thead th:first-child,
@@ -2472,8 +2479,12 @@ textarea:focus {
   z-index: 3; /* top-left sits above both sticky axes */
 }
 
+.master-kw tbody tr:hover td {
+  background: #161a22;
+}
+
 .master-kw tbody tr:hover td:first-child {
-  background: #161a22;  /* keep sticky col background matched on hover */
+  background: #161a22;
 }
 
 .cov-th {

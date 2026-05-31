@@ -1618,6 +1618,28 @@ _RANK_SORT_KEYS = {
     "impressions", "ctr", "score", "bucket",
 }
 
+_RANK_COLUMNS = [
+    ("source", "Source"),
+    ("rationale", "Rationale"),
+    ("volume", "Vol/mo"),
+    ("competition", "Comp"),
+    ("org_pos", "Org pos"),
+    ("org_clicks", "Org clicks"),
+    ("org_impr", "Org impr"),
+    ("cov_title", "Title"),
+    ("cov_meta_title", "Meta T"),
+    ("cov_meta_description", "Meta D"),
+    ("cov_description", "Desc"),
+    ("cov_image_alts", "Alts"),
+    ("ads", "Ads"),
+    ("score", "Score"),
+]
+_RANK_DEFAULT_COLS = {
+    "source", "rationale", "volume", "competition", "org_pos", "org_clicks",
+    "org_impr", "cov_title", "cov_meta_title", "cov_meta_description",
+    "cov_description", "cov_image_alts", "ads", "score",
+}
+
 
 _KW_SOURCE_LABELS = {
     "ai": "Claude",
@@ -1646,6 +1668,12 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
     direction = listing_util.parse_direction(request.query_params.get("dir"), "desc")
     per_page = listing_util.parse_per_page(request.query_params.get("per_page"))
     page = listing_util.parse_page(request.query_params.get("page"))
+
+    cols_raw = request.query_params.getlist("col")
+    if cols_raw:
+        cols = {c for c in cols_raw if c in dict(_RANK_COLUMNS)}
+    else:
+        cols = set(_RANK_DEFAULT_COLS)
 
     # Pull every stored keyword (AI/KP/SC/manual)
     kw_rows = db.execute(
@@ -1757,6 +1785,8 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
                 if last_research and last_research.source_errors
                 else {}
             ),
+            "available_columns": _RANK_COLUMNS,
+            "cols": cols,
             "source_labels": _KW_SOURCE_LABELS,
             "seo_fields": kw_place_svc.SEO_FIELDS,
             "filters": {
@@ -2192,7 +2222,7 @@ async def campaigns_new(request: Request, db: DbDep) -> Response:
         )
     _flash(request, detail, "ok")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2243,15 +2273,20 @@ def product_campaigns(product_id: int, request: Request, db: DbDep) -> Response:
     )
 
 
-@app.get("/campaigns/{campaign_id}", response_class=HTMLResponse)
-def campaign_detail(campaign_id: int, request: Request, db: DbDep) -> Response:
-    user = _current_user(request, db)
-    if user is None:
-        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+def _campaign_back_url(db: Session, campaign_id: int) -> str:
+    """Detail URL preserving product-page context when applicable."""
+    c = db.get(AdCampaign, campaign_id)
+    if c and c.scope_type == "product" and c.product_id:
+        return f"/products/{c.product_id}/campaigns/{campaign_id}"
+    return f"/campaigns/{campaign_id}"
+
+
+def _campaign_detail_context(
+    db: Session, campaign_id: int
+) -> tuple[AdCampaign, dict] | None:
     c = db.get(AdCampaign, campaign_id)
     if c is None:
-        raise HTTPException(status_code=404)
-
+        return None
     ad_groups = campaigns_svc.ad_groups_for_campaign(db, campaign_id)
     groups_view = []
     for ag in ad_groups:
@@ -2263,6 +2298,34 @@ def campaign_detail(campaign_id: int, request: Request, db: DbDep) -> Response:
             "headlines": campaigns_svc.parse_list(ag.headlines_json),
             "descriptions": campaigns_svc.parse_list(ag.descriptions_json),
         })
+    return c, {
+        "campaign": c,
+        "scope": campaigns_svc.scope_label(db, c),
+        "ad_groups": groups_view,
+        "ai_actions_selected": campaigns_svc.parse_actions(c),
+        "ai_actions": campaigns_svc.AI_ACTIONS,
+        "bid_strategies": campaigns_svc.BID_STRATEGIES,
+        "match_type_labels": campaigns_svc.MATCH_TYPE_LABELS,
+    }
+
+
+@app.get("/campaigns/{campaign_id}", response_class=HTMLResponse)
+def campaign_detail(campaign_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    result = _campaign_detail_context(db, campaign_id)
+    if result is None:
+        raise HTTPException(status_code=404)
+    c, ctx = result
+
+    # If this campaign is product-scoped, redirect to the product subpage
+    # so the user stays in product context.
+    if c.scope_type == "product" and c.product_id:
+        return RedirectResponse(
+            f"/products/{c.product_id}/campaigns/{campaign_id}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
 
     return templates.TemplateResponse(
         request,
@@ -2271,14 +2334,43 @@ def campaign_detail(campaign_id: int, request: Request, db: DbDep) -> Response:
             "version": __version__,
             "user": user,
             "active": "campaigns",
-            "campaign": c,
-            "scope": campaigns_svc.scope_label(db, c),
-            "ad_groups": groups_view,
-            "ai_actions_selected": campaigns_svc.parse_actions(c),
-            "ai_actions": campaigns_svc.AI_ACTIONS,
-            "bid_strategies": campaigns_svc.BID_STRATEGIES,
-            "match_type_labels": campaigns_svc.MATCH_TYPE_LABELS,
+            "back_url": "/campaigns",
+            "back_label": "Campaigns",
+            **ctx,
             "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.get("/products/{product_id}/campaigns/{campaign_id}", response_class=HTMLResponse)
+def product_campaign_detail(
+    product_id: int, campaign_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    result = _campaign_detail_context(db, campaign_id)
+    if result is None:
+        raise HTTPException(status_code=404)
+    c, ctx = result
+    # Guard: campaign must belong to this product
+    if c.scope_type != "product" or c.product_id != product_id:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "product_campaign_detail.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "campaigns",
+            "product": product,
+            "back_url": f"/products/{product_id}/campaigns",
+            "back_label": "Campaigns for this product",
+            **ctx,
+            "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -2310,7 +2402,7 @@ async def campaign_save_basics(
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2340,7 +2432,7 @@ async def campaign_save_ai_settings(
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2361,7 +2453,7 @@ async def campaign_kw_add(
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2375,7 +2467,7 @@ def campaign_kw_remove(
     ok, detail = campaigns_svc.remove_keyword(db, campaign_id, keyword_id)
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2400,7 +2492,7 @@ async def campaign_ad_copy(
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2416,7 +2508,7 @@ def campaign_ad_copy_generate(
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2430,7 +2522,7 @@ def campaign_ad_group_delete(
     ok, detail = campaigns_svc.delete_ad_group(db, campaign_id, ad_group_id)
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
-        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
     )
 
 

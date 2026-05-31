@@ -50,6 +50,34 @@
   </div>
 </section>
 
+<section class="view-toolbar">
+  <details class="view-options">
+    <summary>View options ▾</summary>
+    <form method="get" class="view-options-form">
+      <div class="view-group">
+        <div class="view-group-label">Columns</div>
+        {% for col_key, col_label in available_columns %}
+        <label>
+          <input type="checkbox" name="col" value="{{ col_key }}" {{ 'checked' if col_key in cols }}>
+          {{ col_label }}
+        </label>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="q" value="{{ filters.q }}" />
+      <input type="hidden" name="source" value="{{ filters.source }}" />
+      <input type="hidden" name="in_ads" value="{{ filters.in_ads }}" />
+      <input type="hidden" name="missing" value="{{ filters.missing }}" />
+      <input type="hidden" name="sort" value="{{ sort }}" />
+      <input type="hidden" name="dir" value="{{ direction }}" />
+      <input type="hidden" name="per_page" value="{{ per_page }}" />
+      <button type="submit" class="btn-primary">Apply</button>
+    </form>
+  </details>
+  <div class="view-summary">
+    {{ cols|length }} of {{ available_columns|length }} columns shown
+  </div>
+</section>
+
 <section class="panel">
   <form method="get" class="filter-bar-form">
     <input type="search" name="q" value="{{ filters.q }}" placeholder="Search keyword…" class="filter-search" />
@@ -79,6 +107,7 @@
     <input type="hidden" name="sort" value="{{ sort }}" />
     <input type="hidden" name="dir" value="{{ direction }}" />
     <input type="hidden" name="per_page" value="{{ per_page }}" />
+    {% for c in cols %}<input type="hidden" name="col" value="{{ c }}" />{% endfor %}
 
     <button type="submit" class="btn-ghost">Apply</button>
     {% if filters.q or filters.source or filters.in_ads or filters.missing %}
@@ -97,19 +126,19 @@
       <thead>
         <tr>
           {{ sort_th("Keyword", "keyword", sort, direction, qs_no_sort) }}
-          {{ sort_th("Source", "source", sort, direction, qs_no_sort) }}
-          {{ sort_th("Vol/mo", "volume", sort, direction, qs_no_sort, num=True) }}
-          {{ sort_th("Comp", "competition", sort, direction, qs_no_sort) }}
-          {{ sort_th("Org pos", "position", sort, direction, qs_no_sort, num=True) }}
-          {{ sort_th("Org clicks", "clicks", sort, direction, qs_no_sort, num=True) }}
-          {{ sort_th("Org impr", "impressions", sort, direction, qs_no_sort, num=True) }}
-          <th class="cov-th" title="Is the keyword in the product title?">Title</th>
-          <th class="cov-th" title="Is the keyword in the SEO meta title?">Meta T</th>
-          <th class="cov-th" title="Is the keyword in the SEO meta description?">Meta D</th>
-          <th class="cov-th" title="Is the keyword in the product description body?">Desc</th>
-          <th class="cov-th" title="Is the keyword in any image alt text?">Alts</th>
-          {{ sort_th("Ads", "bucket", sort, direction, qs_no_sort) }}
-          {{ sort_th("Score", "score", sort, direction, qs_no_sort, num=True) }}
+          {% if 'source' in cols %}{{ sort_th("Source", "source", sort, direction, qs_no_sort) }}{% endif %}
+          {% if 'volume' in cols %}{{ sort_th("Vol/mo", "volume", sort, direction, qs_no_sort, num=True) }}{% endif %}
+          {% if 'competition' in cols %}{{ sort_th("Comp", "competition", sort, direction, qs_no_sort) }}{% endif %}
+          {% if 'org_pos' in cols %}{{ sort_th("Org pos", "position", sort, direction, qs_no_sort, num=True) }}{% endif %}
+          {% if 'org_clicks' in cols %}{{ sort_th("Org clicks", "clicks", sort, direction, qs_no_sort, num=True) }}{% endif %}
+          {% if 'org_impr' in cols %}{{ sort_th("Org impr", "impressions", sort, direction, qs_no_sort, num=True) }}{% endif %}
+          {% if 'cov_title' in cols %}<th class="cov-th" title="In product title?">Title</th>{% endif %}
+          {% if 'cov_meta_title' in cols %}<th class="cov-th" title="In SEO meta title?">Meta T</th>{% endif %}
+          {% if 'cov_meta_description' in cols %}<th class="cov-th" title="In SEO meta description?">Meta D</th>{% endif %}
+          {% if 'cov_description' in cols %}<th class="cov-th" title="In product description?">Desc</th>{% endif %}
+          {% if 'cov_image_alts' in cols %}<th class="cov-th" title="In any image alt?">Alts</th>{% endif %}
+          {% if 'ads' in cols %}{{ sort_th("Ads", "bucket", sort, direction, qs_no_sort) }}{% endif %}
+          {% if 'score' in cols %}{{ sort_th("Score", "score", sort, direction, qs_no_sort, num=True) }}{% endif %}
           <th class="actions-col">Actions</th>
         </tr>
       </thead>
@@ -118,7 +147,7 @@
         <tr>
           <td>
             <div class="kw-text">{{ r.keyword }}</div>
-            {% if r.rationale %}<div class="kw-rationale">{{ r.rationale }}</div>{% endif %}
+            {% if 'rationale' in cols and r.rationale %}<div class="kw-rationale">{{ r.rationale }}</div>{% endif %}
             {% if r.seo_targets %}
             <div class="kw-targets">
               targeted for: {{ r.seo_targets|join(', ') }}
@@ -128,28 +157,32 @@
             </div>
             {% endif %}
           </td>
-          <td><span class="tag">{{ r.source_label }}</span></td>
-          <td class="num">{{ r.volume if r.volume else '—' }}</td>
-          <td>{% if r.competition %}<span class="tag tag-comp-{{ r.competition }}">{{ r.competition }}</span>{% else %}—{% endif %}</td>
-          <td class="num">{{ '%.1f'|format(r.organic_position) if r.organic_position else '—' }}</td>
-          <td class="num">{{ r.organic_clicks if r.organic_clicks else '—' }}</td>
-          <td class="num">{{ r.organic_impressions if r.organic_impressions else '—' }}</td>
-          <td class="cov-td">{{ cov(r.in_title) }}</td>
-          <td class="cov-td">{{ cov(r.in_meta_title) }}</td>
-          <td class="cov-td">{{ cov(r.in_meta_description) }}</td>
-          <td class="cov-td">{{ cov(r.in_description) }}</td>
-          <td class="cov-td">{{ cov(r.in_image_alts) }}</td>
+          {% if 'source' in cols %}<td><span class="tag">{{ r.source_label }}</span></td>{% endif %}
+          {% if 'volume' in cols %}<td class="num">{{ r.volume if r.volume else '—' }}</td>{% endif %}
+          {% if 'competition' in cols %}<td>{% if r.competition %}<span class="tag tag-comp-{{ r.competition }}">{{ r.competition }}</span>{% else %}—{% endif %}</td>{% endif %}
+          {% if 'org_pos' in cols %}<td class="num">{{ '%.1f'|format(r.organic_position) if r.organic_position else '—' }}</td>{% endif %}
+          {% if 'org_clicks' in cols %}<td class="num">{{ r.organic_clicks if r.organic_clicks else '—' }}</td>{% endif %}
+          {% if 'org_impr' in cols %}<td class="num">{{ r.organic_impressions if r.organic_impressions else '—' }}</td>{% endif %}
+          {% if 'cov_title' in cols %}<td class="cov-td">{{ cov(r.in_title) }}</td>{% endif %}
+          {% if 'cov_meta_title' in cols %}<td class="cov-td">{{ cov(r.in_meta_title) }}</td>{% endif %}
+          {% if 'cov_meta_description' in cols %}<td class="cov-td">{{ cov(r.in_meta_description) }}</td>{% endif %}
+          {% if 'cov_description' in cols %}<td class="cov-td">{{ cov(r.in_description) }}</td>{% endif %}
+          {% if 'cov_image_alts' in cols %}<td class="cov-td">{{ cov(r.in_image_alts) }}</td>{% endif %}
+          {% if 'ads' in cols %}
           <td>
             {% if r.bucket == 'primary' %}<span class="tag tag-primary">primary</span>
             {% elif r.bucket == 'secondary' %}<span class="tag">secondary</span>
             {% elif r.bucket == 'negative' %}<span class="tag tag-neg">negative</span>
             {% else %}<span class="conn-desc">—</span>{% endif %}
           </td>
+          {% endif %}
+          {% if 'score' in cols %}
           <td class="num">
             {% if r.score is not none %}
             <span class="score-mini score-{{ 'good' if r.score >= 80 else 'ok' if r.score >= 60 else 'warn' if r.score >= 40 else 'bad' }}">{{ r.score }}</span>
             {% else %}—{% endif %}
           </td>
+          {% endif %}
           <td class="actions-col">
             <details class="kw-actions-menu">
               <summary class="btn-ghost" style="padding:4px 10px;font-size:12px;">Push ▾</summary>

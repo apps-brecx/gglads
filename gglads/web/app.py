@@ -2159,6 +2159,108 @@ def status_page(request: Request, db: DbDep) -> Response:
 _CAMPAIGN_SORT_KEYS = {"name", "status", "scope", "budget", "updated_at"}
 
 
+def _dashboard_summary(db: Session) -> dict:
+    """Aggregate metrics for the campaigns dashboard. Anything that needs
+    Google Ads performance sync stays None until we wire it up."""
+    counts_by_status: dict[str, int] = {}
+    for s in ("draft", "active", "paused", "archived"):
+        counts_by_status[s] = db.scalar(
+            select(func.count(AdCampaign.id)).where(AdCampaign.status == s)
+        ) or 0
+    total_campaigns = sum(counts_by_status.values())
+
+    ai_managed_count = db.scalar(
+        select(func.count(AdCampaign.id)).where(AdCampaign.ai_managed.is_(True))
+    ) or 0
+
+    counts_by_scope: dict[str, int] = {}
+    for sc in ("product", "collection"):
+        counts_by_scope[sc] = db.scalar(
+            select(func.count(AdCampaign.id)).where(AdCampaign.scope_type == sc)
+        ) or 0
+
+    # Sum daily budget across active campaigns
+    daily_budget_active = db.scalar(
+        select(func.coalesce(func.sum(AdCampaign.daily_budget_cents), 0))
+        .where(AdCampaign.status == "active")
+    ) or 0
+    daily_budget_all = db.scalar(
+        select(func.coalesce(func.sum(AdCampaign.daily_budget_cents), 0))
+    ) or 0
+
+    # Target CPA range across campaigns that have one
+    target_cpas = db.execute(
+        select(AdCampaign.target_cpa_cents)
+        .where(AdCampaign.target_cpa_cents.is_not(None))
+    ).scalars().all()
+    target_cpa_min = min(target_cpas) if target_cpas else None
+    target_cpa_max = max(target_cpas) if target_cpas else None
+    target_cpa_count = len(target_cpas)
+
+    # Products with at least one campaign vs total products synced
+    products_total = db.scalar(select(func.count(ShopifyProduct.id))) or 0
+    products_with_campaign = db.scalar(
+        select(func.count(func.distinct(AdCampaign.product_id)))
+        .where(AdCampaign.product_id.is_not(None))
+    ) or 0
+
+    # Attention items
+    active_zero_budget = db.execute(
+        select(AdCampaign)
+        .where(AdCampaign.status == "active")
+        .where(AdCampaign.daily_budget_cents == 0)
+        .limit(5)
+    ).scalars().all()
+    ai_no_target_cpa = db.execute(
+        select(AdCampaign)
+        .where(AdCampaign.ai_managed.is_(True))
+        .where(AdCampaign.ai_target_cpa_cents.is_(None))
+        .limit(5)
+    ).scalars().all()
+
+    # Active campaigns with no keywords (likely empty / not pushed yet)
+    active_no_kw = []
+    actives = db.execute(
+        select(AdCampaign).where(AdCampaign.status == "active").limit(50)
+    ).scalars().all()
+    for c in actives:
+        kc = db.scalar(
+            select(func.count(AdCampaignKeyword.id))
+            .where(AdCampaignKeyword.campaign_id == c.id)
+            .where(AdCampaignKeyword.is_negative.is_(False))
+        ) or 0
+        if kc == 0:
+            active_no_kw.append(c)
+        if len(active_no_kw) >= 5:
+            break
+
+    return {
+        "total_campaigns": total_campaigns,
+        "status_counts": counts_by_status,
+        "ai_managed_count": ai_managed_count,
+        "scope_counts": counts_by_scope,
+        "daily_budget_active_cents": int(daily_budget_active),
+        "daily_budget_all_cents": int(daily_budget_all),
+        "target_cpa_min_cents": int(target_cpa_min) if target_cpa_min else None,
+        "target_cpa_max_cents": int(target_cpa_max) if target_cpa_max else None,
+        "target_cpa_count": target_cpa_count,
+        "products_total": products_total,
+        "products_with_campaign": products_with_campaign,
+        "products_coverage_pct": (
+            round(100 * products_with_campaign / products_total) if products_total else 0
+        ),
+        "attention_active_zero_budget": [
+            {"id": c.id, "name": c.name} for c in active_zero_budget
+        ],
+        "attention_ai_no_target_cpa": [
+            {"id": c.id, "name": c.name} for c in ai_no_target_cpa
+        ],
+        "attention_active_no_keywords": [
+            {"id": c.id, "name": c.name} for c in active_no_kw
+        ],
+    }
+
+
 @app.get("/campaigns", response_class=HTMLResponse)
 def campaigns_list(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
@@ -2212,6 +2314,8 @@ def campaigns_list(request: Request, db: DbDep) -> Response:
             "updated_at": c.updated_at.strftime("%Y-%m-%d %H:%M"),
         })
 
+    summary = _dashboard_summary(db)
+
     return templates.TemplateResponse(
         request,
         "campaigns.html",
@@ -2219,6 +2323,7 @@ def campaigns_list(request: Request, db: DbDep) -> Response:
             "version": __version__,
             "user": user,
             "active": "campaigns",
+            "summary": summary,
             "items": items,
             "filters": {
                 "q": request.query_params.get("q") or "",

@@ -1,14 +1,23 @@
 {% extends "layout.html" %}
 {% from "_listing.html" import sort_th, pagination %}
 
-{% block title %}Campaigns — gglads{% endblock %}
+{% block title %}Campaigns dashboard — gglads{% endblock %}
+
+{% macro kpi(label, value, foot, accent=False, empty=False) -%}
+<div class="kpi {{ 'kpi-accent' if accent }} {{ 'kpi-empty' if empty }}">
+  <div class="kpi-label">{{ label }}</div>
+  <div class="kpi-value">{{ value }}</div>
+  {% if foot %}<div class="kpi-foot">{{ foot }}</div>{% endif %}
+</div>
+{%- endmacro %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">Campaigns</h1>
+    <h1 class="page-title">Campaigns dashboard</h1>
     <p class="page-subtitle">
-      Google Ads campaigns managed by gglads. Each campaign targets one product or one collection.
+      Account-wide performance and pacing across {{ summary.total_campaigns }} campaign(s).
+      Live data fills in as Google Ads campaign-performance sync is wired up next.
     </p>
   </div>
 </div>
@@ -19,15 +28,185 @@
 </div>
 {% endif %}
 
-<section class="panel">
-  <p class="conn-desc" style="margin:0 0 12px;">
-    Push to Google Ads is the next backend — for now, draft and configure campaigns here. The
-    autonomous AI actor (which makes changes based on each campaign's AI settings) is also
-    coming next push.
-  </p>
+{# ============ KPI ROW (8 cards) ============ #}
+<section class="kpi-section">
+  <h2 class="dash-section-title">Performance · last 30 days</h2>
+  <div class="kpi-row">
+    {{ kpi("Spend",        "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("Impressions",  "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("Clicks",       "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("CTR",          "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("Conversions",  "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("CPA",          "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("ROAS",         "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("Revenue",      "—",  "Awaiting GAds sync",      empty=True) }}
+  </div>
 </section>
 
+{# ============ STATUS ROW (5 cards) ============ #}
+<section class="kpi-section">
+  <h2 class="dash-section-title">Campaign roster</h2>
+  <div class="kpi-row kpi-row-5">
+    {{ kpi("Active",     summary.status_counts.active,
+          "Currently running", accent=summary.status_counts.active > 0) }}
+    {{ kpi("Paused",     summary.status_counts.paused,
+          "Temporarily off") }}
+    {{ kpi("Drafts",     summary.status_counts.draft,
+          "Not pushed yet") }}
+    {{ kpi("Archived",   summary.status_counts.archived,
+          "Off the books") }}
+    {{ kpi("AI managed", summary.ai_managed_count,
+          "Auto-acting within their settings", accent=summary.ai_managed_count > 0) }}
+  </div>
+</section>
+
+{# ============ PACING ROW ============ #}
+<section class="kpi-section">
+  <h2 class="dash-section-title">Pacing &amp; targets</h2>
+  <div class="kpi-row kpi-row-4">
+    {{ kpi(
+        "Daily budget · active",
+        "$" ~ ('%.2f'|format(summary.daily_budget_active_cents / 100)),
+        "Per day across all active campaigns",
+        accent=summary.daily_budget_active_cents > 0
+    ) }}
+    {{ kpi(
+        "Daily budget · all",
+        "$" ~ ('%.2f'|format(summary.daily_budget_all_cents / 100)),
+        "Including drafts & paused"
+    ) }}
+    {% if summary.target_cpa_count %}
+      {% set cpa_range = '$' ~ ('%.2f'|format(summary.target_cpa_min_cents / 100)) %}
+      {% if summary.target_cpa_min_cents != summary.target_cpa_max_cents %}
+        {% set cpa_range = cpa_range ~ ' – $' ~ ('%.2f'|format(summary.target_cpa_max_cents / 100)) %}
+      {% endif %}
+      {{ kpi("Target CPA range", cpa_range,
+        summary.target_cpa_count|string ~ " campaign(s) using Target CPA") }}
+    {% else %}
+      {{ kpi("Target CPA", "not set",
+        "No campaigns using Target CPA bidding") }}
+    {% endif %}
+    {{ kpi(
+        "Product coverage",
+        summary.products_with_campaign ~ " / " ~ summary.products_total,
+        summary.products_coverage_pct|string ~ "% of synced products have a campaign"
+    ) }}
+  </div>
+</section>
+
+{# ============ TREND CHARTS (placeholder) ============ #}
+<section class="dash-grid-2">
+  <div class="dash-card">
+    <div class="dash-card-head">
+      <h3>Spend vs revenue</h3>
+      <span class="conn-desc">last 30 days</span>
+    </div>
+    <div class="empty-state" style="padding:48px 4px;">
+      <p><strong>Awaiting Google Ads campaign sync.</strong></p>
+      <p class="empty-sub">When wired, this chart shows daily spend layered with attributed revenue, so you can see whether spend is paying off.</p>
+    </div>
+  </div>
+  <div class="dash-card">
+    <div class="dash-card-head">
+      <h3>Conversions vs CPA target</h3>
+      <span class="conn-desc">last 30 days</span>
+    </div>
+    <div class="empty-state" style="padding:48px 4px;">
+      <p><strong>Awaiting Google Ads campaign sync.</strong></p>
+      <p class="empty-sub">Daily conversions plotted against your blended Target CPA line — tells you instantly if AI is steering toward or away from the goal.</p>
+    </div>
+  </div>
+</section>
+
+{# ============ TOP PERFORMERS / NEEDS ATTENTION ============ #}
+<section class="dash-grid-2">
+  <div class="dash-card">
+    <div class="dash-card-head">
+      <h3>Top performers</h3>
+      <span class="conn-desc">awaiting GAds sync</span>
+    </div>
+    <div class="dash-list-empty">
+      <div class="dash-list-row dash-list-row-disabled">
+        <span class="dash-list-label">Highest ROAS</span><span>—</span>
+      </div>
+      <div class="dash-list-row dash-list-row-disabled">
+        <span class="dash-list-label">Lowest CPA</span><span>—</span>
+      </div>
+      <div class="dash-list-row dash-list-row-disabled">
+        <span class="dash-list-label">Top spend</span><span>—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dash-card">
+    <div class="dash-card-head">
+      <h3>Needs attention</h3>
+      <span class="conn-desc">configuration issues found now</span>
+    </div>
+    {% set attention_total =
+        summary.attention_active_zero_budget|length
+      + summary.attention_ai_no_target_cpa|length
+      + summary.attention_active_no_keywords|length
+    %}
+    {% if attention_total == 0 %}
+    <div class="empty-state" style="padding:32px 4px;">
+      <p>Nothing flagged.</p>
+      <p class="empty-sub">Once Google Ads performance sync lands, low-CTR and over-CPA campaigns will surface here too.</p>
+    </div>
+    {% else %}
+
+    {% if summary.attention_active_zero_budget %}
+    <div class="dash-attn-group">
+      <div class="dash-attn-head"><strong>Active with $0 budget</strong> — they'll never serve</div>
+      {% for c in summary.attention_active_zero_budget %}
+      <a href="/campaigns/{{ c.id }}" class="dash-attn-row">{{ c.name }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if summary.attention_active_no_keywords %}
+    <div class="dash-attn-group">
+      <div class="dash-attn-head"><strong>Active with no positive keywords</strong></div>
+      {% for c in summary.attention_active_no_keywords %}
+      <a href="/campaigns/{{ c.id }}" class="dash-attn-row">{{ c.name }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if summary.attention_ai_no_target_cpa %}
+    <div class="dash-attn-group">
+      <div class="dash-attn-head"><strong>AI managed without a Target CPA cap</strong></div>
+      {% for c in summary.attention_ai_no_target_cpa %}
+      <a href="/campaigns/{{ c.id }}" class="dash-attn-row">{{ c.name }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% endif %}
+  </div>
+</section>
+
+{# ============ AI ACTIVITY FEED (placeholder) ============ #}
+<section class="dash-card">
+  <div class="dash-card-head">
+    <h3>Recent AI activity</h3>
+    <span class="conn-desc">when the autonomous actor lands</span>
+  </div>
+  <div class="empty-state" style="padding:32px 4px;">
+    <p><strong>No AI activity yet.</strong></p>
+    <p class="empty-sub">
+      Once the autonomous actor is wired, every change it makes (bid adjustments, pauses, negative keywords pushed) lands here with rationale + before/after.
+    </p>
+  </div>
+</section>
+
+{# ============ ALL CAMPAIGNS TABLE ============ #}
 <section class="panel">
+  <div class="panel-head">
+    <h2>All campaigns</h2>
+    <span class="conn-desc">{{ total }} total</span>
+  </div>
+
   <form method="get" class="filter-bar-form">
     <input type="search" name="q" value="{{ filters.q }}" placeholder="Search campaign name…" class="filter-search" />
     <select name="status_filter" class="filter-select">
@@ -55,8 +234,7 @@
   <div class="empty-state" style="padding:40px 4px;">
     <p><strong>No campaigns yet.</strong></p>
     <p class="empty-sub">
-      Start a campaign by clicking <strong>Create campaign</strong> on a product's Overview tab
-      or on a collection page.
+      Start a campaign on a product's <strong>Campaigns</strong> tab or on a collection page.
     </p>
   </div>
   {% else %}
@@ -69,6 +247,10 @@
         {{ sort_th("Daily budget", "budget", sort, direction, qs_no_sort) }}
         <th>Bid strategy</th>
         <th>AI</th>
+        <th class="num">Spend (30d)</th>
+        <th class="num">Conv (30d)</th>
+        <th class="num">CPA</th>
+        <th class="num">ROAS</th>
         {{ sort_th("Updated", "updated_at", sort, direction, qs_no_sort) }}
       </tr>
     </thead>
@@ -90,6 +272,10 @@
         <td>{{ c.budget }}</td>
         <td>{{ c.bid_strategy }}</td>
         <td>{% if c.ai_managed %}<span class="pill pill-ok">on</span>{% else %}<span class="conn-desc">off</span>{% endif %}</td>
+        <td class="num conn-desc">—</td>
+        <td class="num conn-desc">—</td>
+        <td class="num conn-desc">—</td>
+        <td class="num conn-desc">—</td>
         <td>{{ c.updated_at }}</td>
       </tr>
       {% endfor %}

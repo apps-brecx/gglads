@@ -303,22 +303,31 @@ def _normalize_candidate(raw: dict) -> dict | None:
     match_type = (raw.get("match_type") or "").lower().strip()
     if match_type not in VALID_MATCH:
         match_type = "phrase"
-    bucket = (raw.get("suggested_bucket") or "").lower().strip()
-    if bucket not in VALID_BUCKETS:
-        bucket = "secondary"
+    suggested = (raw.get("suggested_bucket") or "").lower().strip()
+    if suggested not in VALID_BUCKETS:
+        suggested = "secondary"
     try:
         score = int(raw.get("relevance_score") or 50)
     except (TypeError, ValueError):
         score = 50
     score = max(0, min(100, score))
+    base_rationale = (raw.get("rationale") or "")[:480]
+    full_rationale = (
+        f"AI suggests → {suggested}. {base_rationale}".strip()
+        if base_rationale
+        else f"AI suggests → {suggested}"
+    )
     return {
         "keyword": keyword,
         "intent": intent,
         "funnel": funnel,
         "match_type": match_type,
         "relevance_score": score,
-        "rationale": (raw.get("rationale") or "")[:500],
-        "bucket": bucket,
+        "rationale": full_rationale[:500],
+        # Always start as "unsorted" — the user explicitly pushes from the
+        # Keywords page. Claude's suggested_bucket is preserved in the
+        # rationale ("AI suggests → primary") so it's visible but not applied.
+        "bucket": "unsorted",
     }
 
 

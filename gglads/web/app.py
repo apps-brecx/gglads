@@ -1365,9 +1365,8 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
     page_url: str | None = None
 
     if sc_connected:
-        site = (sc_cfg.get("site_url") or "").strip().rstrip("/")
-        if site:
-            page_url = f"{site}/products/{p.handle}"
+        page_url = sc_svc.page_url_from_site(sc_cfg.get("site_url") or "", p.handle)
+        if page_url:
             rows, err = sc_svc.get_queries_for_page(db, page_url, days=90)
             if err:
                 sc_error = err

@@ -14,6 +14,35 @@ from gglads.services import integrations as integrations_svc
 logger = logging.getLogger("gglads.sc")
 
 
+def normalize_site_url(site_url: str) -> str:
+    """Accept bare-domain input and treat it as a Search Console domain property.
+
+    Returns the value that should be sent to the API:
+      'syruvia.com'              -> 'sc-domain:syruvia.com'
+      'sc-domain:syruvia.com'    -> unchanged
+      'https://syruvia.com/'     -> unchanged
+    """
+    s = (site_url or "").strip()
+    if not s:
+        return s
+    if s.startswith("sc-domain:") or s.startswith("http://") or s.startswith("https://"):
+        return s
+    return f"sc-domain:{s}"
+
+
+def page_url_from_site(site_url: str, handle: str) -> str | None:
+    """Compose a public Shopify product URL suitable for a SC `page` filter."""
+    s = (site_url or "").strip().rstrip("/")
+    if not s:
+        return None
+    if s.startswith("sc-domain:"):
+        domain = s[len("sc-domain:"):]
+        return f"https://{domain}/products/{handle}"
+    if s.startswith("http://") or s.startswith("https://"):
+        return f"{s}/products/{handle}"
+    return f"https://{s}/products/{handle}"
+
+
 def _refresh_access_token(cfg: dict) -> tuple[str | None, str | None]:
     try:
         r = httpx.post(
@@ -49,7 +78,7 @@ def get_queries_for_page(
     if err:
         return None, err
 
-    site_url = cfg["site_url"].strip()
+    site_url = normalize_site_url(cfg["site_url"])
     end = date.today()
     start = end - timedelta(days=days)
     url = (

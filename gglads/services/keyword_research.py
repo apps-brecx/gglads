@@ -156,10 +156,7 @@ def _normalize_candidate(raw: dict) -> dict | None:
 def _product_public_url(db: Session, product: ShopifyProduct) -> str | None:
     """Compose the public product URL using the Search Console site_url + handle."""
     sc_cfg = integrations_svc.get_config(db, "google_search_console")
-    site = (sc_cfg.get("site_url") or "").strip().rstrip("/")
-    if not site:
-        return None
-    return f"{site}/products/{product.handle}"
+    return sc_svc.page_url_from_site(sc_cfg.get("site_url") or "", product.handle)
 
 
 def research_keywords(

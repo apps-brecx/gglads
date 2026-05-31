@@ -121,11 +121,17 @@ def test_google_search_console(config: dict[str, Any]) -> tuple[bool, str]:
     if r.status_code != 200:
         return False, f"HTTP {r.status_code}: {r.text[:200]}"
     sites = r.json().get("siteEntry", []) or r.json().get("sites", [])
-    site_url = config["site_url"].strip().rstrip("/") + "/"
+    from gglads.services.search_console import normalize_site_url
+    normalized = normalize_site_url(config["site_url"])
     matched = any(
-        (s.get("siteUrl") or "").rstrip("/") + "/" == site_url for s in sites
+        (s.get("siteUrl") or "") == normalized
+        or (s.get("siteUrl") or "").rstrip("/") == normalized.rstrip("/")
+        for s in sites
     )
-    warn = "" if matched else f" (warning: {site_url} not in verified sites list)"
+    warn = "" if matched else (
+        f" (warning: '{normalized}' not in verified sites list — "
+        "make sure the Site URL field matches exactly)"
+    )
     return True, f"Reached Search Console. {len(sites)} verified sites.{warn}"
 
 

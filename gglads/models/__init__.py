@@ -1,4 +1,5 @@
 from gglads.models.base import Base
+from gglads.models.campaign import AdCampaign, AdCampaignKeyword
 from gglads.models.integration import Integration
 from gglads.models.product_chat import ProductChatMessage
 from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
@@ -19,6 +20,8 @@ from gglads.models.user import User
 __all__ = [
     "Base",
     "User",
+    "AdCampaign",
+    "AdCampaignKeyword",
     "Integration",
     "KeywordResearchRun",
     "ProductChatMessage",

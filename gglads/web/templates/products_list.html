@@ -18,8 +18,15 @@
     </p>
   </div>
   <div class="page-actions">
+    {% if collection %}
+    <form method="post" action="/campaigns/new" class="inline-form">
+      <input type="hidden" name="scope_type" value="collection" />
+      <input type="hidden" name="scope_id" value="{{ collection.id }}" />
+      <button type="submit" class="btn-primary">+ Create campaign for {{ collection.title }}</button>
+    </form>
+    {% endif %}
     <form method="post" action="/products/sync" class="inline-form">
-      <button type="submit" class="btn-primary">Sync now</button>
+      <button type="submit" class="btn-ghost">Sync now</button>
     </form>
   </div>
 </div>

@@ -1,0 +1,101 @@
+{% extends "layout.html" %}
+{% from "_listing.html" import sort_th, pagination %}
+
+{% block title %}Campaigns — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Campaigns</h1>
+    <p class="page-subtitle">
+      Google Ads campaigns managed by gglads. Each campaign targets one product or one collection.
+    </p>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel">
+  <p class="conn-desc" style="margin:0 0 12px;">
+    Push to Google Ads is the next backend — for now, draft and configure campaigns here. The
+    autonomous AI actor (which makes changes based on each campaign's AI settings) is also
+    coming next push.
+  </p>
+</section>
+
+<section class="panel">
+  <form method="get" class="filter-bar-form">
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Search campaign name…" class="filter-search" />
+    <select name="status_filter" class="filter-select">
+      <option value="" {{ 'selected' if not filters.status_filter }}>All statuses</option>
+      <option value="draft" {{ 'selected' if filters.status_filter == 'draft' }}>Draft</option>
+      <option value="active" {{ 'selected' if filters.status_filter == 'active' }}>Active</option>
+      <option value="paused" {{ 'selected' if filters.status_filter == 'paused' }}>Paused</option>
+      <option value="archived" {{ 'selected' if filters.status_filter == 'archived' }}>Archived</option>
+    </select>
+    <select name="scope" class="filter-select">
+      <option value="" {{ 'selected' if not filters.scope }}>All scopes</option>
+      <option value="product" {{ 'selected' if filters.scope == 'product' }}>Product</option>
+      <option value="collection" {{ 'selected' if filters.scope == 'collection' }}>Collection</option>
+    </select>
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="dir" value="{{ direction }}" />
+    <input type="hidden" name="per_page" value="{{ per_page }}" />
+    <button type="submit" class="btn-ghost">Apply</button>
+    {% if filters.q or filters.status_filter or filters.scope %}
+    <a href="?per_page={{ per_page }}" class="muted-link" style="align-self:center;">Clear</a>
+    {% endif %}
+  </form>
+
+  {% if not items %}
+  <div class="empty-state" style="padding:40px 4px;">
+    <p><strong>No campaigns yet.</strong></p>
+    <p class="empty-sub">
+      Start a campaign by clicking <strong>Create campaign</strong> on a product's Overview tab
+      or on a collection page.
+    </p>
+  </div>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        {{ sort_th("Name", "name", sort, direction, qs_no_sort) }}
+        {{ sort_th("Scope", "scope", sort, direction, qs_no_sort) }}
+        {{ sort_th("Status", "status", sort, direction, qs_no_sort) }}
+        {{ sort_th("Daily budget", "budget", sort, direction, qs_no_sort) }}
+        <th>Bid strategy</th>
+        <th>AI</th>
+        {{ sort_th("Updated", "updated_at", sort, direction, qs_no_sort) }}
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in items %}
+      <tr onclick="window.location='/campaigns/{{ c.id }}'" style="cursor:pointer;">
+        <td><a href="/campaigns/{{ c.id }}" class="row-link">{{ c.name }}</a></td>
+        <td>
+          <span class="tag">{{ c.scope.kind }}</span>
+          {% if c.scope.url %}
+            <a href="{{ c.scope.url }}" class="muted-link">{{ c.scope.title }}</a>
+          {% else %}
+            <span class="conn-desc">{{ c.scope.title }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="pill {{ 'pill-ok' if c.status == 'active' else 'pill-warn' if c.status == 'paused' else 'pill-info' if c.status == 'draft' else '' }}">{{ c.status }}</span>
+        </td>
+        <td>{{ c.budget }}</td>
+        <td>{{ c.bid_strategy }}</td>
+        <td>{% if c.ai_managed %}<span class="pill pill-ok">on</span>{% else %}<span class="conn-desc">off</span>{% endif %}</td>
+        <td>{{ c.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {{ pagination(page, total_pages, total, per_page, qs_no_page) }}
+  {% endif %}
+</section>
+{% endblock %}

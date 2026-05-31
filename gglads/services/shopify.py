@@ -428,8 +428,42 @@ def _sync_orders(
     return orders_seen
 
 
-def sync_catalog(db: Session) -> tuple[bool, str, dict]:
-    """Run a full sync. Returns (ok, detail, stats)."""
+# ---------------------------------------------------------------------------
+# Sync entry points
+# ---------------------------------------------------------------------------
+
+def sync_full(db: Session) -> tuple[bool, str, dict]:
+    """Catalog + sales + inventory snapshot."""
+    return _run(db, kind="full", catalog=True, orders=True, snapshot=True)
+
+
+def sync_catalog_only(db: Session) -> tuple[bool, str, dict]:
+    """Collections + publications + products + images. No orders, no snapshot."""
+    return _run(db, kind="catalog", catalog=True, orders=False, snapshot=False)
+
+
+def sync_sales_only(db: Session) -> tuple[bool, str, dict]:
+    """Orders (units/customers/revenue) + today's inventory snapshot. Fast."""
+    return _run(db, kind="sales", catalog=False, orders=True, snapshot=True)
+
+
+def sync_inventory_only(db: Session) -> tuple[bool, str, dict]:
+    """Just write today's inventory snapshot from already-synced product data."""
+    return _run(db, kind="inventory", catalog=False, orders=False, snapshot=True)
+
+
+# Backwards-compat alias (cron + any legacy callers).
+sync_catalog = sync_full
+
+
+def _run(
+    db: Session,
+    *,
+    kind: str,
+    catalog: bool,
+    orders: bool,
+    snapshot: bool,
+) -> tuple[bool, str, dict]:
     cfg = integrations_svc.get_config(db, "shopify")
     if not integrations_svc.is_configured(cfg, integrations_svc.required_keys("shopify")):
         return False, "Shopify is not connected.", {}
@@ -440,108 +474,146 @@ def sync_catalog(db: Session) -> tuple[bool, str, dict]:
     url = f"https://{domain}/admin/api/{version}/graphql.json"
     headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
 
-    run = ShopifySyncRun()
+    run = ShopifySyncRun(kind=kind)
     db.add(run)
     db.commit()
     db.refresh(run)
 
+    collection_count = 0
+    product_count = 0
+    orders_count = 0
+    snapshots_count = 0
+
     try:
         with httpx.Client(timeout=120.0) as client:
-            # 1) Collections
-            collection_count = 0
             collection_legacy_ids: set[int] = set()
-            cursor: str | None = None
-            while True:
-                data = _post_graphql(
-                    client, url, headers, _COLLECTIONS_QUERY, {"cursor": cursor}
-                )
-                page = data["collections"]
-                for node in page["nodes"]:
-                    cid = _upsert_collection(db, node)
-                    collection_legacy_ids.add(cid)
-                    collection_count += 1
-                db.commit()
-                if not page["pageInfo"]["hasNextPage"]:
-                    break
-                cursor = page["pageInfo"]["endCursor"]
-
-            # 2) Publications (sales channels)
             publication_legacy_ids: set[int] = set()
-            cursor = None
-            try:
-                while True:
-                    data = _post_graphql(
-                        client, url, headers, _PUBLICATIONS_QUERY, {"cursor": cursor}
-                    )
-                    page = data["publications"]
-                    for node in page["nodes"]:
-                        legacy = _upsert_publication(db, node)
-                        if legacy is not None:
-                            publication_legacy_ids.add(legacy)
-                    db.commit()
-                    if not page["pageInfo"]["hasNextPage"]:
-                        break
-                    cursor = page["pageInfo"]["endCursor"]
-            except RuntimeError as exc:
-                # `read_publications` scope might be missing — log and continue
-                logger.warning("Publications fetch skipped: %s", exc)
 
-            # 3) Products
-            product_count = 0
-            cursor = None
-            while True:
-                data = _post_graphql(
-                    client, url, headers, _PRODUCTS_QUERY, {"cursor": cursor}
+            if catalog:
+                collection_count, collection_legacy_ids = _phase_collections(
+                    db, client, url, headers
                 )
-                page = data["products"]
-                for node in page["nodes"]:
-                    _upsert_product(
-                        db,
-                        node,
-                        domain,
-                        collection_legacy_ids,
-                        publication_legacy_ids,
-                    )
-                    product_count += 1
-                db.commit()
-                if not page["pageInfo"]["hasNextPage"]:
-                    break
-                cursor = page["pageInfo"]["endCursor"]
+                publication_legacy_ids = _phase_publications(db, client, url, headers)
+                product_count = _phase_products(
+                    db,
+                    client,
+                    url,
+                    headers,
+                    domain,
+                    collection_legacy_ids,
+                    publication_legacy_ids,
+                )
 
-            # 4) Daily inventory snapshot (used for 30-day stock history)
-            _record_inventory_snapshots(db)
+            if snapshot:
+                snapshots_count = _record_inventory_snapshots(db)
 
-            # 5) Orders (sales aggregates, last 90 days) — best-effort
-            orders_count = 0
-            try:
-                orders_count = _sync_orders(client, url, headers, db)
-            except RuntimeError as exc:
-                logger.warning("Orders sync skipped: %s", exc)
+            if orders:
+                try:
+                    orders_count = _sync_orders(client, url, headers, db)
+                except RuntimeError as exc:
+                    logger.warning("Orders sync skipped: %s", exc)
+
+        bits: list[str] = []
+        if catalog:
+            bits.append(f"{product_count} products")
+            bits.append(f"{collection_count} collections")
+        if orders:
+            bits.append(f"{orders_count} orders (last {SALES_WINDOW_DAYS} days)")
+        if snapshot:
+            bits.append(f"{snapshots_count} stock snapshot(s)")
+        detail = f"[{kind}] " + ", ".join(bits) + "."
 
         run.finished_at = datetime.now(timezone.utc)
         run.ok = True
         run.products_count = product_count
         run.collections_count = collection_count
         run.orders_count = orders_count
-        run.detail = (
-            f"Synced {product_count} products, {collection_count} collections, "
-            f"and {orders_count} orders (last {SALES_WINDOW_DAYS} days). "
-            f"Inventory snapshot recorded for today."
-        )
+        run.detail = detail
         db.commit()
-        return True, run.detail, {
+        return True, detail, {
+            "kind": kind,
             "products": product_count,
             "collections": collection_count,
             "orders": orders_count,
+            "snapshots": snapshots_count,
         }
+
     except httpx.HTTPError as exc:
-        msg = f"Network error: {type(exc).__name__}: {exc}"
+        msg = f"[{kind}] Network error: {type(exc).__name__}: {exc}"
         logger.exception("Shopify sync failed")
         return _finish_run_with_error(db, run, msg), msg, {}
     except Exception as exc:  # noqa: BLE001 — catch-all so the request doesn't 500
-        msg = f"{type(exc).__name__}: {exc}"
+        msg = f"[{kind}] {type(exc).__name__}: {exc}"
         logger.exception("Shopify sync failed")
         return _finish_run_with_error(db, run, msg), msg, {}
+
+
+# ---------------------------------------------------------------------------
+# Per-phase helpers
+# ---------------------------------------------------------------------------
+
+def _phase_collections(db, client, url, headers) -> tuple[int, set[int]]:
+    count = 0
+    ids: set[int] = set()
+    cursor: str | None = None
+    while True:
+        data = _post_graphql(client, url, headers, _COLLECTIONS_QUERY, {"cursor": cursor})
+        page = data["collections"]
+        for node in page["nodes"]:
+            ids.add(_upsert_collection(db, node))
+            count += 1
+        db.commit()
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        cursor = page["pageInfo"]["endCursor"]
+    return count, ids
+
+
+def _phase_publications(db, client, url, headers) -> set[int]:
+    ids: set[int] = set()
+    cursor: str | None = None
+    try:
+        while True:
+            data = _post_graphql(
+                client, url, headers, _PUBLICATIONS_QUERY, {"cursor": cursor}
+            )
+            page = data["publications"]
+            for node in page["nodes"]:
+                legacy = _upsert_publication(db, node)
+                if legacy is not None:
+                    ids.add(legacy)
+            db.commit()
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+            cursor = page["pageInfo"]["endCursor"]
+    except RuntimeError as exc:
+        # `read_publications` scope might be missing — log and continue
+        logger.warning("Publications fetch skipped: %s", exc)
+    return ids
+
+
+def _phase_products(
+    db,
+    client,
+    url,
+    headers,
+    domain,
+    collection_ids: set[int],
+    publication_ids: set[int],
+) -> int:
+    count = 0
+    cursor: str | None = None
+    while True:
+        data = _post_graphql(client, url, headers, _PRODUCTS_QUERY, {"cursor": cursor})
+        page = data["products"]
+        for node in page["nodes"]:
+            _upsert_product(db, node, domain, collection_ids, publication_ids)
+            count += 1
+        db.commit()
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        cursor = page["pageInfo"]["endCursor"]
+    return count
 
 
 def _finish_run_with_error(db: Session, run: ShopifySyncRun, msg: str) -> bool:
@@ -563,3 +635,18 @@ def last_sync_run(db: Session) -> ShopifySyncRun | None:
     return db.scalar(
         select(ShopifySyncRun).order_by(ShopifySyncRun.started_at.desc()).limit(1)
     )
+
+
+def last_sync_runs_by_kind(db: Session) -> dict[str, ShopifySyncRun]:
+    """Return {kind: latest run} so the UI can show one timestamp per kind."""
+    out: dict[str, ShopifySyncRun] = {}
+    for kind in ("full", "catalog", "sales", "inventory"):
+        run = db.scalar(
+            select(ShopifySyncRun)
+            .where(ShopifySyncRun.kind == kind)
+            .order_by(ShopifySyncRun.started_at.desc())
+            .limit(1)
+        )
+        if run is not None:
+            out[kind] = run
+    return out

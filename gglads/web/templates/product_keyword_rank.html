@@ -18,6 +18,31 @@
         Every keyword from every source — Claude research, Google Keyword Planner, Search Console organic.
         See where it ranks, where it's used on this page, and push it to SEO or ads in one click.
       </p>
+      <div class="kw-source-counts">
+        {% for source in ('ai', 'keyword_planner', 'search_console', 'manual') %}
+          {% set cnt = source_counts.get(source, 0) %}
+          <span class="kw-source-count {{ 'is-zero' if cnt == 0 }}">
+            <strong>{{ cnt }}</strong> from {{ source_labels.get(source, source) }}
+          </span>
+        {% endfor %}
+      </div>
+      {% if last_research %}
+      <p class="conn-desc" style="margin-top:8px;">
+        Last research: {{ last_research.finished_at.strftime("%Y-%m-%d %H:%M UTC") if last_research.finished_at else 'in progress' }}
+        · sources used: {{ last_research.sources_used or '—' }}
+        {% if last_research.ok == false %}
+        · <span style="color:var(--fail);">failed</span>
+        {% endif %}
+        {% if last_research.detail %}
+        <br/><span style="font-size:11px;">{{ last_research.detail }}</span>
+        {% endif %}
+      </p>
+      {% endif %}
+    </div>
+    <div class="form-actions" style="margin:0;">
+      <form method="post" action="/products/{{ product.id }}/keywords/research" class="inline-form">
+        <button type="submit" class="btn-primary">Re-research (all sources)</button>
+      </form>
     </div>
   </div>
 </section>

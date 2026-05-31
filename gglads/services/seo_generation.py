@@ -12,7 +12,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from gglads.models.product_chat import ProductChatMessage
 from gglads.models.product_keywords import ProductKeyword
 from gglads.models.shopify_product import (
     ProductSeoDraft,
@@ -22,6 +21,7 @@ from gglads.models.shopify_product import (
     ShopifyProductImage,
 )
 from gglads.services import claude as claude_svc
+from gglads.services import seo_chat as chat_svc
 from gglads.services import shopify_push as shopify_push_svc
 
 logger = logging.getLogger("gglads.seo")
@@ -196,17 +196,13 @@ def generate_seo_drafts(
                 f"- \"{kw}\" → must appear in: {', '.join(targets)}"
             )
 
-    # User chat context (last 20 messages, oldest first) so Claude has the story
-    chat_rows = db.execute(
-        select(ProductChatMessage)
-        .where(ProductChatMessage.product_id == product_id)
-        .where(ProductChatMessage.topic == "seo")
-        .order_by(ProductChatMessage.created_at.desc())
-        .limit(20)
-    ).scalars().all()
-    chat_rows = list(reversed(chat_rows))
+    # User chat context across product-scoped AND global ("all products") chats
+    chat_rows = chat_svc.list_context_for_product(
+        db, product_id, topics=("seo", "general", "keywords")
+    )
     chat_lines = "\n".join(
-        f"  [{m.role}] {m.content[:500]}" for m in chat_rows
+        f"  [{('GLOBAL' if m.product_id is None else 'product')}/{m.topic}/{m.role}] {m.content[:500]}"
+        for m in chat_rows
     ) or "  (no prior chat)"
 
     user_msg_parts = [

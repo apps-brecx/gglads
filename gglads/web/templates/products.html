@@ -9,9 +9,35 @@
     <p class="page-subtitle">Your Shopify catalog — browse by collection or see everything in one list.</p>
   </div>
   <div class="page-actions">
-    <form method="post" action="/products/sync" class="inline-form">
-      <button type="submit" class="btn-primary">Sync now</button>
-    </form>
+    <details class="sync-menu">
+      <summary class="btn-primary">Sync now ▾</summary>
+      <div class="sync-menu-pop">
+        <form method="post" action="/products/sync/full" class="inline-form">
+          <button type="submit" class="sync-menu-item">
+            <span>Full sync</span>
+            <span class="conn-desc">Everything: catalog + orders + snapshot</span>
+          </button>
+        </form>
+        <form method="post" action="/products/sync/catalog" class="inline-form">
+          <button type="submit" class="sync-menu-item">
+            <span>Catalog only</span>
+            <span class="conn-desc">Collections, products, images, variants — no orders</span>
+          </button>
+        </form>
+        <form method="post" action="/products/sync/sales" class="inline-form">
+          <button type="submit" class="sync-menu-item">
+            <span>Sales only</span>
+            <span class="conn-desc">Orders (90d) + today's stock snapshot. Fast.</span>
+          </button>
+        </form>
+        <form method="post" action="/products/sync/inventory" class="inline-form">
+          <button type="submit" class="sync-menu-item">
+            <span>Inventory snapshot only</span>
+            <span class="conn-desc">Just today's stock-level snapshot. Seconds.</span>
+          </button>
+        </form>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -31,10 +57,6 @@
 <section class="panel sync-bar">
   <div class="sync-info">
     <div class="sync-stat">
-      <span class="sync-label">Last sync</span>
-      <span class="sync-value">{{ last_synced or 'Never' }}</span>
-    </div>
-    <div class="sync-stat">
       <span class="sync-label">Collections</span>
       <span class="sync-value">{{ collections|length }}</span>
     </div>
@@ -46,6 +68,24 @@
       <span class="sync-label">Active</span>
       <span class="sync-value">{{ active_count }}</span>
     </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Sync status</h2>
+    <span class="conn-desc">Per-kind last-run timestamps. Cron does a full sync at 04:00 UTC and a sales-only sync at 16:00 UTC.</span>
+  </div>
+  <div class="sync-kinds-row">
+    {% for k in sync_kinds %}
+    <div class="sync-kind-card {{ 'is-good' if k.ok == true else 'is-fail' if k.ok == false else '' }}">
+      <div class="sync-kind-label">{{ k.label }}</div>
+      <div class="sync-kind-when">
+        {% if k.last_at %}{{ k.last_at }}{% else %}<span class="conn-desc">never</span>{% endif %}
+      </div>
+      {% if k.detail %}<div class="sync-kind-detail">{{ k.detail }}</div>{% endif %}
+    </div>
+    {% endfor %}
   </div>
 </section>
 

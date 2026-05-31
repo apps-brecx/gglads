@@ -696,6 +696,29 @@ def _last_sync_display(db: Session) -> str | None:
     return run.finished_at.strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _sync_kind_summary(db: Session) -> list[dict]:
+    """Per-kind sync card data for /products."""
+    runs = shopify_svc.last_sync_runs_by_kind(db)
+    kinds = [
+        ("full", "Full"),
+        ("catalog", "Catalog"),
+        ("sales", "Sales"),
+        ("inventory", "Inventory"),
+    ]
+    out: list[dict] = []
+    for slug, label in kinds:
+        r = runs.get(slug)
+        out.append({
+            "slug": slug,
+            "label": label,
+            "last_at": r.finished_at.strftime("%Y-%m-%d %H:%M UTC")
+                if r and r.finished_at else None,
+            "ok": r.ok if r else None,
+            "detail": (r.detail or "")[:200] if r else None,
+        })
+    return out
+
+
 def _product_collection_titles(db: Session, product_ids: list[int]) -> dict[int, list[str]]:
     if not product_ids:
         return {}
@@ -789,6 +812,7 @@ def products_collections(request: Request, db: DbDep) -> Response:
             "total_count": total_products,
             "active_count": active_products,
             "last_synced": _last_sync_display(db),
+            "sync_kinds": _sync_kind_summary(db),
             "query": q,
             "shopify_connected": _shopify_status(db),
             "flashes": _consume_flashes(request),
@@ -1035,12 +1059,27 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
     )
 
 
+_SYNC_FN_BY_KIND = {
+    "full": shopify_svc.sync_full,
+    "catalog": shopify_svc.sync_catalog_only,
+    "sales": shopify_svc.sync_sales_only,
+    "inventory": shopify_svc.sync_inventory_only,
+}
+
+
 @app.post("/products/sync")
-def products_sync(request: Request, db: DbDep) -> Response:
+@app.post("/products/sync/{kind}")
+def products_sync(
+    request: Request, db: DbDep, kind: str = "full"
+) -> Response:
     user, deny = _require_admin(request, db)
     if deny is not None:
         return deny
-    ok, detail, _stats = shopify_svc.sync_catalog(db)
+    fn = _SYNC_FN_BY_KIND.get(kind)
+    if fn is None:
+        _flash(request, f"Unknown sync kind: {kind}.", "error")
+        return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
+    ok, detail, _stats = fn(db)
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -1223,6 +1262,7 @@ def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
             "tab": "overview",
             "product": product,
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -1279,8 +1319,6 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
         .where(ProductSeoDraft.pushed_to_shopify_at.is_(None))
     ) or 0
 
-    chat_messages = seo_chat_svc.list_messages(db, product_id, topic="seo")
-
     return templates.TemplateResponse(
         request,
         "product_seo.html",
@@ -1299,8 +1337,8 @@ def product_seo(product_id: int, request: Request, db: DbDep) -> Response:
             "current_description_full": p.description_html or "",
             "no_keywords_warning": has_approved == 0,
             "approved_not_pushed": approved_not_pushed,
-            "chat_messages": chat_messages,
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -1401,21 +1439,52 @@ def product_seo_push(product_id: int, request: Request, db: DbDep) -> Response:
     )
 
 
-@app.post("/products/{product_id}/seo/chat")
-async def product_seo_chat(product_id: int, request: Request, db: DbDep) -> Response:
+async def _handle_chat(
+    request: Request, db: Session, product_id: int | None
+) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     if user.role not in ("admin", "operator"):
         return PlainTextResponse("Forbidden", status_code=403)
     form = await request.form()
+    topic = (form.get("topic") or "general").strip() or "general"
     message = (form.get("message") or "").strip()
-    ok, detail = seo_chat_svc.send_message(db, product_id, user.id, message)
+    redirect_to = (form.get("redirect_to") or "").strip() or (
+        f"/products/{product_id}" if product_id else "/"
+    )
+    ok, detail = seo_chat_svc.send_message(db, product_id, user.id, message, topic=topic)
     if not ok:
         _flash(request, detail, "error")
-    return RedirectResponse(
-        f"/products/{product_id}/seo", status_code=status.HTTP_303_SEE_OTHER
-    )
+    return RedirectResponse(redirect_to, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/{product_id}/chat")
+async def product_chat(product_id: int, request: Request, db: DbDep) -> Response:
+    return await _handle_chat(request, db, product_id)
+
+
+@app.post("/chat")
+async def global_chat(request: Request, db: DbDep) -> Response:
+    return await _handle_chat(request, db, None)
+
+
+def _chat_ctx(request: Request, db: Session, product_id: int | None) -> dict:
+    """Common chat context for any product subpage."""
+    scope = request.query_params.get("chat_scope") or "product"
+    if scope not in ("product", "all"):
+        scope = "product"
+    return {
+        "chat_scope": scope,
+        "chat_messages_product": seo_chat_svc.list_messages(
+            db, product_id, topic="general"
+        )
+        if product_id is not None
+        else [],
+        "chat_messages_global": seo_chat_svc.list_messages(
+            db, None, topic="general"
+        ),
+    }
 
 
 @app.post("/products/{product_id}/seo/drafts/{draft_id}/reject")
@@ -1498,6 +1567,7 @@ def product_images(product_id: int, request: Request, db: DbDep) -> Response:
             "pending_count": pending_count,
             "approved_unpushed_count": approved_unpushed,
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -1649,6 +1719,20 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
     # Distinct sources for filter dropdown
     distinct_sources = sorted({r["source"] for r in items}, key=lambda s: s or "")
 
+    # Count per source from ALL rows (not just the current page) so the
+    # header shows the real totals: "5 from Search Console, 12 from Claude…"
+    source_counts: dict[str, int] = {}
+    for r in items:
+        source_counts[r["source"]] = source_counts.get(r["source"], 0) + 1
+
+    # Last keyword-research run for this product, so we can surface errors
+    last_research = db.scalar(
+        select(KeywordResearchRun)
+        .where(KeywordResearchRun.product_id == product_id)
+        .order_by(KeywordResearchRun.started_at.desc())
+        .limit(1)
+    )
+
     return templates.TemplateResponse(
         request,
         "product_keyword_rank.html",
@@ -1660,6 +1744,8 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "product": product,
             "items": page_items,
             "distinct_sources": distinct_sources,
+            "source_counts": source_counts,
+            "last_research": last_research,
             "source_labels": _KW_SOURCE_LABELS,
             "seo_fields": kw_place_svc.SEO_FIELDS,
             "filters": {
@@ -1677,6 +1763,7 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "qs_no_page": listing_util.query_string_for(request, drop=["page"]),
             "qs_no_sort": listing_util.query_string_for(request, drop=["sort", "dir", "page"]),
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -1790,6 +1877,7 @@ def product_ads(product_id: int, request: Request, db: DbDep) -> Response:
             "product": product,
             "kw": ctx,
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -1874,6 +1962,7 @@ def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
             "has_ads_data": False,  # set true when we wire Google Ads sync
             "has_sc_data": _shopify_status(db),  # placeholder; replace per-integration
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 
@@ -1895,6 +1984,7 @@ def product_history(product_id: int, request: Request, db: DbDep) -> Response:
             "product": product,
             "history": [],
             "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
         },
     )
 

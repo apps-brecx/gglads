@@ -17,10 +17,12 @@ class ProductChatMessage(Base):
     __tablename__ = "product_chat_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(
+    # NULL means "global" — context about all products (brand voice, store-wide
+    # rules, etc). Otherwise a specific product.
+    product_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("shopify_products.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     topic: Mapped[str] = mapped_column(

@@ -219,6 +219,10 @@ class ShopifySyncRun(Base):
     __tablename__ = "shopify_sync_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 'full' | 'catalog' | 'sales' | 'inventory'
+    kind: Mapped[str] = mapped_column(
+        String(20), server_default="full", nullable=False, index=True
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

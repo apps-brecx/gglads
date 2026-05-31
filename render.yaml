@@ -22,14 +22,34 @@ services:
       - key: AUTONOMOUS_MODE
         sync: false
 
+  # 04:00 UTC — full catalog + sales + inventory snapshot.
   - type: cron
-    name: gglads-shopify-daily
+    name: gglads-shopify-full
     runtime: python
-    # 04:00 and 16:00 UTC — twice daily so 30-day stock data and 90-day
-    # sales aggregates stay current. Edit if you want different timing.
-    schedule: "0 4,16 * * *"
+    schedule: "0 4 * * *"
     buildCommand: pip install --upgrade pip && pip install -e .
     startCommand: python -m gglads.cron.shopify_sync
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false
+
+  # 16:00 UTC — sales only (orders + today's snapshot). Much faster.
+  - type: cron
+    name: gglads-shopify-sales
+    runtime: python
+    schedule: "0 16 * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.shopify_sync_sales
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"

@@ -125,8 +125,23 @@ def _push_to_seo_targets(
 
 
 def generate_for_ad_group(
-    db: Session, campaign_id: int, ad_group_id: int
+    db: Session,
+    campaign_id: int,
+    ad_group_id: int,
+    *,
+    save_as_pending: bool | None = None,
+    reason: str = "",
 ) -> tuple[bool, str, dict | None]:
+    """Generate RSA copy for an ad group.
+
+    When `save_as_pending` is None (default), behavior is decided by whether
+    this campaign has been pushed to Google Ads:
+      - not pushed yet → overwrite current copy directly (no approval needed)
+      - already live on Google Ads → save as pending; user must approve before
+        the new copy goes live and the old ad is queued for pause.
+    Pass True/False to force the behavior.
+    `reason` is shown to the user in the approval banner (e.g. "5 new keywords").
+    """
     campaign = db.get(AdCampaign, campaign_id)
     ad_group = db.get(AdGroup, ad_group_id)
     if campaign is None or ad_group is None or ad_group.campaign_id != campaign_id:
@@ -199,11 +214,29 @@ def generate_for_ad_group(
     path1 = str(data.get("path1") or "").strip()[:15]
     path2 = str(data.get("path2") or "").strip()[:15]
 
-    ad_group.headlines_json = json.dumps(headlines)
-    ad_group.descriptions_json = json.dumps(descriptions)
-    ad_group.path1 = path1 or None
-    ad_group.path2 = path2 or None
-    ad_group.updated_at = datetime.now(timezone.utc)
+    # Default: if a live RSA exists on Google Ads, route via pending so the
+    # user explicitly approves the swap. Otherwise overwrite directly.
+    if save_as_pending is None:
+        save_as_pending = bool(ad_group.google_ads_ad_id)
+    now = datetime.now(timezone.utc)
+    pending_msg = ""
+    if save_as_pending:
+        ad_group.ad_copy_pending_headlines_json = json.dumps(headlines)
+        ad_group.ad_copy_pending_descriptions_json = json.dumps(descriptions)
+        ad_group.ad_copy_pending_path1 = path1 or None
+        ad_group.ad_copy_pending_path2 = path2 or None
+        ad_group.ad_copy_pending_generated_at = now
+        ad_group.ad_copy_pending_reason = (reason or "")[:1000] or None
+        pending_msg = (
+            " Saved as PENDING — approve it on the campaign page to make it live."
+        )
+    else:
+        ad_group.headlines_json = json.dumps(headlines)
+        ad_group.descriptions_json = json.dumps(descriptions)
+        ad_group.path1 = path1 or None
+        ad_group.path2 = path2 or None
+        ad_group.ad_copy_generated_at = now
+    ad_group.updated_at = now
     db.commit()
 
     seo_pushed_count = 0
@@ -214,6 +247,7 @@ def generate_for_ad_group(
 
     summary = (
         f"Wrote {len(headlines)} headlines and {len(descriptions)} descriptions."
+        f"{pending_msg}"
     )
     if seo_pushed_count:
         summary += (

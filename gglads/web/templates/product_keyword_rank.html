@@ -156,6 +156,59 @@
       <button type="submit" class="btn-primary">Apply to selected</button>
     </div>
   </form>
+
+  {% if product_campaigns %}
+  <form method="post" action="/products/{{ product.id }}/keywords/bulk-push-to-campaign" class="bulk-bar"
+        style="margin-top:8px;background:rgba(124,156,255,0.05);">
+    <span class="bulk-bar-label">
+      Push selected → existing campaign
+      <span class="conn-desc" style="margin-left:6px;">
+        (fans out to every ad group with that group's match type)
+      </span>
+    </span>
+    <div class="bulk-bar-controls">
+      <label class="bulk-bar-group">
+        <span class="conn-desc">Campaign</span>
+        <select name="campaign_id" required>
+          <option value="">— pick one —</option>
+          {% for c in product_campaigns %}
+          <option value="{{ c.id }}">{{ c.name }} ({{ c.status }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="bulk-bar-group">
+        <input type="checkbox" name="is_negative" value="1" />
+        as negative
+      </label>
+      <button type="submit" class="btn-primary">Push selected to campaign</button>
+    </div>
+    <span class="conn-desc" id="kw-push-targets"></span>
+  </form>
+  <script>
+    (function() {
+      // The "push to campaign" form lives outside the table; mirror the
+      // .bulk-kw-cb checkboxes into hidden inputs at submit time.
+      const pushForm = document.currentScript.previousElementSibling;
+      pushForm.addEventListener('submit', function(e) {
+        // Remove any previously-injected hidden inputs.
+        pushForm.querySelectorAll('input[type=hidden][name=kw_id]').forEach(n => n.remove());
+        const picked = document.querySelectorAll('.bulk-kw-cb:checked');
+        if (picked.length === 0) {
+          alert('Pick at least one keyword first.');
+          e.preventDefault();
+          return;
+        }
+        picked.forEach(cb => {
+          const h = document.createElement('input');
+          h.type = 'hidden';
+          h.name = 'kw_id';
+          h.value = cb.value;
+          pushForm.appendChild(h);
+        });
+      });
+    })();
+  </script>
+  {% endif %}
   <div class="kw-table-wrap">
     <table class="data-table kw-table master-kw">
       <thead>
@@ -249,6 +302,29 @@
                   <button type="submit" class="btn-primary" style="font-size:12px;">Apply</button>
                 </div>
               </form>
+              {% if product_campaigns %}
+              <form method="post" action="/products/{{ product.id }}/keywords/{{ r.id }}/push-to-campaign"
+                    class="kw-place-form" style="border-top:1px solid var(--border, rgba(255,255,255,0.08));margin-top:8px;padding-top:8px;">
+                <div class="place-section">
+                  <div class="place-label">Push into an existing campaign</div>
+                  <select name="campaign_id" required style="width:100%;">
+                    <option value="">— pick a campaign —</option>
+                    {% for c in product_campaigns %}
+                    <option value="{{ c.id }}">{{ c.name }} ({{ c.status }})</option>
+                    {% endfor %}
+                  </select>
+                  <label style="margin-top:4px;">
+                    <input type="checkbox" name="is_negative" value="1" /> as negative
+                  </label>
+                  <div class="conn-desc" style="font-size:11px;">
+                    Adds this keyword to every ad group in the campaign with the group's match type.
+                  </div>
+                </div>
+                <div class="form-actions" style="margin-top:8px;">
+                  <button type="submit" class="btn-primary" style="font-size:12px;">Push to campaign</button>
+                </div>
+              </form>
+              {% endif %}
             </details>
           </td>
         </tr>

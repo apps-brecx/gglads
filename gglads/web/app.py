@@ -21,7 +21,7 @@ from gglads.auth.password import hash_password, verify_password
 from gglads.config import get_settings
 from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
-from gglads.models.campaign import AdCampaign, AdCampaignKeyword
+from gglads.models.campaign import AdCampaign, AdCampaignKeyword, AdGroup
 from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
 from gglads.models.shopify_product import (
     ProductSeoDraft,
@@ -38,6 +38,7 @@ from gglads.models.user import User
 from gglads.services import integration_tests, integrations as integrations_svc
 from gglads.services import keyword_research as kw_research_svc
 from gglads.services import search_console as sc_svc
+from gglads.services import ad_copy_generation as ad_copy_svc
 from gglads.services import campaigns as campaigns_svc
 from gglads.services import keyword_placement as kw_place_svc
 from gglads.services import seo_chat as seo_chat_svc
@@ -2177,15 +2178,68 @@ async def campaigns_new(request: Request, db: DbDep) -> Response:
     if not scope_type or not scope_id:
         _flash(request, "Need scope type and id.", "error")
         return RedirectResponse("/campaigns", status_code=status.HTTP_303_SEE_OTHER)
+    match_types = form.getlist("match_type") or list(campaigns_svc.MATCH_TYPES)
+    name = (form.get("name") or "").strip() or None
     ok, detail, campaign_id = campaigns_svc.create_draft(
-        db, scope_type, scope_id, user.id
+        db, scope_type, scope_id, user.id, name=name, match_types=match_types
     )
     if not ok:
         _flash(request, detail, "error")
-        return RedirectResponse("/campaigns", status_code=status.HTTP_303_SEE_OTHER)
+        # Bounce back to whatever invoked us, fall back to /campaigns
+        return RedirectResponse(
+            request.headers.get("referer") or "/campaigns",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     _flash(request, detail, "ok")
     return RedirectResponse(
         f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# Product subpage: list this product's campaigns + a create wizard.
+@app.get("/products/{product_id}/campaigns", response_class=HTMLResponse)
+def product_campaigns(product_id: int, request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    rows = campaigns_svc.campaigns_for_product(db, product_id)
+    items = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "status": c.status,
+            "budget": f"${c.daily_budget_cents / 100:.2f}/day",
+            "bid_strategy": c.bid_strategy.replace("_", " ").title(),
+            "ai_managed": c.ai_managed,
+            "updated_at": c.updated_at.strftime("%Y-%m-%d %H:%M"),
+            "ad_group_count": len(campaigns_svc.ad_groups_for_campaign(db, c.id)),
+        }
+        for c in rows
+    ]
+    # Count of pushed-to-ads keywords so we can flag if it's empty
+    pushed_count = db.scalar(
+        select(func.count(ProductKeyword.id))
+        .where(ProductKeyword.product_id == product_id)
+        .where(ProductKeyword.bucket.in_(("primary", "secondary")))
+    ) or 0
+    return templates.TemplateResponse(
+        request,
+        "product_campaigns.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "campaigns",
+            "product": product,
+            "items": items,
+            "pushed_count": pushed_count,
+            "match_types": campaigns_svc.MATCH_TYPES,
+            "match_type_labels": campaigns_svc.MATCH_TYPE_LABELS,
+            "default_name": f"{product['title']} — Search",
+            "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
+        },
     )
 
 
@@ -2198,13 +2252,17 @@ def campaign_detail(campaign_id: int, request: Request, db: DbDep) -> Response:
     if c is None:
         raise HTTPException(status_code=404)
 
-    keywords = db.execute(
-        select(AdCampaignKeyword)
-        .where(AdCampaignKeyword.campaign_id == campaign_id)
-        .order_by(AdCampaignKeyword.is_negative, AdCampaignKeyword.text)
-    ).scalars().all()
-    positive_kw = [k for k in keywords if not k.is_negative]
-    negative_kw = [k for k in keywords if k.is_negative]
+    ad_groups = campaigns_svc.ad_groups_for_campaign(db, campaign_id)
+    groups_view = []
+    for ag in ad_groups:
+        pos, neg = campaigns_svc.keywords_for_ad_group(db, ag.id)
+        groups_view.append({
+            "ag": ag,
+            "positive_kw": pos,
+            "negative_kw": neg,
+            "headlines": campaigns_svc.parse_list(ag.headlines_json),
+            "descriptions": campaigns_svc.parse_list(ag.descriptions_json),
+        })
 
     return templates.TemplateResponse(
         request,
@@ -2215,13 +2273,11 @@ def campaign_detail(campaign_id: int, request: Request, db: DbDep) -> Response:
             "active": "campaigns",
             "campaign": c,
             "scope": campaigns_svc.scope_label(db, c),
-            "positive_kw": positive_kw,
-            "negative_kw": negative_kw,
-            "headlines": campaigns_svc.parse_list(c.headlines_json),
-            "descriptions": campaigns_svc.parse_list(c.descriptions_json),
+            "ad_groups": groups_view,
             "ai_actions_selected": campaigns_svc.parse_actions(c),
             "ai_actions": campaigns_svc.AI_ACTIONS,
             "bid_strategies": campaigns_svc.BID_STRATEGIES,
+            "match_type_labels": campaigns_svc.MATCH_TYPE_LABELS,
             "flashes": _consume_flashes(request),
         },
     )
@@ -2288,9 +2344,9 @@ async def campaign_save_ai_settings(
     )
 
 
-@app.post("/campaigns/{campaign_id}/keywords/add")
+@app.post("/campaigns/{campaign_id}/ad-groups/{ad_group_id}/keywords/add")
 async def campaign_kw_add(
-    campaign_id: int, request: Request, db: DbDep
+    campaign_id: int, ad_group_id: int, request: Request, db: DbDep
 ) -> Response:
     user, deny = _require_admin(request, db)
     if deny is not None:
@@ -2299,8 +2355,8 @@ async def campaign_kw_add(
     ok, detail = campaigns_svc.add_keyword(
         db,
         campaign_id,
+        ad_group_id,
         text=form.get("text") or "",
-        match_type=form.get("match_type") or "phrase",
         is_negative=form.get("is_negative") == "on",
     )
     _flash(request, detail, "ok" if ok else "error")
@@ -2323,9 +2379,9 @@ def campaign_kw_remove(
     )
 
 
-@app.post("/campaigns/{campaign_id}/ad-copy")
+@app.post("/campaigns/{campaign_id}/ad-groups/{ad_group_id}/ad-copy")
 async def campaign_ad_copy(
-    campaign_id: int, request: Request, db: DbDep
+    campaign_id: int, ad_group_id: int, request: Request, db: DbDep
 ) -> Response:
     user, deny = _require_admin(request, db)
     if deny is not None:
@@ -2333,7 +2389,45 @@ async def campaign_ad_copy(
     form = await request.form()
     headlines = [v for v in form.getlist("headline") if v]
     descriptions = [v for v in form.getlist("description") if v]
-    ok, detail = campaigns_svc.update_ad_copy(db, campaign_id, headlines, descriptions)
+    ok, detail = campaigns_svc.update_ad_copy(
+        db,
+        campaign_id,
+        ad_group_id,
+        headlines,
+        descriptions,
+        path1=form.get("path1") or "",
+        path2=form.get("path2") or "",
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/campaigns/{campaign_id}/ad-groups/{ad_group_id}/generate-copy")
+def campaign_ad_copy_generate(
+    campaign_id: int, ad_group_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    ok, detail, _data = ad_copy_svc.generate_for_ad_group(
+        db, campaign_id, ad_group_id
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/campaigns/{campaign_id}/ad-groups/{ad_group_id}/delete")
+def campaign_ad_group_delete(
+    campaign_id: int, ad_group_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    ok, detail = campaigns_svc.delete_ad_group(db, campaign_id, ad_group_id)
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
         f"/campaigns/{campaign_id}", status_code=status.HTTP_303_SEE_OTHER

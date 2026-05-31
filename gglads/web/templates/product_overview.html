@@ -67,24 +67,6 @@
 
 <section class="panel">
   <div class="panel-head">
-    <div>
-      <h2>Campaigns</h2>
-      <p class="conn-desc">Create a Google Ads campaign just for this product.</p>
-    </div>
-    <form method="post" action="/campaigns/new" class="inline-form">
-      <input type="hidden" name="scope_type" value="product" />
-      <input type="hidden" name="scope_id" value="{{ product.id }}" />
-      <button type="submit" class="btn-primary">+ Create campaign</button>
-    </form>
-  </div>
-  <p class="conn-desc" style="margin:0;">
-    Your existing campaigns for this product appear on the
-    <a href="/campaigns?scope=product" class="muted-link">Campaigns page</a>.
-  </p>
-</section>
-
-<section class="panel">
-  <div class="panel-head">
     <h2>Variants</h2>
     <span class="conn-desc">{{ product.variants|length }} total</span>
   </div>

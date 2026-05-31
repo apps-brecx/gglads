@@ -64,11 +64,6 @@ class AdCampaign(Base):
 
     landing_page_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Ad copy (stored as JSON for simplicity in v1; will normalize into a
-    # separate ad-group/ad table once we sync to Google Ads).
-    headlines_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    descriptions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     # AI settings
     ai_managed: Mapped[bool] = mapped_column(
         Boolean, server_default="false", nullable=False
@@ -103,8 +98,46 @@ class AdCampaign(Base):
     )
 
 
+class AdGroup(Base):
+    """One ad group within a campaign. Holds match type, keywords, and one
+    Responsive Search Ad (headlines + descriptions). A typical product
+    campaign has 3 ad groups: Exact, Phrase, Broad."""
+
+    __tablename__ = "ad_groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("ad_campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    google_ads_ad_group_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, unique=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 'exact' | 'phrase' | 'broad'
+    match_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), server_default="enabled", nullable=False
+    )
+
+    # Responsive Search Ad copy (one RSA per group in v1)
+    headlines_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    descriptions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Display path bits (≤15 chars each, optional)
+    path1: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    path2: Mapped[str | None] = mapped_column(String(15), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AdCampaignKeyword(Base):
-    """One keyword (or negative) inside a campaign."""
+    """One keyword (or negative) inside an ad group."""
 
     __tablename__ = "ad_campaign_keywords"
 
@@ -114,11 +147,16 @@ class AdCampaignKeyword(Base):
         nullable=False,
         index=True,
     )
+    ad_group_id: Mapped[int] = mapped_column(
+        ForeignKey("ad_groups.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     google_ads_keyword_id: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
     text: Mapped[str] = mapped_column(String(255), nullable=False)
-    # 'exact' | 'phrase' | 'broad'
+    # 'exact' | 'phrase' | 'broad' — should match the ad_group's match_type
     match_type: Mapped[str] = mapped_column(
         String(10), server_default="phrase", nullable=False
     )

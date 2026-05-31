@@ -1,0 +1,102 @@
+{% extends "product_layout.html" %}
+
+{% block product_content %}
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2 style="text-transform:none;letter-spacing:-0.01em;font-size:15px;color:var(--text);">Campaigns for this product</h2>
+      <p class="conn-desc">
+        Each campaign gets one or more ad groups (one per match type you pick).
+        Keywords are seeded from this product's <strong>Primary + Secondary keywords</strong>
+        — set those on the <a href="/products/{{ product.id }}/keyword-rank" class="muted-link">Keywords tab</a>
+        (Push popover → Ads bucket).
+      </p>
+    </div>
+  </div>
+  {% if pushed_count == 0 %}
+  <div class="auth-error" style="margin-top:8px;">
+    No keywords have been pushed to ads yet. Go to <a href="/products/{{ product.id }}/keyword-rank">Keywords</a>,
+    pick rows, and Push them into the Primary or Secondary bucket. A campaign created without keywords will be empty.
+  </div>
+  {% else %}
+  <p class="conn-desc" style="margin-top:6px;">
+    <strong>{{ pushed_count }}</strong> keywords currently pushed to ads → these will seed any new campaign.
+  </p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Create new campaign</h2>
+    <p class="conn-desc">Pick which match-type ad groups to spin up.</p>
+  </div>
+  <form method="post" action="/campaigns/new" class="conn-form">
+    <input type="hidden" name="scope_type" value="product" />
+    <input type="hidden" name="scope_id" value="{{ product.id }}" />
+
+    <div class="field">
+      <label for="name">Campaign name</label>
+      <input type="text" id="name" name="name" value="{{ default_name }}" required />
+    </div>
+
+    <div class="field">
+      <label>Match-type ad groups</label>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;">
+        {% for mt in match_types %}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <input type="checkbox" name="match_type" value="{{ mt }}" checked />
+          <span>{{ match_type_labels[mt] }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="field-help">
+        One ad group per chosen match type. Most stores want all 3 (best signal for what
+        Google should prefer); choose fewer for tighter control.
+      </p>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary" {% if pushed_count == 0 %}disabled{% endif %}>
+        Create campaign with selected ad groups
+      </button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Existing campaigns</h2></div>
+  {% if not items %}
+  <div class="empty-state" style="padding:24px 4px;">
+    <p>No campaigns yet for this product.</p>
+    <p class="empty-sub">Create one above.</p>
+  </div>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Status</th>
+        <th class="num">Ad groups</th>
+        <th>Daily budget</th>
+        <th>Bid strategy</th>
+        <th>AI</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in items %}
+      <tr onclick="window.location='/campaigns/{{ c.id }}'" style="cursor:pointer;">
+        <td><a href="/campaigns/{{ c.id }}" class="row-link">{{ c.name }}</a></td>
+        <td><span class="pill {{ 'pill-ok' if c.status == 'active' else 'pill-warn' if c.status == 'paused' else 'pill-info' if c.status == 'draft' else '' }}">{{ c.status }}</span></td>
+        <td class="num">{{ c.ad_group_count }}</td>
+        <td>{{ c.budget }}</td>
+        <td>{{ c.bid_strategy }}</td>
+        <td>{% if c.ai_managed %}<span class="pill pill-ok">on</span>{% else %}<span class="conn-desc">off</span>{% endif %}</td>
+        <td>{{ c.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

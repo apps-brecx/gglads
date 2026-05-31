@@ -97,6 +97,13 @@ class AdCampaign(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Google Ads push state
+    google_ads_budget_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_pushed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
 
 class AdGroup(Base):
     """One ad group within a campaign. Holds match type, keywords, and one
@@ -135,6 +142,48 @@ class AdGroup(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    # Stale-copy detection: bumped whenever a keyword is added/removed in this
+    # ad group; ad_copy_generated_at is bumped whenever copy is saved. Copy is
+    # stale iff keywords_changed_at > ad_copy_generated_at.
+    keywords_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ad_copy_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ad_copy_version: Mapped[int] = mapped_column(
+        Integer, server_default="1", nullable=False
+    )
+
+    # Pending copy awaiting user approval (cron may pre-fill this when stale).
+    ad_copy_pending_headlines_json: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    ad_copy_pending_descriptions_json: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    ad_copy_pending_path1: Mapped[str | None] = mapped_column(
+        String(15), nullable=True
+    )
+    ad_copy_pending_path2: Mapped[str | None] = mapped_column(
+        String(15), nullable=True
+    )
+    ad_copy_pending_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ad_copy_pending_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Google Ads RSA tracking. When the user approves new copy, the live ad
+    # id moves to google_ads_prev_ad_id with a pause-at time (24h out); the
+    # cron pauses it when its time comes.
+    google_ads_ad_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    google_ads_prev_ad_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    google_ads_prev_ad_pause_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
 
 class AdCampaignKeyword(Base):
     """One keyword (or negative) inside an ad group."""
@@ -167,6 +216,7 @@ class AdCampaignKeyword(Base):
     status: Mapped[str] = mapped_column(
         String(20), server_default="enabled", nullable=False
     )
+    google_ads_resource_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

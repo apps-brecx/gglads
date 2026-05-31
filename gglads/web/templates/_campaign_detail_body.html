@@ -14,6 +14,12 @@
     </div>
   </div>
   <div class="page-actions">
+    <form method="post" action="/campaigns/{{ campaign.id }}/push-to-google-ads" class="inline-form"
+          onsubmit="return confirm('Push this campaign to Google Ads now? Everything is created PAUSED — you flip it active inside Google Ads.');">
+      <button type="submit" class="btn-primary">
+        {% if campaign.google_ads_campaign_id %}Re-push to Google Ads{% else %}Push to Google Ads{% endif %}
+      </button>
+    </form>
     <form method="post" action="/campaigns/{{ campaign.id }}/delete" class="inline-form"
           onsubmit="return confirm('Delete this campaign? This cannot be undone.');">
       <button type="submit" class="btn-ghost btn-danger">Delete campaign</button>
@@ -30,7 +36,18 @@
 {% if not campaign.google_ads_campaign_id %}
 <div class="auth-error" style="background:rgba(124,156,255,0.06);border-color:rgba(124,156,255,0.2);color:var(--accent);">
   This campaign hasn't been pushed to Google Ads yet — it lives only in gglads.
-  Sync to Google Ads is the next backend.
+  Click <strong>Push to Google Ads</strong> above to create the campaign + ad groups + RSAs in PAUSED state.
+</div>
+{% else %}
+<div class="auth-error" style="background:rgba(120,200,150,0.06);border-color:rgba(120,200,150,0.25);color:var(--ok, var(--accent));">
+  Live on Google Ads as campaign #{{ campaign.google_ads_campaign_id }}.
+  {% if campaign.last_pushed_at %}Last pushed: {{ campaign.last_pushed_at.strftime('%Y-%m-%d %H:%M UTC') }}.{% endif %}
+</div>
+{% endif %}
+
+{% if campaign.last_push_error %}
+<div class="auth-error">
+  Last Google Ads push error: {{ campaign.last_push_error }}
 </div>
 {% endif %}
 
@@ -95,11 +112,22 @@
         {{ ag.name }}
       </h2>
       <p class="conn-desc">Match type: <strong>{{ match_type_labels[ag.match_type] }}</strong>
-        · {{ view.positive_kw|length }} keywords · {{ view.negative_kw|length }} negatives</p>
+        · {{ view.positive_kw|length }} keywords · {{ view.negative_kw|length }} negatives
+        {% if ag.ad_copy_version and ag.ad_copy_version > 1 %} · copy v{{ ag.ad_copy_version }}{% endif %}
+        {% if view.stale and not view.has_pending %}
+        · <span class="pill pill-warn">Copy is stale — keywords changed since it was written</span>
+        {% endif %}
+        {% if ag.google_ads_ad_id %} · <span class="pill pill-ok">RSA live on Google Ads</span>{% endif %}
+        {% if ag.google_ads_prev_ad_id and ag.google_ads_prev_ad_pause_at %}
+        · <span class="pill pill-warn">Previous ad will be paused at {{ ag.google_ads_prev_ad_pause_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+        {% endif %}
+      </p>
     </div>
     <div class="form-actions" style="margin:0;">
       <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/generate-copy" class="inline-form">
-        <button type="submit" class="btn-primary">Generate ad copy with AI</button>
+        <button type="submit" class="btn-primary">
+          {% if ag.google_ads_ad_id %}Generate new version with AI{% else %}Generate ad copy with AI{% endif %}
+        </button>
       </form>
       <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/delete" class="inline-form"
             onsubmit="return confirm('Delete this ad group?');">
@@ -107,6 +135,40 @@
       </form>
     </div>
   </div>
+
+  {% if view.has_pending %}
+  <div class="auth-error" style="background:rgba(255,200,90,0.08);border-color:rgba(255,200,90,0.25);color:var(--warn, var(--accent));margin-top:10px;">
+    <strong>New ad copy is waiting for your approval.</strong>
+    {% if ag.ad_copy_pending_reason %}<br><span class="conn-desc">{{ ag.ad_copy_pending_reason }}</span>{% endif %}
+    {% if ag.ad_copy_pending_generated_at %}<br><span class="conn-desc">Generated {{ ag.ad_copy_pending_generated_at.strftime('%Y-%m-%d %H:%M UTC') }}.</span>{% endif %}
+    <details style="margin-top:8px;">
+      <summary class="muted-link" style="cursor:pointer;">Preview pending copy</summary>
+      <div style="margin-top:8px;">
+        <div class="conn-desc"><strong>Pending headlines:</strong></div>
+        <ul style="margin:4px 0 8px 16px;font-size:12px;">
+          {% for h in view.pending_headlines %}<li>{{ h }}</li>{% endfor %}
+        </ul>
+        <div class="conn-desc"><strong>Pending descriptions:</strong></div>
+        <ul style="margin:4px 0 8px 16px;font-size:12px;">
+          {% for d in view.pending_descriptions %}<li>{{ d }}</li>{% endfor %}
+        </ul>
+        {% if ag.ad_copy_pending_path1 or ag.ad_copy_pending_path2 %}
+        <div class="conn-desc">Display path: /{{ ag.ad_copy_pending_path1 or '' }}/{{ ag.ad_copy_pending_path2 or '' }}</div>
+        {% endif %}
+      </div>
+    </details>
+    <div class="form-actions" style="margin-top:10px;">
+      <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/approve-copy" class="inline-form"
+            onsubmit="return confirm('Approve the new ad copy?{% if ag.google_ads_ad_id %} The current Google Ads RSA will be queued for pause in {{ prev_ad_pause_hours }} hours.{% endif %}');">
+        <button type="submit" class="btn-primary">Approve new copy</button>
+      </form>
+      <form method="post" action="/campaigns/{{ campaign.id }}/ad-groups/{{ ag.id }}/reject-copy" class="inline-form"
+            onsubmit="return confirm('Discard the pending copy and keep the current one?');">
+        <button type="submit" class="btn-ghost btn-danger">Reject — keep current</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="panel-head" style="margin-top:14px;">
     <h2 style="font-size:13px;">Keywords ({{ match_type_labels[ag.match_type] }})</h2>

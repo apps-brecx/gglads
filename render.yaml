@@ -63,3 +63,25 @@ services:
         sync: false
       - key: AUTONOMOUS_MODE
         sync: false
+
+  # 03:00 UTC — regenerate stale RSA copy to pending (awaiting user approval)
+  # and pause Google Ads previous ads whose 24h grace window has elapsed.
+  - type: cron
+    name: gglads-ad-copy-maintenance
+    runtime: python
+    schedule: "0 3 * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.ad_copy_maintenance
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false

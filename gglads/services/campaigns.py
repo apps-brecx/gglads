@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from sqlalchemy import select
@@ -20,6 +20,11 @@ from gglads.models.shopify_product import ShopifyCollection, ShopifyProduct
 from gglads.services import integrations as integrations_svc
 
 logger = logging.getLogger("gglads.campaigns")
+
+# Hours to leave the previous Google Ads RSA running after the user approves
+# a new version. Gives the new ad time to start serving while the old one
+# winds down — and gives the user a window to revert if needed.
+PREV_AD_PAUSE_DELAY_HOURS = 24
 
 
 AI_ACTIONS = [
@@ -286,6 +291,7 @@ def add_keyword(
             is_negative=is_negative,
         )
     )
+    ag.keywords_changed_at = datetime.now(timezone.utc)
     db.commit()
     return True, "Added."
 
@@ -296,9 +302,111 @@ def remove_keyword(
     kw = db.get(AdCampaignKeyword, keyword_id)
     if kw is None or kw.campaign_id != campaign_id:
         return False, "Keyword not found."
+    ag = db.get(AdGroup, kw.ad_group_id)
     db.delete(kw)
+    if ag is not None:
+        ag.keywords_changed_at = datetime.now(timezone.utc)
     db.commit()
     return True, "Removed."
+
+
+def push_keyword_to_campaign(
+    db: Session,
+    campaign_id: int,
+    text: str,
+    is_negative: bool = False,
+) -> tuple[bool, str, int]:
+    """Add `text` to EVERY ad group in the campaign, each using the group's
+    own match type. Skips groups where it's already present. Returns
+    (ok, message, added_count)."""
+    c = db.get(AdCampaign, campaign_id)
+    if c is None:
+        return False, "Campaign not found.", 0
+    text = (text or "").strip().lower()
+    if not text:
+        return False, "Empty keyword.", 0
+    ad_groups = ad_groups_for_campaign(db, campaign_id)
+    if not ad_groups:
+        return False, "Campaign has no ad groups.", 0
+    added = 0
+    now = datetime.now(timezone.utc)
+    for ag in ad_groups:
+        existing = db.scalar(
+            select(AdCampaignKeyword)
+            .where(AdCampaignKeyword.ad_group_id == ag.id)
+            .where(AdCampaignKeyword.text == text)
+            .where(AdCampaignKeyword.is_negative == is_negative)
+        )
+        if existing is not None:
+            continue
+        db.add(
+            AdCampaignKeyword(
+                campaign_id=campaign_id,
+                ad_group_id=ag.id,
+                text=text[:255],
+                match_type=ag.match_type,
+                is_negative=is_negative,
+            )
+        )
+        ag.keywords_changed_at = now
+        added += 1
+    db.commit()
+    if added == 0:
+        return False, f'"{text}" was already in every ad group.', 0
+    return True, f'Added "{text}" to {added} ad group(s).', added
+
+
+def push_keywords_to_campaign_bulk(
+    db: Session,
+    campaign_id: int,
+    texts: list[str],
+    is_negative: bool = False,
+) -> tuple[bool, str, int]:
+    """Bulk variant of push_keyword_to_campaign — keeps one commit at the end."""
+    c = db.get(AdCampaign, campaign_id)
+    if c is None:
+        return False, "Campaign not found.", 0
+    cleaned = [t.strip().lower() for t in texts if t and t.strip()]
+    if not cleaned:
+        return False, "No keywords to push.", 0
+    ad_groups = ad_groups_for_campaign(db, campaign_id)
+    if not ad_groups:
+        return False, "Campaign has no ad groups.", 0
+    added_total = 0
+    now = datetime.now(timezone.utc)
+    touched_groups: set[int] = set()
+    for text in cleaned:
+        for ag in ad_groups:
+            existing = db.scalar(
+                select(AdCampaignKeyword)
+                .where(AdCampaignKeyword.ad_group_id == ag.id)
+                .where(AdCampaignKeyword.text == text)
+                .where(AdCampaignKeyword.is_negative == is_negative)
+            )
+            if existing is not None:
+                continue
+            db.add(
+                AdCampaignKeyword(
+                    campaign_id=campaign_id,
+                    ad_group_id=ag.id,
+                    text=text[:255],
+                    match_type=ag.match_type,
+                    is_negative=is_negative,
+                )
+            )
+            touched_groups.add(ag.id)
+            added_total += 1
+    if added_total == 0:
+        return False, "All keywords were already in every ad group.", 0
+    for ag in ad_groups:
+        if ag.id in touched_groups:
+            ag.keywords_changed_at = now
+    db.commit()
+    return (
+        True,
+        f"Added {added_total} keyword-placement(s) across {len(touched_groups)} ad group(s).",
+        added_total,
+    )
 
 
 def update_ad_copy(
@@ -315,13 +423,143 @@ def update_ad_copy(
         return False, "Ad group not found."
     headlines = [h.strip()[:30] for h in headlines if h.strip()][:15]
     descriptions = [d.strip()[:90] for d in descriptions if d.strip()][:4]
+    now = datetime.now(timezone.utc)
     ag.headlines_json = json.dumps(headlines)
     ag.descriptions_json = json.dumps(descriptions)
     ag.path1 = (path1 or "").strip()[:15] or None
     ag.path2 = (path2 or "").strip()[:15] or None
-    ag.updated_at = datetime.now(timezone.utc)
+    ag.ad_copy_generated_at = now
+    ag.updated_at = now
     db.commit()
     return True, "Ad copy saved."
+
+
+def is_copy_stale(ag: AdGroup) -> bool:
+    """True iff keywords have been added/removed since copy was last saved."""
+    if ag.keywords_changed_at is None:
+        return False
+    if ag.ad_copy_generated_at is None:
+        # Copy was never generated but keywords exist → not "stale", just empty.
+        return False
+    return ag.keywords_changed_at > ag.ad_copy_generated_at
+
+
+def has_pending_copy(ag: AdGroup) -> bool:
+    return bool(
+        ag.ad_copy_pending_headlines_json or ag.ad_copy_pending_descriptions_json
+    )
+
+
+def save_pending_copy(
+    db: Session,
+    ad_group_id: int,
+    headlines: list[str],
+    descriptions: list[str],
+    path1: str = "",
+    path2: str = "",
+    reason: str = "",
+) -> tuple[bool, str]:
+    """Stash a generated copy as pending; awaits user approval before going live."""
+    ag = db.get(AdGroup, ad_group_id)
+    if ag is None:
+        return False, "Ad group not found."
+    headlines = [h.strip()[:30] for h in headlines if h.strip()][:15]
+    descriptions = [d.strip()[:90] for d in descriptions if d.strip()][:4]
+    ag.ad_copy_pending_headlines_json = json.dumps(headlines)
+    ag.ad_copy_pending_descriptions_json = json.dumps(descriptions)
+    ag.ad_copy_pending_path1 = (path1 or "").strip()[:15] or None
+    ag.ad_copy_pending_path2 = (path2 or "").strip()[:15] or None
+    ag.ad_copy_pending_generated_at = datetime.now(timezone.utc)
+    ag.ad_copy_pending_reason = (reason or "")[:1000] or None
+    db.commit()
+    return True, "Pending copy stashed."
+
+
+def approve_pending_copy(
+    db: Session, campaign_id: int, ad_group_id: int
+) -> tuple[bool, str]:
+    """Promote pending copy → live. If the ad group has a live Google Ads RSA,
+    move its id to `prev_ad_id` with a pause-at timestamp 24h out — the cron
+    pauses the old ad when that time comes."""
+    ag = db.get(AdGroup, ad_group_id)
+    if ag is None or ag.campaign_id != campaign_id:
+        return False, "Ad group not found."
+    if not has_pending_copy(ag):
+        return False, "No pending copy to approve."
+    now = datetime.now(timezone.utc)
+    ag.headlines_json = ag.ad_copy_pending_headlines_json
+    ag.descriptions_json = ag.ad_copy_pending_descriptions_json
+    ag.path1 = ag.ad_copy_pending_path1
+    ag.path2 = ag.ad_copy_pending_path2
+    ag.ad_copy_generated_at = now
+    ag.ad_copy_version = (ag.ad_copy_version or 1) + 1
+    ag.updated_at = now
+    ag.ad_copy_pending_headlines_json = None
+    ag.ad_copy_pending_descriptions_json = None
+    ag.ad_copy_pending_path1 = None
+    ag.ad_copy_pending_path2 = None
+    ag.ad_copy_pending_generated_at = None
+    ag.ad_copy_pending_reason = None
+    # If a live RSA is already on Google Ads, queue it for pause.
+    if ag.google_ads_ad_id and ag.google_ads_prev_ad_id is None:
+        ag.google_ads_prev_ad_id = ag.google_ads_ad_id
+        ag.google_ads_prev_ad_pause_at = now + timedelta(
+            hours=PREV_AD_PAUSE_DELAY_HOURS
+        )
+        ag.google_ads_ad_id = None  # will be set again on next Google Ads push
+    db.commit()
+    msg = "New ad copy is now live."
+    if ag.google_ads_prev_ad_pause_at:
+        msg += (
+            f" The previous Google Ads ad will be paused in "
+            f"{PREV_AD_PAUSE_DELAY_HOURS}h "
+            f"({ag.google_ads_prev_ad_pause_at.strftime('%Y-%m-%d %H:%M UTC')}). "
+            "Push the campaign to Google Ads to deploy the new copy."
+        )
+    return True, msg
+
+
+def reject_pending_copy(
+    db: Session, campaign_id: int, ad_group_id: int
+) -> tuple[bool, str]:
+    ag = db.get(AdGroup, ad_group_id)
+    if ag is None or ag.campaign_id != campaign_id:
+        return False, "Ad group not found."
+    if not has_pending_copy(ag):
+        return False, "No pending copy to reject."
+    ag.ad_copy_pending_headlines_json = None
+    ag.ad_copy_pending_descriptions_json = None
+    ag.ad_copy_pending_path1 = None
+    ag.ad_copy_pending_path2 = None
+    ag.ad_copy_pending_generated_at = None
+    ag.ad_copy_pending_reason = None
+    db.commit()
+    return True, "Pending copy discarded. The current ad stays in place."
+
+
+def ad_groups_with_stale_copy(db: Session) -> list[AdGroup]:
+    """All ad groups where keywords have changed since the copy was generated
+    and there isn't already a pending version queued."""
+    rows = db.execute(
+        select(AdGroup)
+        .where(AdGroup.keywords_changed_at.is_not(None))
+        .where(AdGroup.ad_copy_generated_at.is_not(None))
+        .where(AdGroup.keywords_changed_at > AdGroup.ad_copy_generated_at)
+        .where(AdGroup.ad_copy_pending_headlines_json.is_(None))
+    ).scalars().all()
+    return list(rows)
+
+
+def ad_groups_with_due_prev_ad(db: Session) -> list[AdGroup]:
+    """Ad groups whose previous Google Ads RSA is past its pause-at time."""
+    now = datetime.now(timezone.utc)
+    rows = db.execute(
+        select(AdGroup)
+        .where(AdGroup.google_ads_prev_ad_id.is_not(None))
+        .where(AdGroup.google_ads_prev_ad_pause_at.is_not(None))
+        .where(AdGroup.google_ads_prev_ad_pause_at <= now)
+    ).scalars().all()
+    return list(rows)
 
 
 def delete_ad_group(

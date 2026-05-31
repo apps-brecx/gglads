@@ -1774,6 +1774,13 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
         .limit(1)
     )
 
+    # Campaigns this product already has — for the "push to existing campaign"
+    # dropdown next to each keyword and on the bulk bar.
+    product_campaigns = [
+        {"id": c.id, "name": c.name, "status": c.status}
+        for c in campaigns_svc.campaigns_for_product(db, product_id)
+    ]
+
     return templates.TemplateResponse(
         request,
         "product_keyword_rank.html",
@@ -1796,6 +1803,7 @@ def product_keyword_rank(product_id: int, request: Request, db: DbDep) -> Respon
             "cols": cols,
             "source_labels": _KW_SOURCE_LABELS,
             "seo_fields": kw_place_svc.SEO_FIELDS,
+            "product_campaigns": product_campaigns,
             "filters": {
                 "q": request.query_params.get("q") or "",
                 "source": source_filter,
@@ -2473,6 +2481,14 @@ def _campaign_detail_context(
             "negative_kw": neg,
             "headlines": campaigns_svc.parse_list(ag.headlines_json),
             "descriptions": campaigns_svc.parse_list(ag.descriptions_json),
+            "stale": campaigns_svc.is_copy_stale(ag),
+            "has_pending": campaigns_svc.has_pending_copy(ag),
+            "pending_headlines": campaigns_svc.parse_list(
+                ag.ad_copy_pending_headlines_json
+            ),
+            "pending_descriptions": campaigns_svc.parse_list(
+                ag.ad_copy_pending_descriptions_json
+            ),
         })
     return c, {
         "campaign": c,
@@ -2482,6 +2498,7 @@ def _campaign_detail_context(
         "ai_actions": campaigns_svc.AI_ACTIONS,
         "bid_strategies": campaigns_svc.BID_STRATEGIES,
         "match_type_labels": campaigns_svc.MATCH_TYPE_LABELS,
+        "prev_ad_pause_hours": campaigns_svc.PREV_AD_PAUSE_DELAY_HOURS,
     }
 
 
@@ -2710,6 +2727,160 @@ def campaign_delete(campaign_id: int, request: Request, db: DbDep) -> Response:
     ok, detail = campaigns_svc.delete_campaign(db, campaign_id)
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse("/campaigns", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/campaigns/{campaign_id}/ad-groups/{ad_group_id}/approve-copy")
+def campaign_approve_pending_copy(
+    campaign_id: int, ad_group_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    ok, detail = campaigns_svc.approve_pending_copy(db, campaign_id, ad_group_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/campaigns/{campaign_id}/ad-groups/{ad_group_id}/reject-copy")
+def campaign_reject_pending_copy(
+    campaign_id: int, ad_group_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    ok, detail = campaigns_svc.reject_pending_copy(db, campaign_id, ad_group_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/campaigns/{campaign_id}/push-to-google-ads")
+def campaign_push_to_google_ads(
+    campaign_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import google_ads_push as gads_push_svc
+    ok, detail = gads_push_svc.push_campaign(db, campaign_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# Push a single keyword (from the Keywords page) into an existing campaign.
+# Fans out to every ad group, using each group's match type.
+@app.post("/products/{product_id}/keywords/{keyword_id}/push-to-campaign")
+async def product_keyword_push_to_campaign(
+    product_id: int, keyword_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    try:
+        campaign_id = int(form.get("campaign_id") or 0)
+    except (TypeError, ValueError):
+        campaign_id = 0
+    is_negative = form.get("is_negative") in ("1", "on", "true")
+    if not campaign_id:
+        _flash(request, "Pick a campaign first.", "error")
+        return RedirectResponse(
+            request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    kw = db.get(ProductKeyword, keyword_id)
+    if kw is None or kw.product_id != product_id:
+        _flash(request, "Keyword not found.", "error")
+        return RedirectResponse(
+            request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    # Guard: campaign must belong to this product.
+    camp = db.get(AdCampaign, campaign_id)
+    if camp is None or camp.product_id != product_id:
+        _flash(request, "Campaign does not belong to this product.", "error")
+        return RedirectResponse(
+            request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    ok, detail, _ = campaigns_svc.push_keyword_to_campaign(
+        db, campaign_id, kw.keyword, is_negative=is_negative
+    )
+    # Also mark the master keyword's bucket so the UI shows it's "in ads".
+    if ok:
+        target_bucket = "negative" if is_negative else "primary"
+        if kw.bucket not in ("primary", "secondary", "negative"):
+            kw_place_svc.set_bucket(db, product_id, keyword_id, target_bucket)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/products/{product_id}/keywords/bulk-push-to-campaign")
+async def product_keywords_bulk_push_to_campaign(
+    product_id: int, request: Request, db: DbDep
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if user.role not in ("admin", "operator"):
+        return PlainTextResponse("Forbidden", status_code=403)
+    form = await request.form()
+    try:
+        campaign_id = int(form.get("campaign_id") or 0)
+    except (TypeError, ValueError):
+        campaign_id = 0
+    is_negative = form.get("is_negative") in ("1", "on", "true")
+    raw_ids = form.getlist("kw_id")
+    keyword_ids: list[int] = []
+    for v in raw_ids:
+        try:
+            keyword_ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    if not campaign_id or not keyword_ids:
+        _flash(request, "Pick a campaign and at least one keyword.", "error")
+        return RedirectResponse(
+            request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    camp = db.get(AdCampaign, campaign_id)
+    if camp is None or camp.product_id != product_id:
+        _flash(request, "Campaign does not belong to this product.", "error")
+        return RedirectResponse(
+            request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    texts: list[str] = []
+    for kid in keyword_ids:
+        kw = db.get(ProductKeyword, kid)
+        if kw is not None and kw.product_id == product_id:
+            texts.append(kw.keyword)
+    ok, detail, _ = campaigns_svc.push_keywords_to_campaign_bulk(
+        db, campaign_id, texts, is_negative=is_negative
+    )
+    if ok:
+        target_bucket = "negative" if is_negative else "primary"
+        for kid in keyword_ids:
+            kw = db.get(ProductKeyword, kid)
+            if kw is None or kw.product_id != product_id:
+                continue
+            if kw.bucket not in ("primary", "secondary", "negative"):
+                kw_place_svc.set_bucket(db, product_id, kid, target_bucket)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", f"/products/{product_id}/keyword-rank"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 # ---------------------------------------------------------------------------

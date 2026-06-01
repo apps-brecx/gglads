@@ -313,6 +313,26 @@
   </div>
 </section>
 
+<!-- Channel scope audit -------------------------------------------------- -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>Channel scope</h2>
+    <span class="conn-desc">What's being counted in every product-level sales number</span>
+  </div>
+  <p class="conn-desc" style="margin:0 0 10px;">
+    Tracked: {% for ch in tracked_channels %}<span class="channel-scope-pill" style="margin-right:6px;">{{ ch }}</span>{% endfor %}
+    — anything else (Faire, Temu, POS, third-party apps) is dropped at ingest and never reaches per-product totals, the dashboard, the OOS list, or the keyword pages.
+  </p>
+  {% if last_sales_run_detail %}
+  <details>
+    <summary class="muted-link" style="cursor:pointer;font-size:12px;">Last sales sync — full breakdown</summary>
+    <pre style="margin-top:8px;font-size:11px;background:var(--bg-input);padding:10px;border-radius:8px;overflow:auto;white-space:pre-wrap;">{{ last_sales_run_detail }}</pre>
+  </details>
+  {% else %}
+  <span class="conn-desc">No sales sync has run yet — kick one with the <strong>Sync now → Sales only</strong> button on the products page.</span>
+  {% endif %}
+</section>
+
 <!-- Future-marketing teaser --------------------------------------------- -->
 <section class="panel">
   <div class="panel-head">

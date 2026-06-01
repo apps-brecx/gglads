@@ -310,6 +310,13 @@ def dashboard(request: Request, db: DbDep) -> Response:
     alert_counts = kh_svc.alert_counts_by_type(alerts)
     on_the_rise = kh_svc.keywords_gained_per_product(db, days_back=7)[:6]
 
+    # Audit panel: which channels did the most recent sales sync see, and
+    # which did it drop? So the user can verify the filter is doing its job.
+    last_sales_run = shopify_svc.last_sync_runs_by_kind(db).get("sales") \
+        or shopify_svc.last_sync_runs_by_kind(db).get("full")
+    last_sales_detail = (last_sales_run.detail if last_sales_run else None) or ""
+    tracked_channels_display = sorted(shopify_svc.TRACKED_CHANNELS)
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -338,6 +345,8 @@ def dashboard(request: Request, db: DbDep) -> Response:
             "alerts": alerts,
             "alert_counts": alert_counts,
             "on_the_rise": on_the_rise,
+            "tracked_channels": tracked_channels_display,
+            "last_sales_run_detail": last_sales_detail,
         },
     )
 

@@ -1,0 +1,137 @@
+{% extends "layout.html" %}
+
+{% block title %}Ignored products — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Ignored products</h1>
+    <p class="page-subtitle">
+      These are hidden from the default products list and skipped by bulk operations
+      (Research keywords for all products, AI suggestions, etc.). Catalog sync still
+      keeps their data fresh — so un-ignoring brings back accurate numbers.
+    </p>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="tab-bar">
+  <a href="/products" class="tab">All products</a>
+  <a href="/collections" class="tab">Collections</a>
+  <a href="/products/out-of-stock" class="tab">Out of stock</a>
+  <span class="tab is-active">Ignored <span class="nav-badge">{{ total }}</span></span>
+</div>
+
+<section class="panel filter-bar">
+  <form method="get" class="filter-form" style="grid-template-columns:1fr auto;">
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Search ignored products by title…" class="filter-search" />
+    <button type="submit" class="btn-ghost">Search</button>
+  </form>
+</section>
+
+{% if not items %}
+<section class="panel">
+  <div class="empty-state" style="padding:32px 4px;">
+    {% if q %}
+    <p>No ignored products match <strong>"{{ q }}"</strong>.</p>
+    {% else %}
+    <p><strong>Nothing ignored.</strong></p>
+    <p class="empty-sub">When you ignore a product from the All Products page, it'll appear here.</p>
+    {% endif %}
+  </div>
+</section>
+{% else %}
+<form method="post" action="/products/bulk-ignore" id="ignored-bulk-form" class="bulk-bar">
+  <span class="bulk-bar-label">
+    Bulk: <span id="bulk-count">0</span> selected
+    <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all in view ({{ items|length }})</button>
+    <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+  </span>
+  <div class="bulk-bar-controls">
+    <button type="submit" name="action" value="unignore" class="btn-primary">Un-ignore selected</button>
+  </div>
+</form>
+
+<section class="panel" style="padding:0;overflow:hidden;">
+  <div class="oos-table-wrap">
+    <table class="data-table oos-table">
+      <colgroup>
+        <col style="width:36px" />
+        <col />
+        <col style="width:90px" />
+        <col style="width:90px" />
+        <col style="width:120px" />
+        <col style="width:100px" />
+        <col style="width:130px" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Product</th>
+          <th>Status</th>
+          <th class="num">Stock</th>
+          <th class="num">Units 90d</th>
+          <th class="num">Revenue 90d</th>
+          <th class="actions-col">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in items %}
+        <tr class="is-ignored">
+          <td>
+            <input type="checkbox" name="product_id" value="{{ r.id }}"
+                   form="ignored-bulk-form" class="oos-bulk-cb" />
+          </td>
+          <td>
+            <a href="/products/{{ r.id }}" class="muted-link">{{ r.title }}</a>
+          </td>
+          <td><span class="product-status status-{{ r.status }}">{{ r.status }}</span></td>
+          <td class="num">{{ r.total_inventory }}</td>
+          <td class="num">{{ r.units_sold_90d or 0 }}</td>
+          <td class="num">${{ '{:,.2f}'.format((r.net_sales_90d or 0)|float) }}</td>
+          <td class="actions-col">
+            <form method="post" action="/products/bulk-ignore" class="inline-form">
+              <input type="hidden" name="product_id" value="{{ r.id }}" />
+              <input type="hidden" name="action" value="unignore" />
+              <button type="submit" class="btn-ghost" style="font-size:12px;">Un-ignore</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<script>
+  (function() {
+    const cbs = document.querySelectorAll('.oos-bulk-cb');
+    const count = document.getElementById('bulk-count');
+    const selectAll = document.getElementById('bulk-select-page');
+    const clearBtn = document.getElementById('bulk-clear');
+    function refresh() {
+      if (!count) return;
+      count.textContent = String(document.querySelectorAll('.oos-bulk-cb:checked').length);
+    }
+    cbs.forEach(cb => cb.addEventListener('change', refresh));
+    if (selectAll) selectAll.addEventListener('click', e => {
+      e.preventDefault();
+      cbs.forEach(cb => { cb.checked = true; });
+      refresh();
+    });
+    if (clearBtn) clearBtn.addEventListener('click', e => {
+      e.preventDefault();
+      cbs.forEach(cb => { cb.checked = false; });
+      refresh();
+    });
+    refresh();
+  })();
+</script>
+{% endblock %}

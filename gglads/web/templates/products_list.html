@@ -14,6 +14,12 @@
       {% else %}
         {{ total_count }} products across the catalog · filter by collection below
       {% endif %}
+      {% if not include_drafts and drafts_hidden %}
+      · <span class="conn-desc">{{ drafts_hidden }} draft{{ '' if drafts_hidden == 1 else 's' }} hidden</span>
+      {% endif %}
+      {% if not include_ignored and ignored_count %}
+      · <a href="/products/ignored" class="muted-link">{{ ignored_count }} ignored</a>
+      {% endif %}
       <br>
       Sales / customer columns count <span class="channel-scope-pill" title="Excludes Faire/Temu/POS/other third-party channels">Online Store + Shop app only</span>.
     </p>
@@ -49,6 +55,7 @@
   <a href="/products" class="tab {{ 'is-active' if not collection }}">All products</a>
   <a href="/collections" class="tab">Collections</a>
   <a href="/products/out-of-stock" class="tab">Out of stock</a>
+  <a href="/products/ignored" class="tab">Ignored{% if ignored_count %} <span class="nav-badge">{{ ignored_count }}</span>{% endif %}</a>
   {% if collection %}
   <span class="tab is-active">{{ collection.title }}</span>
   {% endif %}
@@ -94,6 +101,30 @@
     <input type="hidden" name="{{ key }}" value="{{ val }}" />
     {% endfor %}
   </form>
+  <div class="chip-bar" style="margin-top:10px;">
+    <a href="?{% if query %}q={{ query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if collection_filter %}collection={{ collection_filter }}&{% endif %}{% if channel_filter %}channel={{ channel_filter }}&{% endif %}{% if include_drafts %}{% else %}include_drafts=1&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}"
+       class="chip {{ 'chip-on' if include_drafts }}"
+       title="Drafts are hidden by default.">
+      {% if include_drafts %}✓{% else %}+{% endif %} Show drafts
+    </a>
+    <a href="?{% if query %}q={{ query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if collection_filter %}collection={{ collection_filter }}&{% endif %}{% if channel_filter %}channel={{ channel_filter }}&{% endif %}{% if include_drafts %}include_drafts=1&{% endif %}{% if include_ignored %}{% else %}include_ignored=1{% endif %}"
+       class="chip {{ 'chip-on' if include_ignored }}"
+       title="Ignored products are hidden by default.">
+      {% if include_ignored %}✓{% else %}+{% endif %} Show ignored
+    </a>
+    {% if query or status_filter or collection_filter %}
+    <form method="post" action="/products/ignore-matching" class="inline-form" style="margin-left:auto;"
+          onsubmit="return confirm('Ignore EVERY product matching the current filter ({{ listing.total or items|length }} products)? They\'ll be hidden from views and skipped by bulk operations until you un-ignore.');">
+      <input type="hidden" name="q" value="{{ query }}" />
+      <input type="hidden" name="status" value="{{ status_filter }}" />
+      <input type="hidden" name="collection" value="{{ collection_filter }}" />
+      {% if include_drafts %}<input type="hidden" name="include_drafts" value="1" />{% endif %}
+      <button type="submit" class="btn-ghost" style="font-size:12px;">
+        ⚡ Ignore all {{ listing.total or items|length }} matching this filter
+      </button>
+    </form>
+    {% endif %}
+  </div>
 </section>
 
 <section class="view-toolbar">
@@ -222,7 +253,7 @@
     </thead>
     <tbody>
       {% for p in items %}
-      <tr onclick="window.location='/products/{{ p.id }}'">
+      <tr onclick="window.location='/products/{{ p.id }}'" class="{{ 'is-ignored' if p.is_ignored }}">
         {% if 'image' in cols %}
         <td class="thumb-col">
           <div class="thumb-sm">

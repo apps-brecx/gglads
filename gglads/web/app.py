@@ -1017,16 +1017,28 @@ def _render_products_list(
     titles_by_pid = _product_collection_titles(db, pids)
     channels_by_pid = _product_channel_names(db, pids)
     stock_by_pid = _stock_history(db, pids)
-    items = [
-        _product_to_dict(
+    items = []
+    for p in products:
+        d = _product_to_dict(
             p,
             titles_by_pid.get(p.id, []),
             channels_by_pid.get(p.id, []),
             stock_by_pid.get(p.id, (0, 0, 0)),
         )
-        for p in products
-    ]
+        # Surface the new is_ignored flag to the template.
+        d["is_ignored"] = bool(getattr(p, "is_ignored", False))
+        items.append(d)
     total_count = db.scalar(select(func.count(ShopifyProduct.id))) or 0
+    drafts_hidden = db.scalar(
+        select(func.count(ShopifyProduct.id)).where(
+            ShopifyProduct.status == "draft"
+        )
+    ) or 0
+    ignored_count = db.scalar(
+        select(func.count(ShopifyProduct.id)).where(
+            ShopifyProduct.is_ignored.is_(True)
+        )
+    ) or 0
 
     return templates.TemplateResponse(
         request,
@@ -1043,6 +1055,10 @@ def _render_products_list(
             } if collection else None,
             "items": items,
             "total_count": total_count,
+            "drafts_hidden": drafts_hidden,
+            "ignored_count": ignored_count,
+            "include_drafts": request.query_params.get("include_drafts") in ("1", "true", "on"),
+            "include_ignored": request.query_params.get("include_ignored") in ("1", "true", "on"),
             "collections": _collections_summary(db),
             "channels": _channel_options(db),
             "query": (request.query_params.get("q") or "").strip(),
@@ -1069,11 +1085,20 @@ def _apply_filters(
     status_filter: str,
     collection_handle: str | None,
     channel_filter: str | None,
+    *,
+    include_drafts: bool = True,
+    include_ignored: bool = True,
 ):
     if q:
         base_query = base_query.where(ShopifyProduct.title.ilike(f"%{q}%"))
     if status_filter:
+        # User picked a specific status — honor it (overrides include_drafts).
         base_query = base_query.where(ShopifyProduct.status == status_filter)
+    elif not include_drafts:
+        # Default behavior: hide drafts unless the user asks to see them.
+        base_query = base_query.where(ShopifyProduct.status != "draft")
+    if not include_ignored:
+        base_query = base_query.where(ShopifyProduct.is_ignored.is_(False))
     if collection_handle:
         coll = db.scalar(
             select(ShopifyCollection).where(ShopifyCollection.handle == collection_handle)
@@ -1126,6 +1151,8 @@ def products_index(request: Request, db: DbDep) -> Response:
     status_filter = request.query_params.get("status") or ""
     collection_filter = request.query_params.get("collection") or ""
     channel_filter = request.query_params.get("channel") or ""
+    include_drafts = request.query_params.get("include_drafts") in ("1", "true", "on")
+    include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
 
     sort = listing_util.parse_sort(
         request.query_params.get("sort"), _PRODUCT_SORT_KEYS, "units_sold"
@@ -1136,7 +1163,9 @@ def products_index(request: Request, db: DbDep) -> Response:
 
     base = select(ShopifyProduct)
     base = _apply_filters(
-        db, base, q, status_filter, collection_filter, channel_filter
+        db, base, q, status_filter, collection_filter, channel_filter,
+        include_drafts=include_drafts,
+        include_ignored=include_ignored,
     )
 
     # Sort
@@ -1484,6 +1513,99 @@ async def products_oos_bulk(request: Request, db: DbDep) -> Response:
     return RedirectResponse(
         request.headers.get("referer", "/products/out-of-stock"),
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/products/bulk-ignore")
+async def products_bulk_ignore(request: Request, db: DbDep) -> Response:
+    """Bulk Ignore: hide selected products from default views + skip in bulk ops."""
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import product_ignore as pi_svc
+    form = await request.form()
+    action = (form.get("action") or "ignore").strip()
+    raw_ids = form.getlist("product_id")
+    ids: list[int] = []
+    for v in raw_ids:
+        try:
+            ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    if action == "unignore":
+        ok, detail, _ = pi_svc.unignore_products(db, ids)
+    else:
+        ok, detail, _ = pi_svc.ignore_products(db, ids)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/products/ignore-matching")
+async def products_ignore_matching(request: Request, db: DbDep) -> Response:
+    """Ignore every product matching the current filter (search + collection +
+    status). Respects the include_drafts toggle."""
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import product_ignore as pi_svc
+    form = await request.form()
+    q = (form.get("q") or "").strip() or None
+    status_filter = (form.get("status") or "").strip() or None
+    collection_handle = (form.get("collection") or "").strip() or None
+    include_drafts = form.get("include_drafts") in ("1", "true", "on")
+    ok, detail, _ = pi_svc.ignore_all_matching(
+        db,
+        q=q,
+        status_filter=status_filter,
+        collection_handle=collection_handle,
+        include_drafts=include_drafts,
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/products/ignored", response_class=HTMLResponse)
+def products_ignored(request: Request, db: DbDep) -> Response:
+    """List of ignored products — un-ignore in bulk to bring them back."""
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    q = (request.query_params.get("q") or "").strip()
+    stmt = select(ShopifyProduct).where(ShopifyProduct.is_ignored.is_(True))
+    if q:
+        stmt = stmt.where(ShopifyProduct.title.ilike(f"%{q}%"))
+    stmt = stmt.order_by(ShopifyProduct.title)
+    products = db.execute(stmt).scalars().unique().all()
+    items = [
+        {
+            "id": p.id,
+            "title": p.title,
+            "status": p.status,
+            "image_url": p.image_url,
+            "units_sold_90d": p.units_sold_90d,
+            "net_sales_90d": p.net_sales_90d,
+            "total_inventory": p.total_inventory,
+        }
+        for p in products
+    ]
+    return templates.TemplateResponse(
+        request,
+        "products_ignored.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "items": items,
+            "q": q,
+            "total": len(items),
+            "flashes": _consume_flashes(request),
+        },
     )
 
 

@@ -67,6 +67,13 @@ class ShopifyProduct(Base):
     oos_ignored: Mapped[bool] = mapped_column(
         Boolean, server_default="false", nullable=False
     )
+    # Global ignore flag — user-set, persistent. When true the product is
+    # hidden from the default products list and skipped by bulk operations
+    # (research_all_products etc.). Catalog sync still refreshes data so a
+    # later un-ignore lands on fresh values.
+    is_ignored: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", nullable=False, index=True
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shopify_admin_url: Mapped[str | None] = mapped_column(Text, nullable=True)

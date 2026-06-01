@@ -565,6 +565,17 @@ details[open] > summary {
 .chip:hover { transform: translateY(-1px); border-color: var(--accent-soft-border); }
 .chip input { margin: 0; }
 .chip input:checked + .chip-dot { transform: scale(1.2); }
+
+/* "chip" used as a clickable filter toggle (anchor); .chip-on = active. */
+a.chip {
+  text-decoration: none;
+  color: var(--text);
+}
+a.chip.chip-on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .chip-dot {
   width: 10px; height: 10px;
   border-radius: 50%;

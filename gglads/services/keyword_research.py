@@ -448,8 +448,13 @@ def research_all_products(
     button. Set to False to force a re-research everywhere (slow).
     Returns (ok, summary, {"researched": N, "skipped": M, "failed": K}).
     """
+    # Skip globally-ignored products and drafts so we don't burn Claude calls
+    # on stuff the user explicitly opted out of, or unpublished noise.
     products = db.execute(
-        select(ShopifyProduct).order_by(ShopifyProduct.title)
+        select(ShopifyProduct)
+        .where(ShopifyProduct.is_ignored.is_(False))
+        .where(ShopifyProduct.status != "draft")
+        .order_by(ShopifyProduct.title)
     ).scalars().all()
     if not products:
         return False, "No products to research.", {"researched": 0, "skipped": 0, "failed": 0}

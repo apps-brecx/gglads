@@ -726,6 +726,10 @@ details[open] > summary {
 .seo-chip-warn { background: rgba(251, 191, 36, 0.18); color: var(--wait); }
 .collection-card:hover .seo-chip { transform: scale(1.06); }
 
+/* OOS list — ignored rows fade back so the active OOS items pop. */
+.data-table tbody tr.is-ignored { opacity: 0.55; }
+.data-table tbody tr.is-ignored:hover { opacity: 0.85; }
+
 /* ----------  reduced-motion: respect user preference  ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

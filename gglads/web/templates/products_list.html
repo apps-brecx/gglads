@@ -46,6 +46,7 @@
 <div class="tab-bar">
   <a href="/products" class="tab {{ 'is-active' if not collection }}">All products</a>
   <a href="/collections" class="tab">Collections</a>
+  <a href="/products/out-of-stock" class="tab">Out of stock</a>
   {% if collection %}
   <span class="tab is-active">{{ collection.title }}</span>
   {% endif %}

@@ -653,6 +653,11 @@ def _run(
                 except RuntimeError as exc:
                     logger.warning("Orders sync skipped: %s", exc)
 
+        # Bring oos_since / oos_ignored in line with the freshly-synced
+        # total_inventory values. Cheap (3 UPDATEs) so we always run it.
+        from gglads.services import oos as oos_svc
+        oos_svc.reconcile_oos_state(db)
+
         bits: list[str] = []
         if catalog:
             bits.append(f"{product_count} products")

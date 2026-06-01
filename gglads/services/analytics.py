@@ -296,6 +296,17 @@ def latest_sync_date(db: Session) -> date | None:
     return db.scalar(select(func.max(ShopifyDailySales.snapshot_date)))
 
 
+def distinct_channels(db: Session) -> list[dict]:
+    """Every channel slug present in shopify_daily_sales, with display labels.
+    Used by the OOS / dashboard UIs to populate channel filter chips."""
+    rows = db.execute(
+        select(ShopifyDailySales.channel)
+        .distinct()
+        .order_by(ShopifyDailySales.channel)
+    ).scalars().all()
+    return [{"slug": c, "label": channel_label(c)} for c in rows if c]
+
+
 def product_channel_split(
     db: Session, product_id: int, days: int = 90
 ) -> list[dict]:

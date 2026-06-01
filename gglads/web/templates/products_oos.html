@@ -16,9 +16,9 @@
       <summary class="btn-ghost">Download CSV ▾</summary>
       <div class="sync-menu-pop">
         <a class="sync-menu-item"
-           href="/products/out-of-stock/export.csv?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}">
+           href="/products/out-of-stock/export.csv?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% for ch in selected_channels %}channel={{ ch }}&{% endfor %}{% if include_ignored %}include_ignored=1{% endif %}">
           <span>This view ({{ rows|length }} rows)</span>
-          <span class="conn-desc">Respects search, collection, and OOS-since filters.</span>
+          <span class="conn-desc">Respects search, collection, OOS-since, and channel filters.</span>
         </a>
         <a class="sync-menu-item"
            href="/products/out-of-stock/export.csv?include_ignored=1">
@@ -85,11 +85,33 @@
     {% if include_ignored %}<input type="hidden" name="include_ignored" value="1" />{% endif %}
   </form>
   <div class="chip-bar" style="margin-top:10px;">
-    <a href="?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}{% else %}include_ignored=1{% endif %}"
+    <a href="?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% for ch in selected_channels %}channel={{ ch }}&{% endfor %}{% if include_ignored %}{% else %}include_ignored=1{% endif %}"
        class="chip {{ 'chip-on' if include_ignored }}">
       {% if include_ignored %}✓{% else %}+{% endif %} Show ignored too
     </a>
   </div>
+
+  {% if all_channels %}
+  <div class="chip-bar" style="margin-top:10px;align-items:center;">
+    <span class="conn-desc" style="margin-right:8px;">Only show products sold on:</span>
+    {% for ch in all_channels %}
+    {% set is_on = ch.slug in selected_channels %}
+    {% set new_channels = selected_channels | reject('equalto', ch.slug) | list if is_on else (selected_channels + [ch.slug]) %}
+    <a href="?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}include_ignored=1&{% endif %}{% for c in new_channels %}channel={{ c }}{% if not loop.last %}&{% endif %}{% endfor %}"
+       class="chip {{ 'chip-on' if is_on }}"
+       title="{{ ch.label }} ({{ ch.slug }}) — last 90 days of sales rollups">
+      {% if is_on %}✓{% else %}+{% endif %} {{ ch.label }}
+    </a>
+    {% endfor %}
+    {% if selected_channels %}
+    <a href="?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}"
+       class="muted-link" style="font-size:11px;margin-left:6px;">clear channels</a>
+    {% endif %}
+  </div>
+  <p class="conn-desc" style="margin:6px 0 0;font-size:11px;">
+    Filter by channel uses the last 90 days of <code>shopify_daily_sales</code> — a product is kept only if it had at least one sale in any of the picked channels.
+  </p>
+  {% endif %}
 </section>
 
 {% if not rows %}
@@ -126,13 +148,14 @@
   </div>
 </form>
 
-{% if not include_ignored and (q or collection_handle or since) %}
+{% if not include_ignored and (q or collection_handle or since or selected_channels) %}
 <form method="post" action="/products/out-of-stock/ignore-matching" class="inline-form"
       style="margin:0 0 12px;"
       onsubmit="return confirm('Ignore EVERY OOS product matching the current filter ({{ rows|length }} products)? They\'ll reappear after their next restock+OOS cycle.');">
   <input type="hidden" name="q" value="{{ q }}" />
   <input type="hidden" name="collection" value="{{ collection_handle or '' }}" />
   <input type="hidden" name="since" value="{{ since }}" />
+  {% for ch in selected_channels %}<input type="hidden" name="channel" value="{{ ch }}" />{% endfor %}
   <button type="submit" class="btn-ghost" style="font-size:12px;">
     ⚡ Ignore all {{ rows|length }} matching this filter
   </button>

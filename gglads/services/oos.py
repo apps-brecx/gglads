@@ -17,11 +17,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, literal, select, update
 from sqlalchemy.orm import Session
 
 from gglads.models.shopify_product import (
     ShopifyCollection,
+    ShopifyDailySales,
     ShopifyProduct,
     ShopifyProductCollection,
 )
@@ -80,6 +81,8 @@ def list_out_of_stock(
     q: str | None = None,
     oos_within_days: int | None = None,
     oos_older_than_days: int | None = None,
+    channels: list[str] | None = None,
+    channels_window_days: int = 90,
 ) -> list[dict]:
     """Products that are currently out of stock. By default, ignored ones
     are hidden — pass include_ignored=True for the 'show all OOS' toggle.
@@ -88,6 +91,9 @@ def list_out_of_stock(
                           (i.e. had stock recently). Drops rows where oos_since
                           is NULL since we can't tell when they ran out.
     oos_older_than_days=N → only products that have been OOS for > N days.
+    channels=[…] → only products that had at least one sale in those channels
+                   within the last channels_window_days. Useful when you
+                   only care about products sold on a specific channel.
     """
     stmt = select(ShopifyProduct).where(ShopifyProduct.total_inventory == 0)
     if not include_ignored:
@@ -105,6 +111,19 @@ def list_out_of_stock(
             (ShopifyProduct.oos_since.is_(None))
             | (ShopifyProduct.oos_since < cutoff)
         )
+    if channels:
+        # EXISTS subquery: keep only products that have at least one sale row
+        # in the picked channel(s) within the window.
+        from datetime import date
+        window_start = date.today() - timedelta(days=max(1, channels_window_days))
+        exists_clause = (
+            select(literal(1))
+            .where(ShopifyDailySales.product_id == ShopifyProduct.id)
+            .where(ShopifyDailySales.channel.in_(channels))
+            .where(ShopifyDailySales.snapshot_date >= window_start)
+            .exists()
+        )
+        stmt = stmt.where(exists_clause)
     if collection_handle:
         stmt = stmt.join(
             ShopifyProductCollection,
@@ -226,6 +245,7 @@ def ignore_all_matching(
     q: str | None = None,
     oos_within_days: int | None = None,
     oos_older_than_days: int | None = None,
+    channels: list[str] | None = None,
 ) -> tuple[bool, str, int]:
     """Mark every OOS product matching the current filter as ignored.
     Used by the 'Ignore all in current view' button."""
@@ -236,6 +256,7 @@ def ignore_all_matching(
         q=q,
         oos_within_days=oos_within_days,
         oos_older_than_days=oos_older_than_days,
+        channels=channels,
     )
     ids = [r["id"] for r in matching]
     if not ids:

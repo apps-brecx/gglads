@@ -1413,6 +1413,12 @@ def products_oos(request: Request, db: DbDep) -> Response:
         oos_within_days = int(since)
     elif since == "old":
         oos_older_than_days = 30
+    from gglads.services import analytics as analytics_svc
+    all_channels = analytics_svc.distinct_channels(db)
+    selected_channels = request.query_params.getlist("channel")
+    # Validate against what actually exists; ignore unknown slugs.
+    valid_slugs = {c["slug"] for c in all_channels}
+    selected_channels = [c for c in selected_channels if c in valid_slugs]
     rows = oos_svc.list_out_of_stock(
         db,
         include_ignored=include_ignored,
@@ -1420,6 +1426,7 @@ def products_oos(request: Request, db: DbDep) -> Response:
         q=q,
         oos_within_days=oos_within_days,
         oos_older_than_days=oos_older_than_days,
+        channels=selected_channels or None,
     )
     counts = oos_svc.oos_counts(db)
     return templates.TemplateResponse(
@@ -1436,6 +1443,8 @@ def products_oos(request: Request, db: DbDep) -> Response:
             "q": q or "",
             "since": since,
             "collections": _collections_summary(db),
+            "all_channels": all_channels,
+            "selected_channels": selected_channels,
             "flashes": _consume_flashes(request),
         },
     )
@@ -1454,12 +1463,14 @@ async def products_oos_ignore_matching(request: Request, db: DbDep) -> Response:
     since = (form.get("since") or "").strip()
     oos_within_days = int(since) if since in ("7", "14", "30") else None
     oos_older_than_days = 30 if since == "old" else None
+    channels = [c.strip() for c in form.getlist("channel") if c.strip()] or None
     ok, detail, _ = oos_svc.ignore_all_matching(
         db,
         collection_handle=collection_handle,
         q=q,
         oos_within_days=oos_within_days,
         oos_older_than_days=oos_older_than_days,
+        channels=channels,
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
@@ -1598,6 +1609,7 @@ def products_oos_export(request: Request, db: DbDep) -> Response:
     since = (request.query_params.get("since") or "").strip()
     oos_within_days = int(since) if since in ("7", "14", "30") else None
     oos_older_than_days = 30 if since == "old" else None
+    channels = request.query_params.getlist("channel") or None
 
     rows = oos_svc.list_out_of_stock(
         db,
@@ -1606,6 +1618,7 @@ def products_oos_export(request: Request, db: DbDep) -> Response:
         q=q,
         oos_within_days=oos_within_days,
         oos_older_than_days=oos_older_than_days,
+        channels=channels,
     )
 
     buf = io.StringIO()

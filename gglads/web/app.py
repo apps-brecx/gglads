@@ -227,15 +227,108 @@ def logout(request: Request) -> Response:
 # Authenticated pages
 # ---------------------------------------------------------------------------
 
+_DASHBOARD_PERIODS = [(7, "7 days"), (30, "30 days"), (90, "90 days")]
+# Stable colors per channel — also referenced by the donut + chart legend.
+_CHANNEL_COLORS = {
+    "web":  "#7c9cff",
+    "shop": "#f4a261",
+}
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    from gglads.services import analytics as analytics_svc
+    from gglads.services import chart_svg as chart_svc
+
+    try:
+        days = int(request.query_params.get("days") or 30)
+    except ValueError:
+        days = 30
+    if days not in (p[0] for p in _DASHBOARD_PERIODS):
+        days = 30
+    metric = request.query_params.get("metric") or "revenue"
+    if metric not in ("revenue", "orders", "units", "customers"):
+        metric = "revenue"
+    selected_channels = request.query_params.getlist("channel")
+    if not selected_channels:
+        selected_channels = list(analytics_svc.CHANNEL_LABELS.keys())
+    selected_channels = [
+        c for c in selected_channels if c in analytics_svc.CHANNEL_LABELS
+    ] or list(analytics_svc.CHANNEL_LABELS.keys())
+
+    growth = analytics_svc.growth_summary(db, days, channels=selected_channels)
+    daily = analytics_svc.daily_totals(db, days, channels=selected_channels)
+    split = analytics_svc.channel_split(db, days)
+    movers = analytics_svc.top_movers(db, days, limit=8)
+
+    # Pull a per-channel daily breakdown so the chart can show stacked lines.
+    chart_series: dict[str, list[float]] = {}
+    if metric in ("revenue", "orders", "units", "customers"):
+        # Total line (selected channels combined) always shown.
+        chart_series["All selected"] = [float(d[metric]) for d in daily]
+        # Per-channel split for any channel actually selected.
+        if len(selected_channels) > 1:
+            for ch in selected_channels:
+                ch_series = analytics_svc.daily_totals(db, days, channels=[ch])
+                chart_series[analytics_svc.CHANNEL_LABELS.get(ch, ch)] = [
+                    float(d[metric]) for d in ch_series
+                ]
+    chart = chart_svc.line_chart(
+        [d["day"] for d in daily], chart_series, width=860, height=240
+    )
+
+    donut = chart_svc.donut(
+        [
+            {
+                "label": s["label"],
+                "value": float(s["revenue"]),
+                "color": _CHANNEL_COLORS.get(s["channel"], "#7c9cff"),
+            }
+            for s in split
+        ],
+        size=160,
+        stroke=24,
+    )
+
+    # Top movers each get a sparkline of daily revenue over the same window.
+    mover_views = []
+    for m in movers:
+        spark_vals = analytics_svc.product_sparkline(db, m["product_id"], days)
+        mover_views.append({
+            **m,
+            "sparkline": chart_svc.sparkline(spark_vals, width=100, height=24),
+        })
+
+    latest_sync = analytics_svc.latest_sync_date(db)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"version": __version__, "user": user, "active": "dashboard"},
+        {
+            "version": __version__,
+            "user": user,
+            "active": "dashboard",
+            "days": days,
+            "metric": metric,
+            "periods": _DASHBOARD_PERIODS,
+            "metrics": [
+                ("revenue", "Revenue"),
+                ("orders", "Orders"),
+                ("units", "Units sold"),
+                ("customers", "Customers"),
+            ],
+            "growth": growth,
+            "chart": chart,
+            "donut": donut,
+            "channel_split": split,
+            "channel_colors": _CHANNEL_COLORS,
+            "channel_labels": analytics_svc.CHANNEL_LABELS,
+            "selected_channels": selected_channels,
+            "movers": mover_views,
+            "latest_sync": latest_sync,
+        },
     )
 
 

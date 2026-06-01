@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from gglads.models.shopify_product import (
     ShopifyCollection,
+    ShopifyDailySales,
     ShopifyInventorySnapshot,
     ShopifyProduct,
     ShopifyProductCollection,
@@ -32,6 +33,26 @@ from gglads.services import integrations as integrations_svc
 logger = logging.getLogger("gglads.shopify")
 
 SALES_WINDOW_DAYS = 90
+
+# We only attribute sales from these two Shopify channels:
+#   web  → Online Store
+#   shop → Shop app
+# Anything else (POS, draft orders, third-party app channels) is dropped at
+# ingest. Use a set so membership checks are O(1).
+TRACKED_CHANNELS = {"web", "shop"}
+
+
+def _normalize_channel(source_name: str | None) -> str | None:
+    """Map a Shopify Order.sourceName to one of TRACKED_CHANNELS, or None to drop."""
+    if not source_name:
+        return None
+    s = source_name.lower().strip()
+    if s in TRACKED_CHANNELS:
+        return s
+    # Shopify has historically used a few variants for the Shop app.
+    if s in {"shop_app", "shopify_app"}:
+        return "shop"
+    return None
 
 
 _COLLECTIONS_QUERY = """
@@ -127,6 +148,7 @@ query ($cursor: String, $q: String) {
       id
       createdAt
       cancelledAt
+      sourceName
       customer { id }
       lineItems(first: 100) {
         nodes {
@@ -358,11 +380,22 @@ def _sync_orders(
     db: Session,
     window_days: int = SALES_WINDOW_DAYS,
 ) -> int:
-    """Pull orders in the time window, aggregate sales per product, write."""
+    """Pull orders in the time window, aggregate sales per product, write.
+
+    Two outputs:
+      1. Per-product 90-day totals on shopify_products (back-compat for the
+         Keywords / product pages).
+      2. Per-day per-product per-channel rollup in shopify_daily_sales — this
+         is what the new dashboard reads from.
+
+    Only orders whose sourceName maps to TRACKED_CHANNELS are counted; POS,
+    draft orders, etc. are silently dropped at ingest.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    cutoff_date = cutoff.date()
     q = f"created_at:>={cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}"
 
-    # Reset all product counters first
+    # Reset all product counters first (existing 90d aggregates).
     db.execute(
         update(ShopifyProduct).values(
             units_sold_90d=0,
@@ -371,11 +404,28 @@ def _sync_orders(
             net_sales_90d=Decimal("0"),
         )
     )
+    # Clear the window from shopify_daily_sales so a re-sync produces a
+    # consistent state (no stale rows for the same date+product+channel).
+    db.execute(
+        delete(ShopifyDailySales).where(
+            ShopifyDailySales.snapshot_date >= cutoff_date
+        )
+    )
     db.commit()
 
+    # Per-product 90d aggregates (back-compat).
     agg: dict[int, dict] = {}
+    # Per-day rollups, keyed by (date, product_id|None, channel).
+    daily: dict[tuple, dict] = {}
+    # Per-day per-channel store-wide totals are not built from the per-product
+    # rows (a single order with N line items is 1 order, not N). We track
+    # them separately, keyed by (date, channel), so the "all products"
+    # rollup row reflects orders / unique customers correctly.
+    store_daily: dict[tuple, dict] = {}
+
     cursor: str | None = None
     orders_seen = 0
+    orders_kept = 0
 
     while True:
         data = _post_graphql(
@@ -386,8 +436,35 @@ def _sync_orders(
             if order.get("cancelledAt"):
                 continue
             orders_seen += 1
-            order_date = _parse_iso(order.get("createdAt"))
+            channel = _normalize_channel(order.get("sourceName"))
+            if channel is None:
+                continue
+            order_date_dt = _parse_iso(order.get("createdAt"))
+            if order_date_dt is None:
+                continue
+            order_date = order_date_dt.date()
             customer_id = (order.get("customer") or {}).get("id")
+            orders_kept += 1
+
+            # Store-wide (product_id NULL) rollup for this (date, channel).
+            store_key = (order_date, channel)
+            store_entry = store_daily.setdefault(
+                store_key,
+                {
+                    "orders": 0,
+                    "units": 0,
+                    "revenue": Decimal("0"),
+                    "customers": set(),
+                },
+            )
+            store_entry["orders"] += 1
+            if customer_id:
+                store_entry["customers"].add(customer_id)
+
+            # Track which products this order touched so we count each
+            # product as 1 "order" per (date, channel) — not N (one per line
+            # item of that product), but also not 0.
+            products_in_order: set[int] = set()
             for li in (order.get("lineItems") or {}).get("nodes") or []:
                 product_gid = (li.get("product") or {}).get("legacyResourceId")
                 if not product_gid:
@@ -397,25 +474,54 @@ def _sync_orders(
                 except ValueError:
                     continue
                 qty = li.get("quantity") or 0
-                discounted = (li.get("discountedTotalSet") or {}).get("shopMoney") or {}
-                line_amount = Decimal(discounted.get("amount") or "0")
-                entry = agg.setdefault(
-                    pid,
-                    {"units": 0, "customers": set(), "last_sale": None, "revenue": Decimal("0")},
+                discounted = (
+                    (li.get("discountedTotalSet") or {}).get("shopMoney") or {}
                 )
-                entry["units"] += qty
-                entry["revenue"] += line_amount
+                line_amount = Decimal(discounted.get("amount") or "0")
+
+                # Back-compat per-product 90d aggregates.
+                back = agg.setdefault(
+                    pid,
+                    {
+                        "units": 0,
+                        "customers": set(),
+                        "last_sale": None,
+                        "revenue": Decimal("0"),
+                    },
+                )
+                back["units"] += qty
+                back["revenue"] += line_amount
                 if customer_id:
-                    entry["customers"].add(customer_id)
-                if order_date and (
-                    entry["last_sale"] is None or order_date > entry["last_sale"]
-                ):
-                    entry["last_sale"] = order_date
+                    back["customers"].add(customer_id)
+                if back["last_sale"] is None or order_date_dt > back["last_sale"]:
+                    back["last_sale"] = order_date_dt
+
+                # Per-day per-product per-channel rollup.
+                store_entry["units"] += qty
+                store_entry["revenue"] += line_amount
+                key = (order_date, pid, channel)
+                ent = daily.setdefault(
+                    key,
+                    {
+                        "orders": 0,
+                        "units": 0,
+                        "revenue": Decimal("0"),
+                        "customers": set(),
+                    },
+                )
+                ent["units"] += qty
+                ent["revenue"] += line_amount
+                if customer_id:
+                    ent["customers"].add(customer_id)
+                if pid not in products_in_order:
+                    ent["orders"] += 1
+                    products_in_order.add(pid)
+
         if not page["pageInfo"]["hasNextPage"]:
             break
         cursor = page["pageInfo"]["endCursor"]
 
-    # Write aggregates
+    # Write per-product 90d aggregates.
     for pid, data in agg.items():
         p = db.get(ShopifyProduct, pid)
         if p is not None:
@@ -423,8 +529,42 @@ def _sync_orders(
             p.unique_customers_90d = len(data["customers"])
             p.last_sale_at = data["last_sale"]
             p.net_sales_90d = data["revenue"]
-    db.commit()
 
+    # Write per-product per-day per-channel rollups.
+    now = datetime.now(timezone.utc)
+    for (day, pid, channel), v in daily.items():
+        db.add(
+            ShopifyDailySales(
+                snapshot_date=day,
+                product_id=pid,
+                channel=channel,
+                orders=v["orders"],
+                units=v["units"],
+                revenue=v["revenue"],
+                unique_customers=len(v["customers"]),
+                updated_at=now,
+            )
+        )
+
+    # Write store-wide (product_id NULL) rollups.
+    for (day, channel), v in store_daily.items():
+        db.add(
+            ShopifyDailySales(
+                snapshot_date=day,
+                product_id=None,
+                channel=channel,
+                orders=v["orders"],
+                units=v["units"],
+                revenue=v["revenue"],
+                unique_customers=len(v["customers"]),
+                updated_at=now,
+            )
+        )
+    db.commit()
+    logger.info(
+        "Order sync: %d total / %d kept after channel filter (%s)",
+        orders_seen, orders_kept, ", ".join(sorted(TRACKED_CHANNELS)),
+    )
     return orders_seen
 
 

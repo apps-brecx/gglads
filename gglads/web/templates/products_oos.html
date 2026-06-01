@@ -12,6 +12,21 @@
     </p>
   </div>
   <div class="page-actions">
+    <details class="sync-menu">
+      <summary class="btn-ghost">Download CSV ▾</summary>
+      <div class="sync-menu-pop">
+        <a class="sync-menu-item"
+           href="/products/out-of-stock/export.csv?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}">
+          <span>This view ({{ rows|length }} rows)</span>
+          <span class="conn-desc">Respects search, collection, and OOS-since filters.</span>
+        </a>
+        <a class="sync-menu-item"
+           href="/products/out-of-stock/export.csv?include_ignored=1">
+          <span>All OOS products ({{ counts.total_oos }} rows)</span>
+          <span class="conn-desc">Every product currently out of stock, including ignored ones. No other filters.</span>
+        </a>
+      </div>
+    </details>
     <form method="post" action="/products/sync/inventory" class="inline-form">
       <button type="submit" class="btn-ghost">Refresh stock</button>
     </form>

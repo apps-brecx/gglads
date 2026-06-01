@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import EmailStr, ValidationError
@@ -1459,6 +1465,72 @@ async def products_oos_ignore_matching(request: Request, db: DbDep) -> Response:
     return RedirectResponse(
         request.headers.get("referer", "/products/out-of-stock"),
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/products/out-of-stock/export.csv")
+def products_oos_export(request: Request, db: DbDep) -> Response:
+    """Download the current OOS view as CSV. Honors every filter on the page
+    (search, collection, OOS-since window, include-ignored toggle)."""
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    from gglads.services import oos as oos_svc
+    import csv
+    import io
+    from datetime import datetime
+
+    include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
+    collection_handle = request.query_params.get("collection") or None
+    q = (request.query_params.get("q") or "").strip() or None
+    since = (request.query_params.get("since") or "").strip()
+    oos_within_days = int(since) if since in ("7", "14", "30") else None
+    oos_older_than_days = 30 if since == "old" else None
+
+    rows = oos_svc.list_out_of_stock(
+        db,
+        include_ignored=include_ignored,
+        collection_handle=collection_handle,
+        q=q,
+        oos_within_days=oos_within_days,
+        oos_older_than_days=oos_older_than_days,
+    )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Product",
+        "Status",
+        "Ignored",
+        "OOS since",
+        "OOS for (days)",
+        "Units sold (90d)",
+        "Net sales (90d)",
+        "Last sale",
+        "Variants",
+        "Shopify product ID",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["title"],
+            r["status"],
+            "yes" if r["oos_ignored"] else "no",
+            r["oos_since"].strftime("%Y-%m-%d %H:%M") if r["oos_since"] else "",
+            r["days_oos"] if r["days_oos"] is not None else "",
+            r["units_sold_90d"] or 0,
+            f'{float(r["net_sales_90d"] or 0):.2f}',
+            r["last_sale_at"].strftime("%Y-%m-%d") if r["last_sale_at"] else "",
+            r["variant_count"],
+            r["id"],
+        ])
+
+    buf.seek(0)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"out-of-stock_{today}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

@@ -57,6 +57,16 @@ class ShopifyProduct(Base):
     first_sku: Mapped[str | None] = mapped_column(String(255), nullable=True)
     total_inventory: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
     variant_count: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    # Out-of-stock state. oos_since is set the first time we see total_inventory=0
+    # and is cleared when restocked. oos_ignored is a user-set flag that hides
+    # the product from the OOS list; the sync clears it on restock so the
+    # product naturally reappears the next time it goes OOS.
+    oos_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    oos_ignored: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", nullable=False
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shopify_admin_url: Mapped[str | None] = mapped_column(Text, nullable=True)

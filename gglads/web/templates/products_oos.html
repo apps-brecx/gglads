@@ -1,0 +1,181 @@
+{% extends "layout.html" %}
+
+{% block title %}Out of stock — Products — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Out of stock</h1>
+    <p class="page-subtitle">
+      Every product currently at zero inventory. Ignore hides one from this view until it gets restocked and goes out again.
+    </p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/products/sync/inventory" class="inline-form">
+      <button type="submit" class="btn-ghost">Refresh stock</button>
+    </form>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="tab-bar">
+  <a href="/products" class="tab">All products</a>
+  <a href="/collections" class="tab">Collections</a>
+  <span class="tab is-active">Out of stock <span class="nav-badge">{{ counts.visible }}</span></span>
+</div>
+
+<section class="panel sync-bar">
+  <div class="sync-info">
+    <div class="sync-stat">
+      <span class="sync-label">Out of stock</span>
+      <span class="sync-value">{{ counts.total_oos }}</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-label">Visible</span>
+      <span class="sync-value">{{ counts.visible }}</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-label">Ignored</span>
+      <span class="sync-value">{{ counts.ignored }}</span>
+    </div>
+  </div>
+</section>
+
+<section class="panel filter-bar">
+  <form method="get" class="filter-form" style="grid-template-columns:1fr 1fr auto;">
+    <select name="collection" class="filter-select">
+      <option value="">All collections</option>
+      {% for c in collections %}
+      <option value="{{ c.handle }}" {{ 'selected' if collection_handle == c.handle }}>{{ c.title }}</option>
+      {% endfor %}
+    </select>
+    <label class="chip" style="align-self:center;">
+      <input type="checkbox" name="include_ignored" value="1"
+             {{ 'checked' if include_ignored }}
+             onchange="this.form.submit()" />
+      Show ignored too
+    </label>
+    <button type="submit" class="btn-ghost">Apply</button>
+  </form>
+</section>
+
+{% if not rows %}
+<section class="panel">
+  <div class="empty-state" style="padding:32px 4px;">
+    {% if include_ignored %}
+    <p><strong>Nothing out of stock.</strong></p>
+    <p class="empty-sub">Every product currently has at least one unit available.</p>
+    {% else %}
+    <p><strong>Nothing to look at.</strong></p>
+    <p class="empty-sub">
+      {% if counts.ignored %}
+      {{ counts.ignored }} OOS product(s) are currently ignored —
+      <a href="?include_ignored=1" class="muted-link">show them</a>.
+      {% else %}
+      Every product is in stock right now.
+      {% endif %}
+    </p>
+  {% endif %}
+  </div>
+</section>
+{% else %}
+<form method="post" action="/products/out-of-stock/bulk" id="oos-bulk-form" class="bulk-bar">
+  <span class="bulk-bar-label">
+    Bulk: <span id="bulk-count">0</span> selected
+    <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all</button>
+    <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+  </span>
+  <div class="bulk-bar-controls">
+    {% if include_ignored %}
+    <button type="submit" name="action" value="unignore" class="btn-ghost">Un-ignore selected</button>
+    {% endif %}
+    <button type="submit" name="action" value="ignore" class="btn-primary">Ignore selected</button>
+  </div>
+</form>
+
+<section class="panel">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width:32px;"></th>
+        <th>Product</th>
+        <th class="num">OOS for</th>
+        <th class="num">Units 90d</th>
+        <th class="num">Revenue 90d</th>
+        <th>Last sale</th>
+        <th class="num">Variants</th>
+        <th class="actions-col">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="{{ 'is-ignored' if r.oos_ignored }}">
+        <td>
+          <input type="checkbox" name="product_id" value="{{ r.id }}"
+                 form="oos-bulk-form" class="oos-bulk-cb" />
+        </td>
+        <td>
+          <a href="/products/{{ r.id }}" class="muted-link">{{ r.title }}</a>
+          {% if r.oos_ignored %}<span class="tag tag-neg" style="margin-left:6px;">ignored</span>{% endif %}
+          {% if r.status != 'active' %}<span class="tag" style="margin-left:6px;">{{ r.status }}</span>{% endif %}
+        </td>
+        <td class="num">
+          {% if r.days_oos is none %}—
+          {% elif r.days_oos == 0 %}today
+          {% else %}{{ r.days_oos }}d
+          {% endif %}
+        </td>
+        <td class="num">{{ r.units_sold_90d or 0 }}</td>
+        <td class="num">${{ '{:,.2f}'.format((r.net_sales_90d or 0)|float) }}</td>
+        <td>
+          {% if r.last_sale_at %}{{ r.last_sale_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
+        </td>
+        <td class="num">{{ r.variant_count }}</td>
+        <td class="actions-col">
+          {% if r.oos_ignored %}
+          <form method="post" action="/products/{{ r.id }}/oos/unignore" class="inline-form">
+            <button type="submit" class="btn-ghost" style="font-size:12px;">Un-ignore</button>
+          </form>
+          {% else %}
+          <form method="post" action="/products/{{ r.id }}/oos/ignore" class="inline-form">
+            <button type="submit" class="btn-ghost" style="font-size:12px;">Ignore</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<script>
+  (function() {
+    const cbs = document.querySelectorAll('.oos-bulk-cb');
+    const count = document.getElementById('bulk-count');
+    const selectAll = document.getElementById('bulk-select-page');
+    const clearBtn = document.getElementById('bulk-clear');
+    function refresh() {
+      if (!count) return;
+      count.textContent = String(document.querySelectorAll('.oos-bulk-cb:checked').length);
+    }
+    cbs.forEach(cb => cb.addEventListener('change', refresh));
+    if (selectAll) selectAll.addEventListener('click', e => {
+      e.preventDefault();
+      cbs.forEach(cb => { cb.checked = true; });
+      refresh();
+    });
+    if (clearBtn) clearBtn.addEventListener('click', e => {
+      e.preventDefault();
+      cbs.forEach(cb => { cb.checked = false; });
+      refresh();
+    });
+    refresh();
+  })();
+</script>
+{% endblock %}

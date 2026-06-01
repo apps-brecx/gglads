@@ -1285,6 +1285,92 @@ def collection_seo_generate(handle: str, request: Request, db: DbDep) -> Respons
     return RedirectResponse(f"/collections/{handle}", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@app.get("/products/out-of-stock", response_class=HTMLResponse)
+def products_oos(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    from gglads.services import oos as oos_svc
+
+    include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
+    collection_handle = request.query_params.get("collection") or None
+    rows = oos_svc.list_out_of_stock(
+        db,
+        include_ignored=include_ignored,
+        collection_handle=collection_handle,
+    )
+    counts = oos_svc.oos_counts(db)
+    return templates.TemplateResponse(
+        request,
+        "products_oos.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "rows": rows,
+            "counts": counts,
+            "include_ignored": include_ignored,
+            "collection_handle": collection_handle,
+            "collections": _collections_summary(db),
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/products/{product_id}/oos/ignore")
+def product_oos_ignore(product_id: int, request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import oos as oos_svc
+    ok, detail = oos_svc.ignore_product(db, product_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products/out-of-stock"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/products/{product_id}/oos/unignore")
+def product_oos_unignore(product_id: int, request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import oos as oos_svc
+    ok, detail = oos_svc.unignore_product(db, product_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products/out-of-stock"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/products/out-of-stock/bulk")
+async def products_oos_bulk(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import oos as oos_svc
+    form = await request.form()
+    action = (form.get("action") or "ignore").strip()
+    raw_ids = form.getlist("product_id")
+    ids: list[int] = []
+    for v in raw_ids:
+        try:
+            ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    if action == "unignore":
+        ok, detail, _ = oos_svc.bulk_unignore(db, ids)
+    else:
+        ok, detail, _ = oos_svc.bulk_ignore(db, ids)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products/out-of-stock"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/products/keywords/research-all")
 def products_keywords_research_all(request: Request, db: DbDep) -> Response:
     """One-click keyword research for every product that doesn't have any yet."""

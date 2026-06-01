@@ -232,3 +232,32 @@ class ShopifySyncRun(Base):
     collections_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     orders_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ShopifyDailySales(Base):
+    """Per-day per-product per-channel sales rollup. product_id NULL is the
+    store-wide total for that (date, channel). Channel is 'web' (Online Store)
+    or 'shop' (Shop app) — other Shopify sources are skipped at ingest."""
+
+    __tablename__ = "shopify_daily_sales"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    product_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_products.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    orders: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    units: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    revenue: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), server_default="0", nullable=False
+    )
+    unique_customers: Mapped[int] = mapped_column(
+        Integer, server_default="0", nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -2,99 +2,272 @@
 
 {% block title %}Dashboard — gglads{% endblock %}
 
+{% macro delta_pill(delta_pct) %}
+  {% if delta_pct is none %}
+    <span class="delta delta-flat">—</span>
+  {% elif delta_pct > 0 %}
+    <span class="delta delta-up">▲ {{ '%.1f'|format(delta_pct) }}%</span>
+  {% elif delta_pct < 0 %}
+    <span class="delta delta-down">▼ {{ '%.1f'|format(-delta_pct) }}%</span>
+  {% else %}
+    <span class="delta delta-flat">±0%</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro money(v) -%}
+  ${{ '{:,.2f}'.format(v|float) }}
+{%- endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">Dashboard</h1>
-    <p class="page-subtitle">Welcome back, {{ user.name or user.email }}.</p>
+    <h1 class="page-title">Growth dashboard</h1>
+    <p class="page-subtitle">
+      Tracking online store + Shop app only. All other Shopify channels are excluded.
+      {% if latest_sync %}<span class="conn-desc">· last data point: {{ latest_sync.strftime('%Y-%m-%d') }}</span>{% endif %}
+    </p>
   </div>
   <div class="page-actions">
-    <span class="pill pill-warn">Autonomous: off</span>
-    <span class="pill pill-info">Dry run: on</span>
+    <form method="get" class="period-form">
+      <input type="hidden" name="metric" value="{{ metric }}" />
+      {% for ch in selected_channels %}<input type="hidden" name="channel" value="{{ ch }}" />{% endfor %}
+      <div class="seg-group">
+        {% for d, label in periods %}
+        <button type="submit" name="days" value="{{ d }}"
+                class="seg-btn {{ 'is-active' if days == d }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </form>
   </div>
 </div>
 
-<section class="banner">
-  <div class="banner-icon">⏸</div>
-  <div class="banner-body">
-    <strong>Claude isn't watching yet.</strong>
-    <span>Connect Shopify, Google Ads, and Anthropic to start the monitoring loop.</span>
-  </div>
-  <a href="/connections" class="banner-cta">Set up integrations →</a>
+<!-- KPI tiles ------------------------------------------------------------ -->
+<section class="kpi-row">
+  <a class="kpi {{ 'is-active' if metric == 'revenue' }}" href="?days={{ days }}&metric=revenue{% for c in selected_channels %}&channel={{ c }}{% endfor %}">
+    <div class="kpi-label">Revenue · {{ days }}d</div>
+    <div class="kpi-value">{{ money(growth.revenue.current) }}</div>
+    <div class="kpi-foot">
+      {{ delta_pill(growth.revenue.delta_pct) }}
+      <span class="conn-desc">vs prior {{ days }}d ({{ money(growth.revenue.previous) }})</span>
+    </div>
+  </a>
+  <a class="kpi {{ 'is-active' if metric == 'orders' }}" href="?days={{ days }}&metric=orders{% for c in selected_channels %}&channel={{ c }}{% endfor %}">
+    <div class="kpi-label">Orders · {{ days }}d</div>
+    <div class="kpi-value">{{ '{:,}'.format(growth.orders.current) }}</div>
+    <div class="kpi-foot">
+      {{ delta_pill(growth.orders.delta_pct) }}
+      <span class="conn-desc">vs {{ '{:,}'.format(growth.orders.previous) }} prior</span>
+    </div>
+  </a>
+  <a class="kpi {{ 'is-active' if metric == 'units' }}" href="?days={{ days }}&metric=units{% for c in selected_channels %}&channel={{ c }}{% endfor %}">
+    <div class="kpi-label">Units sold · {{ days }}d</div>
+    <div class="kpi-value">{{ '{:,}'.format(growth.units.current) }}</div>
+    <div class="kpi-foot">
+      {{ delta_pill(growth.units.delta_pct) }}
+      <span class="conn-desc">vs {{ '{:,}'.format(growth.units.previous) }} prior</span>
+    </div>
+  </a>
+  <a class="kpi {{ 'is-active' if metric == 'customers' }}" href="?days={{ days }}&metric=customers{% for c in selected_channels %}&channel={{ c }}{% endfor %}">
+    <div class="kpi-label">Customers · {{ days }}d</div>
+    <div class="kpi-value">{{ '{:,}'.format(growth.customers.current) }}</div>
+    <div class="kpi-foot">
+      {{ delta_pill(growth.customers.delta_pct) }}
+      <span class="conn-desc">vs {{ '{:,}'.format(growth.customers.previous) }} prior</span>
+    </div>
+  </a>
 </section>
 
-<section class="metric-row">
-  <div class="metric">
-    <div class="metric-label">Spend · 24h</div>
-    <div class="metric-value">$0.00</div>
-    <div class="metric-foot">No data yet</div>
+<!-- Big chart ------------------------------------------------------------ -->
+<section class="panel chart-panel">
+  <div class="panel-head">
+    <h2>Day-by-day {{ metric }}</h2>
+    <form method="get" class="chip-bar">
+      <input type="hidden" name="days" value="{{ days }}" />
+      <input type="hidden" name="metric" value="{{ metric }}" />
+      {% for ch, label in channel_labels.items() %}
+      <label class="chip">
+        <input type="checkbox" name="channel" value="{{ ch }}"
+               {{ 'checked' if ch in selected_channels }}
+               onchange="this.form.submit()" />
+        <span class="chip-dot" style="background:{{ channel_colors[ch] }};"></span>
+        {{ label }}
+      </label>
+      {% endfor %}
+    </form>
   </div>
-  <div class="metric">
-    <div class="metric-label">Conversions · 24h</div>
-    <div class="metric-value">0</div>
-    <div class="metric-foot">No data yet</div>
+
+  {% if chart.empty %}
+  <div class="empty-state" style="padding:32px 0;">
+    <p>No data in this window yet.</p>
+    <p class="empty-sub">Once the Shopify cron has run with the new daily-rollup code, sales will appear here.</p>
   </div>
-  <div class="metric">
-    <div class="metric-label">CPA · 24h</div>
-    <div class="metric-value">—</div>
-    <div class="metric-foot">No data yet</div>
+  {% else %}
+  <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+       class="chart-svg" preserveAspectRatio="none"
+       role="img" aria-label="Day-by-day {{ metric }}">
+    <defs>
+      {% for p in chart.paths %}
+      {% set series_color = channel_colors.get('web', '#7c9cff') if loop.index0 == 0 else (channel_colors.get('shop', '#f4a261') if loop.index0 == 1 else '#a78bfa') %}
+      <linearGradient id="grad-{{ loop.index0 }}" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="{{ series_color }}" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="{{ series_color }}" stop-opacity="0"/>
+      </linearGradient>
+      {% endfor %}
+    </defs>
+    {% for tick in chart.y_ticks %}
+    <line class="chart-grid" x1="{{ chart.pad_left }}" x2="{{ chart.width - chart.pad_right }}"
+          y1="{{ tick.y }}" y2="{{ tick.y }}" />
+    <text class="chart-yaxis" x="{{ chart.pad_left - 6 }}" y="{{ tick.y + 4 }}" text-anchor="end">
+      {% if metric == 'revenue' %}${{ '{:,.0f}'.format(tick.value) }}{% else %}{{ '{:,.0f}'.format(tick.value) }}{% endif %}
+    </text>
+    {% endfor %}
+    {% for p in chart.paths %}
+    {% set series_color = channel_colors.get('web', '#7c9cff') if loop.index0 == 0 else (channel_colors.get('shop', '#f4a261') if loop.index0 == 1 else '#a78bfa') %}
+    <path class="chart-area" d="{{ p.area_d }}" fill="url(#grad-{{ loop.index0 }})" />
+    <path class="chart-line" d="{{ p.d }}" stroke="{{ series_color }}" />
+    {% if p.last_pt %}
+    <circle class="chart-last" cx="{{ p.last_pt[0] }}" cy="{{ p.last_pt[1] }}" r="4"
+            fill="{{ series_color }}" />
+    {% endif %}
+    {% endfor %}
+    {% for label in chart.x_labels %}
+    <text class="chart-xaxis" x="{{ label.x }}" y="{{ chart.height - 8 }}" text-anchor="middle">
+      {{ label.text }}
+    </text>
+    {% endfor %}
+  </svg>
+  <div class="chart-legend">
+    {% for p in chart.paths %}
+    {% set series_color = channel_colors.get('web', '#7c9cff') if loop.index0 == 0 else (channel_colors.get('shop', '#f4a261') if loop.index0 == 1 else '#a78bfa') %}
+    <span class="legend-item">
+      <span class="legend-swatch" style="background:{{ series_color }};"></span>
+      {{ p.label }}
+      <span class="conn-desc">
+        {% if metric == 'revenue' %}{{ money(p.last_value) }}{% else %}{{ '{:,.0f}'.format(p.last_value) }}{% endif %}
+      </span>
+    </span>
+    {% endfor %}
   </div>
-  <div class="metric">
-    <div class="metric-label">Search terms reviewed</div>
-    <div class="metric-value">0</div>
-    <div class="metric-foot">Last sweep: never</div>
-  </div>
-  <div class="metric metric-accent">
-    <div class="metric-label">Pending approvals</div>
-    <div class="metric-value">0</div>
-    <div class="metric-foot"><a href="/approvals" class="muted-link">Open queue →</a></div>
-  </div>
+  {% endif %}
 </section>
 
-<section class="two-col">
+<!-- Channel split + top movers ------------------------------------------ -->
+<section class="two-col dash-two">
+  <div class="panel donut-panel">
+    <div class="panel-head"><h2>Channel split · revenue</h2></div>
+    {% if donut.total <= 0 %}
+    <div class="empty-state" style="padding:16px 0;">No sales in this window.</div>
+    {% else %}
+    <div class="donut-wrap">
+      <svg viewBox="0 0 {{ donut.size }} {{ donut.size }}" width="{{ donut.size }}" height="{{ donut.size }}" class="donut-svg">
+        <circle cx="{{ donut.cx }}" cy="{{ donut.cy }}" r="{{ donut.radius }}"
+                fill="none" stroke="var(--border)" stroke-width="{{ donut.stroke }}" />
+        {% for s in donut.slices %}
+        <circle cx="{{ donut.cx }}" cy="{{ donut.cy }}" r="{{ donut.radius }}"
+                fill="none" stroke="{{ s.color }}" stroke-width="{{ donut.stroke }}"
+                stroke-dasharray="{{ s.stroke_dasharray }}"
+                stroke-dashoffset="{{ s.stroke_dashoffset }}"
+                transform="rotate(-90 {{ donut.cx }} {{ donut.cy }})"
+                style="transition: stroke-dasharray .6s cubic-bezier(.2,.8,.2,1);" />
+        {% endfor %}
+        <text x="{{ donut.cx }}" y="{{ donut.cy - 2 }}" text-anchor="middle" class="donut-center">
+          {{ money(donut.total) }}
+        </text>
+        <text x="{{ donut.cx }}" y="{{ donut.cy + 14 }}" text-anchor="middle" class="donut-sub">
+          last {{ days }}d
+        </text>
+      </svg>
+      <ul class="donut-legend">
+        {% for s in donut.slices %}
+        <li>
+          <span class="legend-swatch" style="background:{{ s.color }};"></span>
+          <span class="legend-label">{{ s.label }}</span>
+          <span class="legend-value">{{ money(s.value) }} <span class="conn-desc">· {{ '%.0f'|format(s.percent) }}%</span></span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+
   <div class="panel">
     <div class="panel-head">
-      <h2>Pending approvals</h2>
-      <a href="/approvals" class="muted-link">View all</a>
+      <h2>Top growth products</h2>
+      <span class="conn-desc">Δ revenue vs prior {{ days }}d</span>
     </div>
-    <div class="empty-state">
-      <p>Nothing waiting on you.</p>
-      <p class="empty-sub">Claude's recommendations will land here once the monitoring loop is running.</p>
+    {% if not movers %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No product-level sales in this window.</p>
     </div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-head">
-      <h2>Recent activity</h2>
-      <a href="/feedback" class="muted-link">Full log</a>
-    </div>
-    <div class="empty-state">
-      <p>No activity yet.</p>
-      <p class="empty-sub">Every action Claude proposes or takes will appear here.</p>
-    </div>
+    {% else %}
+    <table class="data-table mover-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th class="num">Now</th>
+          <th class="num">Prior</th>
+          <th class="num">Δ</th>
+          <th>Trend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in movers %}
+        <tr>
+          <td>
+            <a href="/products/{{ m.product_id }}/analytics" class="muted-link">{{ m.title }}</a>
+            <div class="conn-desc">{{ m.current_orders }} order(s) · {{ m.current_units }} unit(s)</div>
+          </td>
+          <td class="num">{{ money(m.current_revenue) }}</td>
+          <td class="num">{{ money(m.previous_revenue) }}</td>
+          <td class="num">
+            {{ delta_pill(m.delta_pct) }}
+          </td>
+          <td>
+            {% if not m.sparkline.empty %}
+            <svg viewBox="0 0 {{ m.sparkline.width }} {{ m.sparkline.height }}"
+                 width="{{ m.sparkline.width }}" height="{{ m.sparkline.height }}"
+                 class="sparkline">
+              <path d="{{ m.sparkline.d }}" />
+              <circle cx="{{ m.sparkline.last_x }}" cy="{{ m.sparkline.last_y }}" r="2.2" />
+            </svg>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
   </div>
 </section>
 
+<!-- Future-marketing teaser --------------------------------------------- -->
 <section class="panel">
   <div class="panel-head">
-    <h2>Integrations</h2>
-    <a href="/connections" class="muted-link">Configure</a>
+    <h2>Why did sales move?</h2>
+    <span class="conn-desc">Attribution sources we'll layer on next</span>
   </div>
-  <div class="integration-row">
-    <div class="integration">
-      <div class="integration-dot dot-off"></div>
-      <div class="integration-name">Shopify</div>
-      <div class="integration-status">Not connected</div>
+  <div class="src-grid">
+    <div class="src-card src-on">
+      <div class="src-title">SEO &amp; organic keywords</div>
+      <div class="src-desc">Tracked via Search Console — rank changes per keyword per product.</div>
+      <a href="/products" class="muted-link">Open product list →</a>
     </div>
-    <div class="integration">
-      <div class="integration-dot dot-off"></div>
-      <div class="integration-name">Google Ads</div>
-      <div class="integration-status">Not connected</div>
+    <div class="src-card src-on">
+      <div class="src-title">Google Ads</div>
+      <div class="src-desc">Campaigns synced; spend &amp; conversions land here once a campaign is pushed live.</div>
+      <a href="/campaigns" class="muted-link">Campaigns →</a>
     </div>
-    <div class="integration">
-      <div class="integration-dot dot-off"></div>
-      <div class="integration-name">Anthropic</div>
-      <div class="integration-status">Not connected</div>
+    <div class="src-card src-off">
+      <div class="src-title">Meta / Instagram</div>
+      <div class="src-desc">Not yet — add an integration.</div>
+    </div>
+    <div class="src-card src-off">
+      <div class="src-title">Email / SMS</div>
+      <div class="src-desc">Not yet — add an integration.</div>
+    </div>
+    <div class="src-card src-off">
+      <div class="src-title">Affiliates &amp; influencer</div>
+      <div class="src-desc">Not yet — add an integration.</div>
     </div>
   </div>
 </section>

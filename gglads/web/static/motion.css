@@ -450,6 +450,264 @@ details[open] > summary {
   to { transform: translateX(50%); }
 }
 
+/* ============================================================================
+ * Growth dashboard — KPI tiles, line chart, donut, mover sparklines.
+ * ============================================================================ */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 0 0 18px;
+}
+.kpi {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  text-decoration: none;
+  color: inherit;
+  position: relative;
+  overflow: hidden;
+}
+.kpi::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform: translateX(-100%);
+  transition: transform var(--motion-slow) var(--easing);
+}
+.kpi:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-soft-border);
+  box-shadow: var(--lift-shadow);
+}
+.kpi:hover::after { transform: translateX(0); }
+.kpi.is-active {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent);
+}
+.kpi.is-active::after { transform: translateX(0); }
+.kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.kpi-value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 6px 0 6px;
+  color: var(--text-strong);
+}
+.kpi-foot {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.delta {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.delta-up   { background: rgba(74, 222, 128, 0.12); color: var(--ok); }
+.delta-down { background: rgba(248, 113, 113, 0.12); color: var(--fail); }
+.delta-flat { background: var(--bg-hover); color: var(--muted); }
+
+/* Period selector segmented buttons */
+.period-form .seg-group {
+  display: inline-flex;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--easing);
+}
+.seg-btn:hover { color: var(--text); background: var(--bg-hover); }
+.seg-btn.is-active {
+  color: var(--text-strong);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-soft-border);
+}
+
+/* Channel chip-bar */
+.chip-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--easing);
+}
+.chip:hover { transform: translateY(-1px); border-color: var(--accent-soft-border); }
+.chip input { margin: 0; }
+.chip input:checked + .chip-dot { transform: scale(1.2); }
+.chip-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  transition: transform var(--motion-fast) var(--easing);
+}
+
+/* Chart panel */
+.chart-panel { padding: 18px 20px 8px; }
+.chart-svg { width: 100%; height: auto; display: block; }
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 6;
+}
+.chart-yaxis, .chart-xaxis {
+  font-size: 10px;
+  fill: var(--muted);
+  font-family: inherit;
+}
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  filter: drop-shadow(0 4px 10px rgba(124, 156, 255, 0.18));
+  animation: draw-in 900ms var(--easing) both;
+}
+.chart-area {
+  opacity: 0;
+  animation: fade-in 600ms var(--easing) 300ms forwards;
+}
+.chart-last {
+  animation: ping 1.8s ease-out infinite;
+  transform-origin: center;
+}
+@keyframes draw-in {
+  from { stroke-dasharray: 1200; stroke-dashoffset: 1200; }
+  to   { stroke-dasharray: 1200; stroke-dashoffset: 0; }
+}
+@keyframes fade-in { to { opacity: 1; } }
+@keyframes ping {
+  0%   { r: 4; opacity: 1; }
+  60%  { r: 9; opacity: 0; }
+  100% { r: 4; opacity: 0; }
+}
+.chart-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 4px 6px;
+  font-size: 12px;
+}
+.legend-item {
+  display: inline-flex; gap: 8px; align-items: center;
+  transition: transform var(--motion-fast) var(--easing);
+}
+.legend-item:hover { transform: translateY(-1px); }
+.legend-swatch {
+  width: 12px; height: 4px; border-radius: 2px; display: inline-block;
+}
+
+/* Donut */
+.dash-two { grid-template-columns: minmax(280px, 360px) 1fr; gap: 14px; }
+@media (max-width: 900px) { .dash-two { grid-template-columns: 1fr; } }
+.donut-panel { display: flex; flex-direction: column; }
+.donut-wrap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+  align-items: center;
+}
+.donut-svg circle { transition: stroke-width var(--motion-fast) var(--easing); }
+.donut-svg:hover circle { stroke-width: 26; }
+.donut-center {
+  font-size: 14px;
+  font-weight: 600;
+  fill: var(--text-strong);
+}
+.donut-sub {
+  font-size: 9px;
+  fill: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.donut-legend li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.legend-label { color: var(--text); }
+.legend-value { color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+
+/* Top movers sparklines */
+.mover-table td { vertical-align: middle; }
+.mover-table .num { font-variant-numeric: tabular-nums; }
+.sparkline {
+  display: block;
+}
+.sparkline path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.sparkline circle {
+  fill: var(--accent);
+}
+
+/* "Why did sales move" cards */
+.src-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.src-card {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  border-radius: 10px;
+  padding: 14px 14px 12px;
+  position: relative;
+  overflow: hidden;
+}
+.src-card.src-on { border-color: var(--accent-soft-border); }
+.src-card.src-off { opacity: 0.6; }
+.src-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+.src-title { font-weight: 600; margin-bottom: 4px; }
+.src-desc { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+
 /* ----------  reduced-motion: respect user preference  ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

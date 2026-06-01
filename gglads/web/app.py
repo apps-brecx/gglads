@@ -1369,11 +1369,22 @@ def products_oos(request: Request, db: DbDep) -> Response:
     include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
     collection_handle = request.query_params.get("collection") or None
     q = (request.query_params.get("q") or "").strip() or None
+    # "since" is a small enum: '', '7', '14', '30' (within N days),
+    # or 'old' (over 30 days ago).
+    since = (request.query_params.get("since") or "").strip()
+    oos_within_days: int | None = None
+    oos_older_than_days: int | None = None
+    if since in ("7", "14", "30"):
+        oos_within_days = int(since)
+    elif since == "old":
+        oos_older_than_days = 30
     rows = oos_svc.list_out_of_stock(
         db,
         include_ignored=include_ignored,
         collection_handle=collection_handle,
         q=q,
+        oos_within_days=oos_within_days,
+        oos_older_than_days=oos_older_than_days,
     )
     counts = oos_svc.oos_counts(db)
     return templates.TemplateResponse(
@@ -1388,6 +1399,7 @@ def products_oos(request: Request, db: DbDep) -> Response:
             "include_ignored": include_ignored,
             "collection_handle": collection_handle,
             "q": q or "",
+            "since": since,
             "collections": _collections_summary(db),
             "flashes": _consume_flashes(request),
         },
@@ -1404,8 +1416,15 @@ async def products_oos_ignore_matching(request: Request, db: DbDep) -> Response:
     form = await request.form()
     collection_handle = (form.get("collection") or "").strip() or None
     q = (form.get("q") or "").strip() or None
+    since = (form.get("since") or "").strip()
+    oos_within_days = int(since) if since in ("7", "14", "30") else None
+    oos_older_than_days = 30 if since == "old" else None
     ok, detail, _ = oos_svc.ignore_all_matching(
-        db, collection_handle=collection_handle, q=q
+        db,
+        collection_handle=collection_handle,
+        q=q,
+        oos_within_days=oos_within_days,
+        oos_older_than_days=oos_older_than_days,
     )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(

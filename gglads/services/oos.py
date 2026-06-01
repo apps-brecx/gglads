@@ -15,7 +15,7 @@ after a sync.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
@@ -78,14 +78,33 @@ def list_out_of_stock(
     include_ignored: bool = False,
     collection_handle: str | None = None,
     q: str | None = None,
+    oos_within_days: int | None = None,
+    oos_older_than_days: int | None = None,
 ) -> list[dict]:
     """Products that are currently out of stock. By default, ignored ones
-    are hidden — pass include_ignored=True for the 'show all OOS' toggle."""
+    are hidden — pass include_ignored=True for the 'show all OOS' toggle.
+
+    oos_within_days=N   → only products that went OOS in the last N days
+                          (i.e. had stock recently). Drops rows where oos_since
+                          is NULL since we can't tell when they ran out.
+    oos_older_than_days=N → only products that have been OOS for > N days.
+    """
     stmt = select(ShopifyProduct).where(ShopifyProduct.total_inventory == 0)
     if not include_ignored:
         stmt = stmt.where(ShopifyProduct.oos_ignored.is_(False))
     if q:
         stmt = stmt.where(ShopifyProduct.title.ilike(f"%{q.strip()}%"))
+    if oos_within_days is not None and oos_within_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=oos_within_days)
+        stmt = stmt.where(ShopifyProduct.oos_since.is_not(None))
+        stmt = stmt.where(ShopifyProduct.oos_since >= cutoff)
+    if oos_older_than_days is not None and oos_older_than_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=oos_older_than_days)
+        # NULL oos_since means we never recorded a transition — treat as "old".
+        stmt = stmt.where(
+            (ShopifyProduct.oos_since.is_(None))
+            | (ShopifyProduct.oos_since < cutoff)
+        )
     if collection_handle:
         stmt = stmt.join(
             ShopifyProductCollection,
@@ -204,11 +223,18 @@ def ignore_all_matching(
     *,
     collection_handle: str | None = None,
     q: str | None = None,
+    oos_within_days: int | None = None,
+    oos_older_than_days: int | None = None,
 ) -> tuple[bool, str, int]:
     """Mark every OOS product matching the current filter as ignored.
     Used by the 'Ignore all in current view' button."""
     matching = list_out_of_stock(
-        db, include_ignored=False, collection_handle=collection_handle, q=q
+        db,
+        include_ignored=False,
+        collection_handle=collection_handle,
+        q=q,
+        oos_within_days=oos_within_days,
+        oos_older_than_days=oos_older_than_days,
     )
     ids = [r["id"] for r in matching]
     if not ids:

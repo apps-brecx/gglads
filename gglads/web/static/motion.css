@@ -1,0 +1,461 @@
+/* ============================================================================
+ * motion.css — the "alive" layer.
+ *
+ * Loaded AFTER style.css so it overrides where it needs to. It does three
+ * things:
+ *   1. Adds smooth transitions to every interactive surface.
+ *   2. Lifts panels / cards / buttons / tags / nav items on hover.
+ *   3. Drives a few keyframe animations (logo gradient, soon-badge pulse,
+ *      pending-banner shimmer, mouse-follow glow).
+ *
+ * Honors prefers-reduced-motion at the bottom — everything decays to a
+ * static look for users who've asked for less motion.
+ * ============================================================================ */
+
+:root {
+  --motion-fast: 140ms;
+  --motion-med: 240ms;
+  --motion-slow: 420ms;
+  --easing: cubic-bezier(.2, .8, .2, 1);
+  --easing-soft: cubic-bezier(.4, 0, .2, 1);
+  --lift-shadow: 0 10px 30px -12px rgba(124, 156, 255, 0.25),
+                 0 4px 12px -4px rgba(0, 0, 0, 0.35);
+  --glow-accent: 0 0 0 1px var(--accent-soft-border),
+                 0 0 24px -4px rgba(124, 156, 255, 0.45);
+}
+
+[data-theme="light"] {
+  --lift-shadow: 0 10px 30px -10px rgba(79, 109, 217, 0.18),
+                 0 4px 12px -4px rgba(20, 25, 40, 0.10);
+  --glow-accent: 0 0 0 1px var(--accent-soft-border),
+                 0 0 24px -4px rgba(79, 109, 217, 0.35);
+}
+
+/* ----------  global ease  ---------- */
+a, button, input, textarea, select,
+.card, .panel, .tag, .pill, .nav-item, .btn-primary, .btn-ghost,
+.kw-table tbody tr, .data-table tbody tr,
+.collection-card, .bucket-btn, .chat-scope-btn,
+details > summary, .product-tab, .product-tab-link,
+.in-ads-badge, .tag-primary, .tag-neg, .charcount {
+  transition:
+    background-color var(--motion-fast) var(--easing-soft),
+    color            var(--motion-fast) var(--easing-soft),
+    border-color     var(--motion-fast) var(--easing-soft),
+    box-shadow       var(--motion-med)  var(--easing),
+    transform        var(--motion-med)  var(--easing),
+    opacity          var(--motion-med)  var(--easing-soft),
+    filter           var(--motion-med)  var(--easing-soft);
+  will-change: transform;
+}
+
+/* ----------  ambient mouse-follow glow (set by motion.js)  ---------- */
+.app-body {
+  position: relative;
+  --mx: 50%;
+  --my: 20%;
+}
+.app-body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      600px circle at var(--mx) var(--my),
+      rgba(124, 156, 255, 0.10),
+      transparent 60%
+    );
+  opacity: 0.85;
+  transition: background-position 80ms linear;
+}
+[data-theme="light"] .app-body::before {
+  background:
+    radial-gradient(
+      600px circle at var(--mx) var(--my),
+      rgba(79, 109, 217, 0.07),
+      transparent 60%
+    );
+}
+.app-shell, .app-header { position: relative; z-index: 1; }
+
+/* ----------  header  ---------- */
+.app-header {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.app-logo {
+  background: linear-gradient(
+    90deg,
+    var(--text-strong) 0%,
+    var(--accent) 40%,
+    var(--text-strong) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: logo-pan 8s linear infinite;
+}
+@keyframes logo-pan {
+  to { background-position: -200% 0; }
+}
+.app-logo:hover {
+  filter: drop-shadow(0 0 8px rgba(124, 156, 255, 0.45));
+  transform: translateY(-1px);
+}
+
+.theme-toggle {
+  position: relative;
+  overflow: hidden;
+}
+.theme-toggle:hover {
+  transform: rotate(15deg) scale(1.08);
+  box-shadow: var(--glow-accent);
+}
+.theme-toggle:active { transform: rotate(15deg) scale(0.95); }
+
+.app-logout:hover {
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* ----------  side nav  ---------- */
+.nav-item {
+  position: relative;
+  overflow: hidden;
+}
+.nav-item::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--motion-med) var(--easing);
+  border-radius: 0 2px 2px 0;
+}
+.nav-item:hover {
+  background: var(--bg-hover);
+  transform: translateX(4px);
+  color: var(--text-strong);
+}
+.nav-item:hover::before { transform: scaleY(1); }
+.nav-item.is-active::before { transform: scaleY(1); }
+
+.nav-badge {
+  transition: transform var(--motion-fast) var(--easing);
+}
+.nav-item:hover .nav-badge {
+  transform: scale(1.05);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ----------  cards / panels  ---------- */
+.card, .panel {
+  position: relative;
+  overflow: hidden;
+}
+.card::after, .panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(124, 156, 255, 0.0) 0%,
+    rgba(124, 156, 255, 0.0) 40%,
+    rgba(124, 156, 255, 0.05) 50%,
+    rgba(124, 156, 255, 0.0) 60%,
+    rgba(124, 156, 255, 0.0) 100%
+  );
+  background-size: 200% 200%;
+  background-position: 100% 100%;
+  transition: background-position var(--motion-slow) var(--easing);
+  border-radius: inherit;
+}
+.card:hover, .panel:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lift-shadow);
+  border-color: var(--accent-soft-border);
+}
+.card:hover::after, .panel:hover::after {
+  background-position: 0% 0%;
+}
+
+/* ----------  buttons  ---------- */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  transform: translateX(-120%);
+  transition: transform var(--motion-slow) var(--easing);
+  pointer-events: none;
+}
+.btn-primary:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--glow-accent);
+}
+.btn-primary:hover::after { transform: translateX(120%); }
+.btn-primary:active { transform: translateY(0) scale(0.98); }
+
+.btn-ghost {
+  position: relative;
+}
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-soft-border);
+  transform: translateY(-1px);
+}
+.btn-ghost:active { transform: translateY(0); }
+
+.btn-danger:hover {
+  color: var(--fail);
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+/* ----------  inputs / textareas / selects  ---------- */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea, select {
+  transition:
+    border-color var(--motion-fast) var(--easing),
+    box-shadow var(--motion-med) var(--easing),
+    background-color var(--motion-fast) var(--easing-soft);
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transform: translateY(-1px);
+}
+input[type="checkbox"], input[type="radio"] {
+  transition: transform var(--motion-fast) var(--easing);
+}
+input[type="checkbox"]:hover, input[type="radio"]:hover { transform: scale(1.15); }
+
+/* ----------  tags / pills / badges  ---------- */
+.tag, .pill, .in-ads-badge {
+  position: relative;
+  transform-origin: center;
+}
+.tag:hover, .pill:hover, .in-ads-badge:hover {
+  transform: translateY(-1px) scale(1.04);
+  filter: brightness(1.08);
+}
+.tag-primary, .in-ads-primary {
+  background-image: linear-gradient(
+    100deg,
+    var(--accent-soft) 0%,
+    var(--accent-soft) 45%,
+    rgba(124, 156, 255, 0.18) 55%,
+    var(--accent-soft) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 6s linear infinite;
+}
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+
+.pill-warn, .pill-wait {
+  animation: gentle-pulse 2.4s ease-in-out infinite;
+}
+@keyframes gentle-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.18); }
+}
+
+.nav-badge {
+  animation: gentle-pulse 3.6s ease-in-out infinite;
+}
+
+/* ----------  tables  ---------- */
+.kw-table tbody tr, .data-table tbody tr {
+  position: relative;
+}
+.kw-table tbody tr::before, .data-table tbody tr::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--motion-fast) var(--easing);
+}
+.kw-table tbody tr:hover, .data-table tbody tr:hover {
+  background: var(--bg-hover);
+  transform: translateX(2px);
+}
+.kw-table tbody tr:hover::before,
+.data-table tbody tr:hover::before { transform: scaleY(1); }
+
+/* ----------  collection cards (products page)  ---------- */
+.collection-card {
+  position: relative;
+  overflow: hidden;
+}
+.collection-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: var(--lift-shadow);
+  border-color: var(--accent-soft-border);
+}
+.collection-thumb {
+  transition: transform var(--motion-slow) var(--easing);
+}
+.collection-card:hover .collection-thumb {
+  transform: scale(1.06);
+}
+
+/* ----------  product / campaign detail tabs  ---------- */
+.product-tab, .product-tab-link {
+  position: relative;
+}
+.product-tab::after, .product-tab-link::after {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: -1px;
+  width: 0; height: 2px;
+  background: var(--accent);
+  transition: width var(--motion-med) var(--easing),
+              left   var(--motion-med) var(--easing);
+}
+.product-tab:hover::after, .product-tab-link:hover::after {
+  width: 100%; left: 0;
+}
+
+/* ----------  chat panel  ---------- */
+.chat-msg {
+  animation: msg-in var(--motion-slow) var(--easing) both;
+}
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.chat-scope-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-soft-border);
+}
+
+/* ----------  details / summary  ---------- */
+details > summary { cursor: pointer; }
+details > summary:hover {
+  color: var(--accent);
+}
+details[open] > summary {
+  color: var(--accent);
+}
+.kw-actions-menu[open] > summary {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft-border);
+}
+
+/* ----------  page intro (reveal-on-load)  ---------- */
+.app-main > * {
+  animation: reveal-up var(--motion-slow) var(--easing) both;
+}
+.app-main > *:nth-child(1) { animation-delay: 0ms; }
+.app-main > *:nth-child(2) { animation-delay: 40ms; }
+.app-main > *:nth-child(3) { animation-delay: 80ms; }
+.app-main > *:nth-child(4) { animation-delay: 120ms; }
+.app-main > *:nth-child(5) { animation-delay: 160ms; }
+.app-main > *:nth-child(6) { animation-delay: 200ms; }
+.app-main > *:nth-child(7) { animation-delay: 240ms; }
+.app-main > *:nth-child(8) { animation-delay: 280ms; }
+.app-main > *:nth-child(9) { animation-delay: 320ms; }
+.app-main > *:nth-child(n+10) { animation-delay: 360ms; }
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------  flash messages  ---------- */
+.flash, .auth-error {
+  animation: flash-in var(--motion-slow) var(--easing) both;
+}
+@keyframes flash-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------  scrollbar (webkit/blink)  ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+  border: 2px solid var(--bg);
+  transition: background var(--motion-fast) var(--easing);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ----------  focus-visible accessibility ring  ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ----------  on-page "alive" hint: links get a soft underline grow ---------- */
+.muted-link {
+  position: relative;
+  display: inline-block;
+}
+.muted-link::after {
+  content: "";
+  position: absolute;
+  left: 0; bottom: -2px;
+  width: 100%;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--motion-med) var(--easing);
+}
+.muted-link:hover::after { transform: scaleX(1); }
+
+/* ----------  the pending-copy banner gets a moving accent stripe ---------- */
+.panel .auth-error[style*="rgba(255,200,90"] {
+  position: relative;
+  overflow: hidden;
+}
+.panel .auth-error[style*="rgba(255,200,90"]::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  width: 200%; height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(251, 191, 36, 0.6),
+    transparent
+  );
+  animation: stripe-sweep 3s linear infinite;
+}
+@keyframes stripe-sweep {
+  to { transform: translateX(50%); }
+}
+
+/* ----------  reduced-motion: respect user preference  ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .app-body::before { display: none; }
+}

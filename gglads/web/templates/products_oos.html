@@ -27,8 +27,9 @@
         </a>
       </div>
     </details>
-    <form method="post" action="/products/sync/inventory" class="inline-form">
-      <button type="submit" class="btn-ghost">Refresh stock</button>
+    <form method="post" action="/products/sync/stock" class="inline-form"
+          title="Re-pulls product catalog from Shopify (refreshes total_inventory for every product) + writes today's snapshot + reconciles OOS state.">
+      <button type="submit" class="btn-ghost">Refresh stock from Shopify</button>
     </form>
   </div>
 </div>

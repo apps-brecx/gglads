@@ -608,8 +608,16 @@ def sync_sales_only(db: Session) -> tuple[bool, str, dict]:
 
 
 def sync_inventory_only(db: Session) -> tuple[bool, str, dict]:
-    """Just write today's inventory snapshot from already-synced product data."""
+    """Just write today's inventory snapshot from already-synced product data.
+    Does NOT refresh stock from Shopify — use sync_stock_refresh for that."""
     return _run(db, kind="inventory", catalog=False, orders=False, snapshot=True)
+
+
+def sync_stock_refresh(db: Session) -> tuple[bool, str, dict]:
+    """Re-pull product catalog from Shopify (which updates total_inventory)
+    + write today's inventory snapshot + reconcile OOS state. No orders sync.
+    This is what 'Refresh stock' on the OOS page calls."""
+    return _run(db, kind="stock_refresh", catalog=True, orders=False, snapshot=True)
 
 
 # Backwards-compat alias (cron + any legacy callers).

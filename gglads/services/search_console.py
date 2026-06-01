@@ -65,6 +65,55 @@ def _refresh_access_token(cfg: dict) -> tuple[str | None, str | None]:
     return token, None
 
 
+def get_site_queries(
+    db: Session, days: int = 90, row_limit: int = 500
+) -> tuple[list[dict] | None, str | None]:
+    """All organic queries across the site (no page filter). Used to seed
+    AI collection suggestions — Claude clusters these into would-be themes."""
+    cfg = integrations_svc.get_config(db, "google_search_console")
+    required = ["site_url", "oauth_client_id", "oauth_client_secret", "refresh_token"]
+    missing = [k for k in required if not (cfg.get(k) or "").strip()]
+    if missing:
+        return None, f"Search Console missing: {', '.join(missing)}"
+    token, err = _refresh_access_token(cfg)
+    if err:
+        return None, err
+    site_url = normalize_site_url(cfg["site_url"])
+    end = date.today()
+    start = end - timedelta(days=days)
+    url = (
+        "https://www.googleapis.com/webmasters/v3/sites/"
+        f"{urllib.parse.quote(site_url, safe='')}/searchAnalytics/query"
+    )
+    body = {
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "dimensions": ["query"],
+        "rowLimit": row_limit,
+    }
+    try:
+        resp = httpx.post(
+            url, json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    if resp.status_code != 200:
+        return None, f"HTTP {resp.status_code}: {resp.text[:200]}"
+    rows = resp.json().get("rows", [])
+    return [
+        {
+            "query": row["keys"][0],
+            "clicks": int(row.get("clicks", 0)),
+            "impressions": int(row.get("impressions", 0)),
+            "ctr": float(row.get("ctr", 0.0)),
+            "position": float(row.get("position", 0.0)),
+        }
+        for row in rows
+    ], None
+
+
 def get_queries_for_page(
     db: Session, page_url: str, days: int = 90, row_limit: int = 100
 ) -> tuple[list[dict] | None, str | None]:

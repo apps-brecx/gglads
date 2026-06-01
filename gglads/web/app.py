@@ -303,6 +303,20 @@ def dashboard(request: Request, db: DbDep) -> Response:
         })
 
     latest_sync = analytics_svc.latest_sync_date(db)
+
+    # Organic growth alerts — last 7 days vs prior comparable snapshot.
+    from gglads.services import keyword_history as kh_svc
+    alerts = kh_svc.growth_alerts(db, days_back=7, limit=12)
+    alert_counts = kh_svc.alert_counts_by_type(alerts)
+    on_the_rise = kh_svc.keywords_gained_per_product(db, days_back=7)[:6]
+
+    # Audit panel: which channels did the most recent sales sync see, and
+    # which did it drop? So the user can verify the filter is doing its job.
+    last_sales_run = shopify_svc.last_sync_runs_by_kind(db).get("sales") \
+        or shopify_svc.last_sync_runs_by_kind(db).get("full")
+    last_sales_detail = (last_sales_run.detail if last_sales_run else None) or ""
+    tracked_channels_display = sorted(shopify_svc.TRACKED_CHANNELS)
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -328,6 +342,11 @@ def dashboard(request: Request, db: DbDep) -> Response:
             "selected_channels": selected_channels,
             "movers": mover_views,
             "latest_sync": latest_sync,
+            "alerts": alerts,
+            "alert_counts": alert_counts,
+            "on_the_rise": on_the_rise,
+            "tracked_channels": tracked_channels_display,
+            "last_sales_run_detail": last_sales_detail,
         },
     )
 
@@ -892,6 +911,7 @@ def collections_index(request: Request, db: DbDep) -> Response:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
     from gglads.services import collections as collections_svc
+    from gglads.services import collection_suggestions as cs_svc
 
     q = (request.query_params.get("q") or "").strip().lower()
     cols = collections_svc.list_collections(db)
@@ -902,6 +922,22 @@ def collections_index(request: Request, db: DbDep) -> Response:
     active_products = db.scalar(
         select(func.count(ShopifyProduct.id)).where(ShopifyProduct.status == "active")
     ) or 0
+
+    pending_suggestions = cs_svc.list_pending(db, limit=8)
+    suggestion_views = [
+        {
+            "id": s.id,
+            "title": s.title,
+            "handle": s.handle,
+            "seo_title": s.seo_title,
+            "seo_meta_description": s.seo_meta_description,
+            "rationale": s.rationale,
+            "opportunity_score": s.opportunity_score,
+            "theme_keywords": cs_svc.parse_keywords(s),
+            "generated_at": s.generated_at,
+        }
+        for s in pending_suggestions
+    ]
 
     return templates.TemplateResponse(
         request,
@@ -917,9 +953,47 @@ def collections_index(request: Request, db: DbDep) -> Response:
             "sync_kinds": _sync_kind_summary(db),
             "query": q,
             "shopify_connected": _shopify_status(db),
+            "suggestions": suggestion_views,
             "flashes": _consume_flashes(request),
         },
     )
+
+
+@app.post("/collections/suggestions/generate")
+def collection_suggestions_generate(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import collection_suggestions as cs_svc
+    ok, detail, _ = cs_svc.generate_suggestions(db, days=90, max_suggestions=8)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/collections", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/collections/suggestions/{suggestion_id}/dismiss")
+def collection_suggestion_dismiss(
+    suggestion_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import collection_suggestions as cs_svc
+    ok, detail = cs_svc.dismiss(db, suggestion_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/collections", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/collections/suggestions/{suggestion_id}/mark-created")
+def collection_suggestion_mark_created(
+    suggestion_id: int, request: Request, db: DbDep
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import collection_suggestions as cs_svc
+    ok, detail = cs_svc.mark_created(db, suggestion_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/collections", status_code=status.HTTP_303_SEE_OTHER)
 
 
 # Back-compat: the old grid lived at /products. Now /products is the list of

@@ -64,6 +64,71 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="panel-head">
+    <h2>AI collection suggestions</h2>
+    <form method="post" action="/collections/suggestions/generate" class="inline-form">
+      <button type="submit" class="btn-ghost"
+              onclick="return confirm('Ask Claude for fresh collection ideas based on your last 90d of organic queries? Burns one Claude call.');">
+        ✨ Generate now
+      </button>
+    </form>
+  </div>
+  {% if suggestions %}
+  <p class="conn-desc" style="margin:0 0 12px;">
+    Themes the site already gets organic traffic for, but with no dedicated collection page.
+    Cron also generates a fresh batch every Monday at 06:00 UTC.
+  </p>
+  <div class="suggestion-grid">
+    {% for s in suggestions %}
+    <article class="suggestion-card">
+      <div class="suggestion-head">
+        <div>
+          <div class="suggestion-title">{{ s.title }}</div>
+          <div class="suggestion-handle">/collections/{{ s.handle }}</div>
+        </div>
+        <div class="suggestion-score score-{{ 'high' if s.opportunity_score >= 70 else 'mid' if s.opportunity_score >= 40 else 'low' }}"
+             title="Opportunity score (1-100)">
+          {{ s.opportunity_score }}
+        </div>
+      </div>
+      {% if s.rationale %}
+      <p class="suggestion-rationale">{{ s.rationale }}</p>
+      {% endif %}
+      {% if s.theme_keywords %}
+      <div class="kw-row" style="margin:8px 0 10px;">
+        {% for k in s.theme_keywords[:8] %}<span class="tag">{{ k }}</span>{% endfor %}
+        {% if s.theme_keywords|length > 8 %}<span class="conn-desc">+{{ s.theme_keywords|length - 8 }} more</span>{% endif %}
+      </div>
+      {% endif %}
+      <details>
+        <summary class="muted-link" style="font-size:12px;">Preview SEO copy</summary>
+        <div style="margin-top:8px;font-size:12px;">
+          <div class="conn-desc"><strong>Meta title:</strong></div>
+          <div>{{ s.seo_title or '—' }}</div>
+          <div class="conn-desc" style="margin-top:6px;"><strong>Meta description:</strong></div>
+          <div>{{ s.seo_meta_description or '—' }}</div>
+        </div>
+      </details>
+      <div class="form-actions" style="margin-top:10px;">
+        <form method="post" action="/collections/suggestions/{{ s.id }}/mark-created" class="inline-form">
+          <button type="submit" class="btn-primary" style="font-size:12px;">I created it</button>
+        </form>
+        <form method="post" action="/collections/suggestions/{{ s.id }}/dismiss" class="inline-form">
+          <button type="submit" class="btn-ghost" style="font-size:12px;">Dismiss</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:14px 0;">
+    <p>No suggestions yet.</p>
+    <p class="empty-sub">Click <strong>Generate now</strong>, or wait for the weekly cron.</p>
+  </div>
+  {% endif %}
+</section>
+
 <section class="panel filter-bar">
   <form method="get" action="/collections" class="filter-form" style="grid-template-columns:1fr auto;">
     <input type="search" name="q" value="{{ query }}"

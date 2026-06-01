@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
     BigInteger,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -91,4 +92,69 @@ class KeywordResearchRun(Base):
     source_errors: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ProductKeywordHistory(Base):
+    """Per-day per-product per-keyword snapshot of Search Console metrics.
+    Filled by cron/keyword_history_sweep — one row per (date, product, keyword)
+    for every query SC reports as having landed on the product URL that day."""
+
+    __tablename__ = "product_keyword_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_date", "product_id", "keyword",
+            name="uq_pkh_date_product_keyword",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    product_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shopify_products.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    keyword: Mapped[str] = mapped_column(String(255), nullable=False)
+    sc_position: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sc_clicks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sc_impressions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sc_ctr: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class CollectionSuggestion(Base):
+    """AI-generated proposal for a new Shopify collection. Anchored on
+    organic-search clusters that the store ranks for but doesn't have a
+    collection page for. Status: pending → user dismisses or marks created."""
+
+    __tablename__ = "collection_suggestions"
+    __table_args__ = (
+        UniqueConstraint(
+            "handle", "status", name="uq_collection_suggestion_handle_status"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    handle: Mapped[str] = mapped_column(String(255), nullable=False)
+    theme_keywords_json: Mapped[str] = mapped_column(Text, nullable=False)
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_meta_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opportunity_score: Mapped[int] = mapped_column(
+        Integer, server_default="50", nullable=False
+    )
+    # 'pending' | 'dismissed' | 'created'
+    status: Mapped[str] = mapped_column(
+        String(20), server_default="pending", nullable=False, index=True
+    )
+    created_collection_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

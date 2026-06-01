@@ -426,6 +426,10 @@ def _sync_orders(
     cursor: str | None = None
     orders_seen = 0
     orders_kept = 0
+    # Per-channel breakdown of every source_name we encounter, kept vs dropped.
+    # Logged at end of sync so the user can audit exactly what was filtered.
+    channels_kept_count: dict[str, int] = {}
+    channels_dropped_count: dict[str, int] = {}
 
     while True:
         data = _post_graphql(
@@ -436,9 +440,14 @@ def _sync_orders(
             if order.get("cancelledAt"):
                 continue
             orders_seen += 1
+            source_name = (order.get("sourceName") or "(unknown)").lower().strip()
             channel = _normalize_channel(order.get("sourceName"))
             if channel is None:
+                channels_dropped_count[source_name] = (
+                    channels_dropped_count.get(source_name, 0) + 1
+                )
                 continue
+            channels_kept_count[channel] = channels_kept_count.get(channel, 0) + 1
             order_date_dt = _parse_iso(order.get("createdAt"))
             if order_date_dt is None:
                 continue
@@ -561,11 +570,22 @@ def _sync_orders(
             )
         )
     db.commit()
+    kept_summary = ", ".join(
+        f"{k}={v}" for k, v in sorted(channels_kept_count.items())
+    ) or "(none)"
+    dropped_summary = ", ".join(
+        f"{k}={v}" for k, v in sorted(channels_dropped_count.items())
+    ) or "(none)"
     logger.info(
-        "Order sync: %d total / %d kept after channel filter (%s)",
-        orders_seen, orders_kept, ", ".join(sorted(TRACKED_CHANNELS)),
+        "Order sync: %d seen, %d kept. KEPT: %s | DROPPED (non-tracked channels): %s",
+        orders_seen, orders_kept, kept_summary, dropped_summary,
     )
-    return orders_seen
+    return {
+        "orders_seen": orders_seen,
+        "orders_kept": orders_kept,
+        "channels_kept": channels_kept_count,
+        "channels_dropped": channels_dropped_count,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +642,9 @@ def _run(
     collection_count = 0
     product_count = 0
     orders_count = 0
+    orders_kept = 0
+    channels_kept: dict[str, int] = {}
+    channels_dropped: dict[str, int] = {}
     snapshots_count = 0
 
     try:
@@ -649,7 +672,11 @@ def _run(
 
             if orders:
                 try:
-                    orders_count = _sync_orders(client, url, headers, db)
+                    order_stats = _sync_orders(client, url, headers, db)
+                    orders_count = order_stats["orders_seen"]
+                    orders_kept = order_stats["orders_kept"]
+                    channels_kept = order_stats["channels_kept"]
+                    channels_dropped = order_stats["channels_dropped"]
                 except RuntimeError as exc:
                     logger.warning("Orders sync skipped: %s", exc)
 
@@ -663,7 +690,16 @@ def _run(
             bits.append(f"{product_count} products")
             bits.append(f"{collection_count} collections")
         if orders:
-            bits.append(f"{orders_count} orders (last {SALES_WINDOW_DAYS} days)")
+            bits.append(
+                f"{orders_kept} of {orders_count} orders kept "
+                f"(last {SALES_WINDOW_DAYS} days, channels: "
+                f"{', '.join(sorted(TRACKED_CHANNELS))})"
+            )
+            if channels_dropped:
+                bits.append(
+                    "Dropped channels: "
+                    + ", ".join(f"{k}={v}" for k, v in sorted(channels_dropped.items()))
+                )
         if snapshot:
             bits.append(f"{snapshots_count} stock snapshot(s)")
         detail = f"[{kind}] " + ", ".join(bits) + "."
@@ -679,7 +715,10 @@ def _run(
             "kind": kind,
             "products": product_count,
             "collections": collection_count,
-            "orders": orders_count,
+            "orders_seen": orders_count,
+            "orders_kept": orders_kept,
+            "channels_kept": channels_kept,
+            "channels_dropped": channels_dropped,
             "snapshots": snapshots_count,
         }
 

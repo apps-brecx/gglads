@@ -77,12 +77,15 @@ def list_out_of_stock(
     db: Session,
     include_ignored: bool = False,
     collection_handle: str | None = None,
+    q: str | None = None,
 ) -> list[dict]:
     """Products that are currently out of stock. By default, ignored ones
     are hidden — pass include_ignored=True for the 'show all OOS' toggle."""
     stmt = select(ShopifyProduct).where(ShopifyProduct.total_inventory == 0)
     if not include_ignored:
         stmt = stmt.where(ShopifyProduct.oos_ignored.is_(False))
+    if q:
+        stmt = stmt.where(ShopifyProduct.title.ilike(f"%{q.strip()}%"))
     if collection_handle:
         stmt = stmt.join(
             ShopifyProductCollection,
@@ -194,3 +197,20 @@ def bulk_unignore(db: Session, product_ids: list[int]) -> tuple[bool, str, int]:
     if n == 0:
         return False, "Nothing was ignored among selected.", 0
     return True, f"Un-ignored {n} product(s).", int(n)
+
+
+def ignore_all_matching(
+    db: Session,
+    *,
+    collection_handle: str | None = None,
+    q: str | None = None,
+) -> tuple[bool, str, int]:
+    """Mark every OOS product matching the current filter as ignored.
+    Used by the 'Ignore all in current view' button."""
+    matching = list_out_of_stock(
+        db, include_ignored=False, collection_handle=collection_handle, q=q
+    )
+    ids = [r["id"] for r in matching]
+    if not ids:
+        return False, "Nothing to ignore — current filter has no visible OOS products.", 0
+    return bulk_ignore(db, ids)

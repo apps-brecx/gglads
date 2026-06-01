@@ -1368,10 +1368,12 @@ def products_oos(request: Request, db: DbDep) -> Response:
 
     include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
     collection_handle = request.query_params.get("collection") or None
+    q = (request.query_params.get("q") or "").strip() or None
     rows = oos_svc.list_out_of_stock(
         db,
         include_ignored=include_ignored,
         collection_handle=collection_handle,
+        q=q,
     )
     counts = oos_svc.oos_counts(db)
     return templates.TemplateResponse(
@@ -1385,9 +1387,30 @@ def products_oos(request: Request, db: DbDep) -> Response:
             "counts": counts,
             "include_ignored": include_ignored,
             "collection_handle": collection_handle,
+            "q": q or "",
             "collections": _collections_summary(db),
             "flashes": _consume_flashes(request),
         },
+    )
+
+
+@app.post("/products/out-of-stock/ignore-matching")
+async def products_oos_ignore_matching(request: Request, db: DbDep) -> Response:
+    """Ignore every OOS product matching the current filter — search + collection."""
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import oos as oos_svc
+    form = await request.form()
+    collection_handle = (form.get("collection") or "").strip() or None
+    q = (form.get("q") or "").strip() or None
+    ok, detail, _ = oos_svc.ignore_all_matching(
+        db, collection_handle=collection_handle, q=q
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products/out-of-stock"),
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

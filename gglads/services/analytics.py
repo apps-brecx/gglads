@@ -1,8 +1,9 @@
 """Sales analytics — daily rollups, growth deltas, top movers.
 
-Reads from shopify_daily_sales (filled by services.shopify._sync_orders). All
-queries respect the channel allowlist (web + shop) implicitly because that's
-the only data we ingest.
+Reads from shopify_daily_sales (filled by services.shopify._sync_orders).
+Every channel Shopify reports (web, shop, faire, temu, pos, third-party app
+slugs, …) is ingested; the UI can filter on the channel column to show one,
+several, or all.
 """
 
 from __future__ import annotations
@@ -16,11 +17,27 @@ from sqlalchemy.orm import Session
 
 from gglads.models.shopify_product import ShopifyDailySales, ShopifyProduct
 
-# Channels we display + label them for the UI.
+# Labels for the curated channels we know about. Anything else falls through
+# as title-cased raw slug via channel_label() below — so a brand-new
+# third-party app still renders with a sensible name.
 CHANNEL_LABELS: dict[str, str] = {
     "web": "Online Store",
     "shop": "Shop app",
+    "faire": "Faire (wholesale)",
+    "temu": "Temu",
+    "pos": "Point of Sale",
+    "amazon": "Amazon",
+    "shopify_draft_order": "Draft orders",
 }
+
+
+def channel_label(slug: str) -> str:
+    """Human-readable name for a channel. Unknown slugs get title-cased."""
+    if not slug:
+        return "(unknown)"
+    if slug in CHANNEL_LABELS:
+        return CHANNEL_LABELS[slug]
+    return slug.replace("_", " ").title()
 
 
 def _today() -> date:
@@ -129,14 +146,14 @@ def channel_split(db: Session, days: int) -> list[dict]:
     for row in db.execute(stmt).all():
         out.append({
             "channel": row.channel,
-            "label": CHANNEL_LABELS.get(row.channel, row.channel),
+            "label": channel_label(row.channel),
             "orders": int(row.orders or 0),
             "units": int(row.units or 0),
             "revenue": Decimal(row.revenue or 0),
             "customers": int(row.customers or 0),
         })
     # Stable order so the donut palette never reshuffles.
-    out.sort(key=lambda r: CHANNEL_LABELS.get(r["channel"], r["channel"]))
+    out.sort(key=lambda r: channel_label(r["channel"]))
     return out
 
 
@@ -302,20 +319,21 @@ def product_channel_split(
     for row in db.execute(stmt).all():
         out.append({
             "channel": row.channel,
-            "label": CHANNEL_LABELS.get(row.channel, row.channel),
+            "label": channel_label(row.channel),
             "orders": int(row.orders or 0),
             "units": int(row.units or 0),
             "revenue": Decimal(row.revenue or 0),
             "customers": int(row.customers or 0),
         })
-    # Make sure both tracked channels always appear (even with zeros), so the
-    # UI doesn't quietly drop one when it had no sales in the window.
+    # Always include the two primary D2C channels even with zeros so a quick
+    # glance shows "0 vs 0" rather than silently omitting one. Other channels
+    # (Faire, Temu, POS, third-party apps) only appear if they had sales.
     seen = {r["channel"] for r in out}
-    for ch in CHANNEL_LABELS:
+    for ch in ("web", "shop"):
         if ch not in seen:
             out.append({
                 "channel": ch,
-                "label": CHANNEL_LABELS[ch],
+                "label": channel_label(ch),
                 "orders": 0,
                 "units": 0,
                 "revenue": Decimal(0),

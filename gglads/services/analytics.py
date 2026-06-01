@@ -279,6 +279,52 @@ def latest_sync_date(db: Session) -> date | None:
     return db.scalar(select(func.max(ShopifyDailySales.snapshot_date)))
 
 
+def product_channel_split(
+    db: Session, product_id: int, days: int = 90
+) -> list[dict]:
+    """Per-channel totals for ONE product over the last `days` days.
+    Returns one row per channel the product had sales on, ordered by revenue."""
+    start, end = _window(days)
+    stmt = (
+        select(
+            ShopifyDailySales.channel,
+            func.sum(ShopifyDailySales.orders).label("orders"),
+            func.sum(ShopifyDailySales.units).label("units"),
+            func.sum(ShopifyDailySales.revenue).label("revenue"),
+            func.sum(ShopifyDailySales.unique_customers).label("customers"),
+        )
+        .where(ShopifyDailySales.product_id == product_id)
+        .where(ShopifyDailySales.snapshot_date >= start)
+        .where(ShopifyDailySales.snapshot_date <= end)
+        .group_by(ShopifyDailySales.channel)
+    )
+    out: list[dict] = []
+    for row in db.execute(stmt).all():
+        out.append({
+            "channel": row.channel,
+            "label": CHANNEL_LABELS.get(row.channel, row.channel),
+            "orders": int(row.orders or 0),
+            "units": int(row.units or 0),
+            "revenue": Decimal(row.revenue or 0),
+            "customers": int(row.customers or 0),
+        })
+    # Make sure both tracked channels always appear (even with zeros), so the
+    # UI doesn't quietly drop one when it had no sales in the window.
+    seen = {r["channel"] for r in out}
+    for ch in CHANNEL_LABELS:
+        if ch not in seen:
+            out.append({
+                "channel": ch,
+                "label": CHANNEL_LABELS[ch],
+                "orders": 0,
+                "units": 0,
+                "revenue": Decimal(0),
+                "customers": 0,
+            })
+    out.sort(key=lambda r: -float(r["revenue"]))
+    return out
+
+
 def per_product_totals_in_window(
     db: Session, days: int
 ) -> dict[int, dict]:

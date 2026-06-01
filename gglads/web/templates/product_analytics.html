@@ -52,6 +52,39 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="panel-head">
+    <h2>Units sold by channel</h2>
+    <span class="conn-desc">Online Store vs Shop app — Faire / Temu / POS excluded</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Channel</th>
+        <th class="num">Units · 7d</th>
+        <th class="num">Units · 30d</th>
+        <th class="num">Units · 90d</th>
+        <th class="num">Revenue · 90d</th>
+        <th class="num">Customers · 90d</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ch in channel_split_90 %}
+      {% set u7 = (channel_split_7 | selectattr('channel', 'equalto', ch.channel) | list | first or {}).units or 0 %}
+      {% set u30 = (channel_split_30 | selectattr('channel', 'equalto', ch.channel) | list | first or {}).units or 0 %}
+      <tr>
+        <td><strong>{{ ch.label }}</strong></td>
+        <td class="num">{{ '{:,}'.format(u7) }}</td>
+        <td class="num">{{ '{:,}'.format(u30) }}</td>
+        <td class="num">{{ '{:,}'.format(ch.units) }}</td>
+        <td class="num">${{ '{:,.2f}'.format(ch.revenue|float) }}</td>
+        <td class="num">{{ '{:,}'.format(ch.customers) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
 <div class="chart-grid">
   <section class="panel chart-panel">
     <div class="panel-head"><h2>Stock level over time</h2></div>

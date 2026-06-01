@@ -64,7 +64,7 @@
 </section>
 
 <section class="panel filter-bar">
-  <form method="get" class="filter-form" style="grid-template-columns:1.4fr 1fr 1fr auto auto;">
+  <form method="get" class="filter-form" style="grid-template-columns:1.4fr 1fr 1fr auto;">
     <input type="search" name="q" value="{{ q }}"
            placeholder="Search OOS products by title…" class="filter-search" />
     <select name="collection" class="filter-select">
@@ -81,14 +81,15 @@
       <option value="30"  {{ 'selected' if since == '30' }}>OOS in last 30 days</option>
       <option value="old" {{ 'selected' if since == 'old' }}>OOS for over 30 days</option>
     </select>
-    <label class="chip" style="align-self:center;">
-      <input type="checkbox" name="include_ignored" value="1"
-             {{ 'checked' if include_ignored }}
-             onchange="this.form.submit()" />
-      Show ignored too
-    </label>
     <button type="submit" class="btn-ghost">Apply</button>
+    {% if include_ignored %}<input type="hidden" name="include_ignored" value="1" />{% endif %}
   </form>
+  <div class="chip-bar" style="margin-top:10px;">
+    <a href="?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}{% else %}include_ignored=1{% endif %}"
+       class="chip {{ 'chip-on' if include_ignored }}">
+      {% if include_ignored %}✓{% else %}+{% endif %} Show ignored too
+    </a>
+  </div>
 </section>
 
 {% if not rows %}

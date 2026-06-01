@@ -277,3 +277,36 @@ def product_sparkline(db: Session, product_id: int, days: int) -> list[Decimal]:
 def latest_sync_date(db: Session) -> date | None:
     """Most recent date we have any rollup row for. None if table is empty."""
     return db.scalar(select(func.max(ShopifyDailySales.snapshot_date)))
+
+
+def per_product_totals_in_window(
+    db: Session, days: int
+) -> dict[int, dict]:
+    """Sum orders / units / revenue / customers per product over the last
+    `days` days. Used by the products CSV export.
+
+    Returns {product_id: {orders, units, revenue, customers}}. Products with
+    no rows in the window are absent from the dict (caller should default to 0)."""
+    start, end = _window(days)
+    stmt = (
+        select(
+            ShopifyDailySales.product_id,
+            func.sum(ShopifyDailySales.orders).label("orders"),
+            func.sum(ShopifyDailySales.units).label("units"),
+            func.sum(ShopifyDailySales.revenue).label("revenue"),
+            func.sum(ShopifyDailySales.unique_customers).label("customers"),
+        )
+        .where(ShopifyDailySales.product_id.is_not(None))
+        .where(ShopifyDailySales.snapshot_date >= start)
+        .where(ShopifyDailySales.snapshot_date <= end)
+        .group_by(ShopifyDailySales.product_id)
+    )
+    out: dict[int, dict] = {}
+    for r in db.execute(stmt).all():
+        out[int(r.product_id)] = {
+            "orders": int(r.orders or 0),
+            "units": int(r.units or 0),
+            "revenue": Decimal(r.revenue or 0),
+            "customers": int(r.customers or 0),
+        }
+    return out

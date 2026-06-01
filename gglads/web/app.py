@@ -1468,6 +1468,118 @@ async def products_oos_ignore_matching(request: Request, db: DbDep) -> Response:
     )
 
 
+@app.get("/products/export.csv")
+def products_export(request: Request, db: DbDep) -> Response:
+    """Download all products as CSV. Respects every filter on /products
+    (search, status, collection, channel, include_drafts, include_ignored).
+
+    Columns: Product, SKU, Status, Price min, Price max, Stock now, Variants,
+    Last sale, 7d units / orders / revenue / customers, 30d ..., 90d ...,
+    Lifetime collections list, Shopify product ID.
+    """
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    from gglads.services import analytics as analytics_svc
+    import csv
+    import io
+    from datetime import datetime
+
+    q = (request.query_params.get("q") or "").strip()
+    status_filter = request.query_params.get("status") or ""
+    collection_filter = request.query_params.get("collection") or ""
+    channel_filter = request.query_params.get("channel") or ""
+    include_drafts = request.query_params.get("include_drafts") in ("1", "true", "on")
+    include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
+
+    base = select(ShopifyProduct)
+    base = _apply_filters(
+        db, base, q, status_filter, collection_filter, channel_filter,
+        include_drafts=include_drafts,
+        include_ignored=include_ignored,
+    )
+    base = base.order_by(ShopifyProduct.title)
+    products = db.execute(base).scalars().unique().all()
+
+    # Per-product per-window totals from shopify_daily_sales.
+    totals_7d = analytics_svc.per_product_totals_in_window(db, 7)
+    totals_30d = analytics_svc.per_product_totals_in_window(db, 30)
+    totals_90d = analytics_svc.per_product_totals_in_window(db, 90)
+
+    # Bulk-resolve collection titles per product so we don't N+1.
+    pids = [p.id for p in products]
+    titles_by_pid = _product_collection_titles(db, pids)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Product",
+        "SKU",
+        "Status",
+        "Ignored",
+        "Price min",
+        "Price max",
+        "Currency",
+        "Stock now",
+        "Variants",
+        "Last sale",
+        "Units 7d",
+        "Orders 7d",
+        "Revenue 7d",
+        "Customers 7d",
+        "Units 30d",
+        "Orders 30d",
+        "Revenue 30d",
+        "Customers 30d",
+        "Units 90d",
+        "Orders 90d",
+        "Revenue 90d",
+        "Customers 90d",
+        "Collections",
+        "Shopify product ID",
+    ])
+    for p in products:
+        t7 = totals_7d.get(p.id, {"orders": 0, "units": 0, "revenue": 0, "customers": 0})
+        t30 = totals_30d.get(p.id, {"orders": 0, "units": 0, "revenue": 0, "customers": 0})
+        t90 = totals_90d.get(p.id, {"orders": 0, "units": 0, "revenue": 0, "customers": 0})
+        cols = titles_by_pid.get(p.id, [])
+        writer.writerow([
+            p.title,
+            p.first_sku or "",
+            p.status,
+            "yes" if p.is_ignored else "no",
+            f"{p.price_min:.2f}" if p.price_min is not None else "",
+            f"{p.price_max:.2f}" if p.price_max is not None else "",
+            p.currency or "",
+            p.total_inventory,
+            p.variant_count,
+            p.last_sale_at.strftime("%Y-%m-%d") if p.last_sale_at else "",
+            t7["units"],
+            t7["orders"],
+            f'{float(t7["revenue"]):.2f}',
+            t7["customers"],
+            t30["units"],
+            t30["orders"],
+            f'{float(t30["revenue"]):.2f}',
+            t30["customers"],
+            t90["units"],
+            t90["orders"],
+            f'{float(t90["revenue"]):.2f}',
+            t90["customers"],
+            "; ".join(cols),
+            p.id,
+        ])
+
+    buf.seek(0)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"products_{today}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/products/out-of-stock/export.csv")
 def products_oos_export(request: Request, db: DbDep) -> Response:
     """Download the current OOS view as CSV. Honors every filter on the page

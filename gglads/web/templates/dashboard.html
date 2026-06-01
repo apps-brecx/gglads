@@ -240,6 +240,79 @@
   </div>
 </section>
 
+<!-- Organic growth alerts ------------------------------------------------ -->
+<section class="two-col dash-two">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Organic growth · last 7d</h2>
+      <span class="conn-desc">
+        {% if alerts %}
+          {{ alert_counts.get('top_3', 0) }} top-3 ·
+          {{ alert_counts.get('top_10', 0) }} top-10 ·
+          {{ alert_counts.get('improved', 0) }} up ·
+          {{ alert_counts.get('new_keyword', 0) }} new ·
+          {{ alert_counts.get('regressed', 0) }} down
+        {% else %}
+          waiting for Search Console snapshots
+        {% endif %}
+      </span>
+    </div>
+    {% if not alerts %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No movements yet.</p>
+      <p class="empty-sub">The keyword history sweep runs daily at 05:00 UTC and fills this panel once Search Console is wired up.</p>
+    </div>
+    {% else %}
+    <ul class="alert-list">
+      {% for a in alerts %}
+      <li class="alert-row alert-{{ a.type }}">
+        <span class="alert-badge alert-badge-{{ a.type }}">
+          {% if a.type == 'top_3' %}TOP 3
+          {% elif a.type == 'top_10' %}TOP 10
+          {% elif a.type == 'improved' %}▲ UP
+          {% elif a.type == 'new_keyword' %}NEW
+          {% elif a.type == 'regressed' %}▼ DOWN
+          {% else %}{{ a.type|upper }}{% endif %}
+        </span>
+        <div class="alert-body">
+          <div class="alert-keyword">{{ a.keyword }}</div>
+          <a href="/products/{{ a.product_id }}/keyword-rank" class="alert-product muted-link">{{ a.product_title }}</a>
+        </div>
+        <div class="alert-pos">
+          {% if a.previous_position is not none %}
+            {{ '%.1f'|format(a.previous_position) }} → <strong>{{ '%.1f'|format(a.current_position) }}</strong>
+          {% else %}
+            new @ <strong>{{ '%.1f'|format(a.current_position) }}</strong>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Products on the rise</h2>
+      <span class="conn-desc">New keywords gained this week</span>
+    </div>
+    {% if not on_the_rise %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No risers yet.</p>
+    </div>
+    {% else %}
+    <ul class="rise-list">
+      {% for r in on_the_rise %}
+      <li class="rise-row">
+        <a href="/products/{{ r.product_id }}/keyword-rank" class="muted-link">{{ r.product_title }}</a>
+        <span class="rise-count">+{{ r.keywords_gained }} kw</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</section>
+
 <!-- Future-marketing teaser --------------------------------------------- -->
 <section class="panel">
   <div class="panel-head">

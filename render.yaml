@@ -85,3 +85,47 @@ services:
         sync: false
       - key: AUTONOMOUS_MODE
         sync: false
+
+  # 05:00 UTC daily — per-product Search Console snapshot into
+  # product_keyword_history. Powers the dashboard growth-alerts panel.
+  - type: cron
+    name: gglads-keyword-history
+    runtime: python
+    schedule: "0 5 * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.keyword_history_sweep
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false
+
+  # Mondays 06:00 UTC — AI-generate new collection suggestions from
+  # site-wide organic queries. Lands as pending rows on /collections.
+  - type: cron
+    name: gglads-collection-suggestions
+    runtime: python
+    schedule: "0 6 * * 1"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.collection_suggestions_sweep
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false

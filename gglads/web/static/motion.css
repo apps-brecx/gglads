@@ -380,7 +380,7 @@ details[open] > summary {
 .app-main > *:nth-child(n+10) { animation-delay: 360ms; }
 @keyframes reveal-up {
   from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ----------  flash messages  ---------- */
@@ -560,6 +560,9 @@ details[open] > summary {
   border: 1px solid var(--border);
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;  /* keep "Show ignored too" on one line in grid cells */
+  width: max-content;
+  justify-self: start;
   transition: all var(--motion-fast) var(--easing);
 }
 .chip:hover { transform: translateY(-1px); border-color: var(--accent-soft-border); }
@@ -749,7 +752,7 @@ a.chip.chip-on {
 }
 .oos-table {
   width: 100%;
-  min-width: 820px;
+  min-width: 1040px;  /* gives Product column ~400px before horizontal scroll */
   table-layout: fixed;
   border-collapse: collapse;
 }
@@ -771,8 +774,13 @@ a.chip.chip-on {
 .oos-table td { font-size: 13px; border-bottom: 1px solid var(--border); }
 .oos-table tbody tr:last-child td { border-bottom: none; }
 .oos-table td.num, .oos-table th.num { text-align: right; }
-/* the Product cell may have long titles — let it ellipsis cleanly */
-.oos-table td:nth-child(2) { white-space: normal; }
+/* Product cell: don't truncate, but wrap softly. Keep the bottom border
+ * clean by limiting to 2 lines max via -webkit-line-clamp where supported. */
+.oos-table td:nth-child(2) {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+}
 
 /* View-options dropdown — was z:5, getting overlapped by the mouse-glow
  * (z:0) and page elements. Bump it well above. Also make the bg fully

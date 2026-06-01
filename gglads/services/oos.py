@@ -133,6 +133,7 @@ def list_out_of_stock(
             "handle": p.handle,
             "image_url": p.image_url,
             "status": p.status,
+            "sku": p.first_sku,
             "oos_since": p.oos_since,
             "oos_ignored": p.oos_ignored,
             "days_oos": days_oos,

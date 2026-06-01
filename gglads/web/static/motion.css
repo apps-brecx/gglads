@@ -752,7 +752,7 @@ a.chip.chip-on {
 }
 .oos-table {
   width: 100%;
-  min-width: 1040px;  /* gives Product column ~400px before horizontal scroll */
+  min-width: 1180px;  /* room for Product (~400px) + new SKU (130px) column */
   table-layout: fixed;
   border-collapse: collapse;
 }

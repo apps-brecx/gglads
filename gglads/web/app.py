@@ -1500,6 +1500,7 @@ def products_oos_export(request: Request, db: DbDep) -> Response:
     writer = csv.writer(buf)
     writer.writerow([
         "Product",
+        "SKU",
         "Status",
         "Ignored",
         "OOS since",
@@ -1513,6 +1514,7 @@ def products_oos_export(request: Request, db: DbDep) -> Response:
     for r in rows:
         writer.writerow([
             r["title"],
+            r.get("sku") or "",
             r["status"],
             "yes" if r["oos_ignored"] else "no",
             r["oos_since"].strftime("%Y-%m-%d %H:%M") if r["oos_since"] else "",

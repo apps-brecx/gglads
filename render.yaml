@@ -44,7 +44,7 @@ services:
         sync: false
 
   # 16:00 UTC — second full sync of the day (catalog + orders + snapshot).
-  # Inventory refreshes twice a day so OOS state never lags more than ~12h.
+  # Pairs with the 04:00 full sync to refresh orders twice a day.
   # (The script file is still named shopify_sync_sales for backwards-compat
   # with the render.yaml entry name — but it now runs a full sync.)
   - type: cron
@@ -53,6 +53,29 @@ services:
     schedule: "0 16 * * *"
     buildCommand: pip install --upgrade pip && pip install -e .
     startCommand: python -m gglads.cron.shopify_sync_sales
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: DRY_RUN
+        sync: false
+      - key: AUTONOMOUS_MODE
+        sync: false
+
+  # Every 2 hours at :30 (01:30, 03:30, ..., 23:30 UTC) — catalog re-pull +
+  # snapshot, no orders. Keeps stock and OOS state never more than ~2h stale.
+  # Offset 30 min from the 04:00 / 16:00 full syncs so they never overlap.
+  - type: cron
+    name: gglads-shopify-stock-refresh
+    runtime: python
+    schedule: "30 1,3,5,7,9,11,13,15,17,19,21,23 * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.shopify_stock_refresh
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"

@@ -1,12 +1,14 @@
 {% extends "layout.html" %}
 
-{% block title %}Collections — Products — gglads{% endblock %}
+{% block title %}Collections — gglads{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">Products</h1>
-    <p class="page-subtitle">Your Shopify catalog — browse by collection or see everything in one list.</p>
+    <h1 class="page-title">Collections</h1>
+    <p class="page-subtitle">
+      Each collection is its own SEO landing page. Click in to edit meta, generate copy from organic keywords, and see what's currently ranking.
+    </p>
   </div>
   <div class="page-actions">
     <details class="sync-menu">
@@ -27,13 +29,7 @@
         <form method="post" action="/products/sync/sales" class="inline-form">
           <button type="submit" class="sync-menu-item">
             <span>Sales only</span>
-            <span class="conn-desc">Orders (90d) + today's stock snapshot. Fast.</span>
-          </button>
-        </form>
-        <form method="post" action="/products/sync/inventory" class="inline-form">
-          <button type="submit" class="sync-menu-item">
-            <span>Inventory snapshot only</span>
-            <span class="conn-desc">Just today's stock-level snapshot. Seconds.</span>
+            <span class="conn-desc">Orders (90d) + today's stock snapshot.</span>
           </button>
         </form>
       </div>
@@ -43,22 +39,19 @@
 
 {% if flashes %}
 <div class="flash-stack">
-  {% for f in flashes %}
-  <div class="flash flash-{{ f.level }}">{{ f.message }}</div>
-  {% endfor %}
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
 </div>
 {% endif %}
-
-<div class="tab-bar">
-  <a href="/products" class="tab is-active">Collections</a>
-  <a href="/products/all" class="tab">All products</a>
-</div>
 
 <section class="panel sync-bar">
   <div class="sync-info">
     <div class="sync-stat">
       <span class="sync-label">Collections</span>
       <span class="sync-value">{{ collections|length }}</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-label">SEO complete</span>
+      <span class="sync-value">{{ collections|selectattr('seo_filled')|list|length }}</span>
     </div>
     <div class="sync-stat">
       <span class="sync-label">Total products</span>
@@ -71,33 +64,10 @@
   </div>
 </section>
 
-<section class="panel">
-  <div class="panel-head">
-    <h2>Sync status</h2>
-    <span class="conn-desc">Per-kind last-run timestamps. Cron does a full sync at 04:00 UTC and a sales-only sync at 16:00 UTC.</span>
-  </div>
-  <div class="sync-kinds-row">
-    {% for k in sync_kinds %}
-    <div class="sync-kind-card {{ 'is-good' if k.ok == true else 'is-fail' if k.ok == false else '' }}">
-      <div class="sync-kind-label">{{ k.label }}</div>
-      <div class="sync-kind-when">
-        {% if k.last_at %}{{ k.last_at }}{% else %}<span class="conn-desc">never</span>{% endif %}
-      </div>
-      {% if k.detail %}<div class="sync-kind-detail">{{ k.detail }}</div>{% endif %}
-    </div>
-    {% endfor %}
-  </div>
-</section>
-
 <section class="panel filter-bar">
-  <form method="get" action="/products" class="filter-form" style="grid-template-columns:1fr auto;">
-    <input
-      type="search"
-      name="q"
-      value="{{ query }}"
-      placeholder="Search collections by title…"
-      class="filter-search"
-    />
+  <form method="get" action="/collections" class="filter-form" style="grid-template-columns:1fr auto;">
+    <input type="search" name="q" value="{{ query }}"
+           placeholder="Search collections by title…" class="filter-search" />
     <button type="submit" class="btn-ghost">Search</button>
   </form>
 </section>
@@ -105,18 +75,23 @@
 {% if collections %}
 <div class="collection-grid">
   {% for c in collections %}
-  <a href="/products/collection/{{ c.handle }}" class="collection-card">
+  <a href="/collections/{{ c.handle }}" class="collection-card">
     <div class="collection-thumb">
       {% if c.image_url %}
       <img src="{{ c.image_url }}" alt="{{ c.title }}" />
       {% else %}
       <div class="collection-thumb-placeholder">{{ c.title[0]|upper }}</div>
       {% endif %}
+      <span class="seo-chip {{ 'seo-chip-ok' if c.seo_filled else 'seo-chip-warn' }}">
+        {{ 'SEO ✓' if c.seo_filled else 'SEO ✗' }}
+      </span>
     </div>
     <div class="collection-body">
       <div class="collection-title">{{ c.title }}</div>
-      {% if c.description %}
-      <div class="collection-desc">{{ c.description }}</div>
+      {% if c.seo_meta_description %}
+      <div class="collection-desc">{{ c.seo_meta_description[:160] }}</div>
+      {% elif c.description %}
+      <div class="collection-desc">{{ c.description[:160] }}</div>
       {% endif %}
       <div class="collection-count">{{ c.product_count }} product{{ '' if c.product_count == 1 else 's' }}</div>
     </div>
@@ -131,10 +106,7 @@
     <p class="empty-sub">Click <strong>Sync now</strong> above to pull from Shopify.</p>
     {% else %}
     <p><strong>Shopify isn't connected.</strong></p>
-    <p class="empty-sub">
-      Go to <a href="/connections" class="muted-link">Connections</a> and add your
-      Shopify store domain + admin API token first.
-    </p>
+    <p class="empty-sub">Go to <a href="/connections" class="muted-link">Connections</a> first.</p>
     {% endif %}
   </div>
 </section>

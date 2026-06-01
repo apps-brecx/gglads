@@ -31,6 +31,13 @@ class ShopifyCollection(Base):
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Collection-level SEO. seo_title / seo_meta_description map to the same
+    # Shopify metafields products use; description is the body HTML.
+    seo_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    seo_meta_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seo_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class ShopifyProduct(Base):

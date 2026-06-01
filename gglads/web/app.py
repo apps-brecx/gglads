@@ -883,16 +883,20 @@ def _channel_options(db: Session) -> list[dict]:
     return options
 
 
-@app.get("/products", response_class=HTMLResponse)
-def products_collections(request: Request, db: DbDep) -> Response:
+@app.get("/collections", response_class=HTMLResponse)
+def collections_index(request: Request, db: DbDep) -> Response:
+    """Grid of collections — formerly /products. Each card links to its detail
+    page where SEO/keywords/organic queries are managed."""
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
+    from gglads.services import collections as collections_svc
+
     q = (request.query_params.get("q") or "").strip().lower()
-    collections = _collections_summary(db)
+    cols = collections_svc.list_collections(db)
     if q:
-        collections = [c for c in collections if q in c["title"].lower()]
+        cols = [c for c in cols if q in c["title"].lower()]
 
     total_products = db.scalar(select(func.count(ShopifyProduct.id))) or 0
     active_products = db.scalar(
@@ -901,12 +905,12 @@ def products_collections(request: Request, db: DbDep) -> Response:
 
     return templates.TemplateResponse(
         request,
-        "products.html",
+        "collections.html",
         {
             "version": __version__,
             "user": user,
-            "active": "products",
-            "collections": collections,
+            "active": "collections",
+            "collections": cols,
             "total_count": total_products,
             "active_count": active_products,
             "last_synced": _last_sync_display(db),
@@ -916,6 +920,13 @@ def products_collections(request: Request, db: DbDep) -> Response:
             "flashes": _consume_flashes(request),
         },
     )
+
+
+# Back-compat: the old grid lived at /products. Now /products is the list of
+# products and the grid moved to /collections.
+@app.get("/products/grid")
+def products_grid_legacy() -> Response:
+    return RedirectResponse("/collections", status_code=status.HTTP_308_PERMANENT_REDIRECT)
 
 
 def _render_products_list(
@@ -1026,8 +1037,13 @@ _PRODUCT_SORT_COLUMNS = {
 }
 
 
-@app.get("/products/all", response_class=HTMLResponse)
-def products_all(request: Request, db: DbDep) -> Response:
+@app.get("/products/all")
+def products_all_legacy() -> Response:
+    return RedirectResponse("/products", status_code=status.HTTP_308_PERMANENT_REDIRECT)
+
+
+@app.get("/products", response_class=HTMLResponse)
+def products_index(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -1082,8 +1098,18 @@ def products_all(request: Request, db: DbDep) -> Response:
     )
 
 
-@app.get("/products/collection/{handle}", response_class=HTMLResponse)
-def products_collection(handle: str, request: Request, db: DbDep) -> Response:
+@app.get("/products/collection/{handle}")
+def products_collection_legacy(handle: str) -> Response:
+    return RedirectResponse(
+        f"/collections/{handle}/products",
+        status_code=status.HTTP_308_PERMANENT_REDIRECT,
+    )
+
+
+@app.get("/collections/{handle}/products", response_class=HTMLResponse)
+def collection_products_list(handle: str, request: Request, db: DbDep) -> Response:
+    """Filtered product list scoped to one collection (with the standard
+    products_list.html table)."""
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -1156,6 +1182,122 @@ def products_collection(handle: str, request: Request, db: DbDep) -> Response:
             "qs_no_page": listing_util.query_string_for(request, drop=["page"]),
             "qs_no_sort": listing_util.query_string_for(request, drop=["sort", "dir", "page"]),
         },
+    )
+
+
+@app.get("/collections/{handle}", response_class=HTMLResponse)
+def collection_detail(handle: str, request: Request, db: DbDep) -> Response:
+    """Collection SEO + linked products + organic queries landing on this URL."""
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    from gglads.services import collections as collections_svc
+
+    c = collections_svc.get_collection(db, handle)
+    if c is None:
+        raise HTTPException(status_code=404)
+
+    products = collections_svc.products_in_collection(db, c.id)
+    pids = [p.id for p in products]
+
+    # Count of product-level keywords per product, so we can flag products
+    # with no keyword research yet (i.e. ones that need a one-time generate).
+    kw_counts: dict[int, int] = {}
+    if pids:
+        rows = db.execute(
+            select(
+                ProductKeyword.product_id, func.count(ProductKeyword.id)
+            )
+            .where(ProductKeyword.product_id.in_(pids))
+            .group_by(ProductKeyword.product_id)
+        ).all()
+        kw_counts = {pid: int(n) for pid, n in rows}
+
+    product_rows = []
+    for p in products:
+        product_rows.append({
+            "id": p.id,
+            "title": p.title,
+            "handle": p.handle,
+            "image_url": p.image_url,
+            "status": p.status,
+            "units_sold_90d": p.units_sold_90d,
+            "net_sales_90d": p.net_sales_90d,
+            "keyword_count": kw_counts.get(p.id, 0),
+        })
+
+    # Organic queries landing on this collection's URL.
+    organic_rows, organic_err = collections_svc.organic_queries(
+        db, handle, days=90, row_limit=50
+    )
+    page_url = collections_svc.page_url_for_collection(db, handle)
+
+    return templates.TemplateResponse(
+        request,
+        "collection_detail.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "collections",
+            "collection": c,
+            "page_url": page_url,
+            "product_rows": product_rows,
+            "organic_rows": organic_rows or [],
+            "organic_err": organic_err,
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/collections/{handle}/seo")
+async def collection_seo_save(handle: str, request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import collections as collections_svc
+    c = collections_svc.get_collection(db, handle)
+    if c is None:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    ok, detail = collections_svc.update_seo(
+        db,
+        c.id,
+        seo_title=form.get("seo_title"),
+        seo_meta_description=form.get("seo_meta_description"),
+        description=form.get("description"),
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(f"/collections/{handle}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/collections/{handle}/seo/generate")
+def collection_seo_generate(handle: str, request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import collections as collections_svc
+    c = collections_svc.get_collection(db, handle)
+    if c is None:
+        raise HTTPException(status_code=404)
+    ok, detail, _ = collections_svc.generate_seo(db, c.id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(f"/collections/{handle}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/products/keywords/research-all")
+def products_keywords_research_all(request: Request, db: DbDep) -> Response:
+    """One-click keyword research for every product that doesn't have any yet."""
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    ok, detail, _ = kw_research_svc.research_all_products(
+        db, started_by_user_id=user.id, only_missing=True
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/products"),
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

@@ -436,6 +436,62 @@ def _product_public_url(db: Session, product: ShopifyProduct) -> str | None:
     return sc_svc.page_url_from_site(sc_cfg.get("site_url") or "", product.handle)
 
 
+def research_all_products(
+    db: Session,
+    started_by_user_id: int | None,
+    only_missing: bool = True,
+) -> tuple[bool, str, dict]:
+    """Run keyword research for every product in the catalog.
+
+    only_missing=True (default): skip products that already have any
+    ProductKeyword rows — useful for the "first-time generate for all"
+    button. Set to False to force a re-research everywhere (slow).
+    Returns (ok, summary, {"researched": N, "skipped": M, "failed": K}).
+    """
+    products = db.execute(
+        select(ShopifyProduct).order_by(ShopifyProduct.title)
+    ).scalars().all()
+    if not products:
+        return False, "No products to research.", {"researched": 0, "skipped": 0, "failed": 0}
+
+    researched = 0
+    skipped = 0
+    failed = 0
+    failure_details: list[str] = []
+    for p in products:
+        if only_missing:
+            existing = db.scalar(
+                select(func.count(ProductKeyword.id)).where(
+                    ProductKeyword.product_id == p.id
+                )
+            ) or 0
+            if existing > 0:
+                skipped += 1
+                continue
+        try:
+            ok, detail = research_keywords(db, p.id, started_by_user_id)
+            if ok:
+                researched += 1
+            else:
+                failed += 1
+                failure_details.append(f"{p.title}: {detail}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            failure_details.append(f"{p.title}: {type(exc).__name__}: {exc}")
+
+    msg_bits = [f"Researched {researched}", f"skipped {skipped} (already had keywords)"]
+    if failed:
+        msg_bits.append(f"{failed} failed")
+    summary = ", ".join(msg_bits) + "."
+    if failure_details:
+        summary += " First failures: " + " | ".join(failure_details[:3])
+    return failed == 0 and researched > 0, summary, {
+        "researched": researched,
+        "skipped": skipped,
+        "failed": failed,
+    }
+
+
 def research_keywords(
     db: Session, product_id: int, started_by_user_id: int | None
 ) -> tuple[bool, str]:

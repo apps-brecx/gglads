@@ -2811,6 +2811,12 @@ def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
     stock_labels = [d.strftime("%b %d") for d, _ in snap_rows]
     stock_values = [int(v) for _, v in snap_rows]
 
+    # Per-channel breakdown for this product, three windows.
+    from gglads.services import analytics as analytics_svc
+    channel_split_30 = analytics_svc.product_channel_split(db, product_id, days=30)
+    channel_split_90 = analytics_svc.product_channel_split(db, product_id, days=90)
+    channel_split_7  = analytics_svc.product_channel_split(db, product_id, days=7)
+
     return templates.TemplateResponse(
         request,
         "product_analytics.html",
@@ -2825,6 +2831,9 @@ def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
             "range_label": f"last {range_days} days",
             "stock_labels": stock_labels,
             "stock_values": stock_values,
+            "channel_split_7": channel_split_7,
+            "channel_split_30": channel_split_30,
+            "channel_split_90": channel_split_90,
             "has_ads_data": False,  # set true when we wire Google Ads sync
             "has_sc_data": _shopify_status(db),  # placeholder; replace per-integration
             "flashes": _consume_flashes(request),

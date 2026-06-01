@@ -325,8 +325,10 @@
     </div>
   </div>
   <p class="conn-desc" style="margin:0 0 10px;">
-    Counted: {% for ch in tracked_channels %}<span class="channel-scope-pill" style="margin-right:6px;">{{ ch }}</span>{% endfor %}
-    — anything else (Faire, Temu, POS, third-party apps) is dropped at ingest and never reaches per-product totals, the dashboard, the OOS list, or the keyword pages.
+    Every channel Shopify reports an order under is ingested into shopify_daily_sales — Online Store, Shop app, Faire, Temu, POS, and any third-party app slug.
+    Filter by channel using the chips above the chart to focus on one at a time.
+    Curated labels: {% for ch in tracked_channels %}<span class="channel-scope-pill" style="margin-right:6px;">{{ ch }}</span>{% endfor %}
+    (anything else falls through with a title-cased version of its raw slug).
   </p>
   {% if last_sales_run_detail %}
   <div style="margin-top:6px;">

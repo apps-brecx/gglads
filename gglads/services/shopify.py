@@ -34,25 +34,26 @@ logger = logging.getLogger("gglads.shopify")
 
 SALES_WINDOW_DAYS = 90
 
-# We only attribute sales from these two Shopify channels:
-#   web  → Online Store
-#   shop → Shop app
-# Anything else (POS, draft orders, third-party app channels) is dropped at
-# ingest. Use a set so membership checks are O(1).
-TRACKED_CHANNELS = {"web", "shop"}
+# All channels are tracked in shopify_daily_sales. The dashboard / product
+# analytics can filter on the channel column to show one or all. TRACKED_CHANNELS
+# is the curated set we *render labels for* — anything else falls through as
+# its raw sourceName.
+TRACKED_CHANNELS = {"web", "shop", "faire", "temu", "pos", "amazon"}
 
 
 def _normalize_channel(source_name: str | None) -> str | None:
-    """Map a Shopify Order.sourceName to one of TRACKED_CHANNELS, or None to drop."""
+    """Map a Shopify Order.sourceName to a channel slug. Returns None ONLY for
+    fully-empty source names; everything else is kept (lowercased, trimmed)
+    so per-channel reporting includes Faire / Temu / POS / third-party apps."""
     if not source_name:
         return None
     s = source_name.lower().strip()
-    if s in TRACKED_CHANNELS:
-        return s
-    # Shopify has historically used a few variants for the Shop app.
+    if not s:
+        return None
+    # Known aliases — fold to the canonical slug.
     if s in {"shop_app", "shopify_app"}:
         return "shop"
-    return None
+    return s[:32]  # match the daily_sales.channel column width
 
 
 _COLLECTIONS_QUERY = """

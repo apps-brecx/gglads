@@ -782,16 +782,26 @@ a.chip.chip-on {
   line-height: 1.35;
 }
 
-/* View-options dropdown — was z:5, getting overlapped by the mouse-glow
- * (z:0) and page elements. Bump it well above. Also make the bg fully
- * opaque so it doesn't bleed through. */
-.view-options-form {
-  z-index: 100 !important;
-  background: var(--panel) !important;
-  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.55) !important;
+/* View-options dropdown — absolute-positioned dropdowns kept getting trapped
+ * in parent stacking contexts (panels with transform/overflow). Switch to
+ * inline expansion: when details is open, the form renders BELOW the button
+ * in normal flow, pushing the rest of the page down. Reliable in every
+ * browser, no z-index gymnastics. */
+.view-options[open] {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 10px;
+  padding: 0;
 }
-[data-theme="light"] .view-options-form {
-  box-shadow: 0 24px 60px -16px rgba(20, 25, 40, 0.18) !important;
+.view-options-form {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  border: none !important;
+  margin-top: 8px;
 }
 
 /* AI collection suggestions */

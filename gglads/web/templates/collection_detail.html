@@ -1,0 +1,155 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ collection.title }} — Collection — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="page-subtitle" style="margin:0 0 4px;">
+      <a href="/collections" class="muted-link">← Collections</a>
+    </p>
+    <h1 class="page-title">{{ collection.title }}</h1>
+    <div class="product-head-meta">
+      <span class="pill {{ 'pill-ok' if collection.seo_title and collection.seo_meta_description else 'pill-warn' }}">
+        {{ 'SEO complete' if collection.seo_title and collection.seo_meta_description else 'SEO incomplete' }}
+      </span>
+      <span class="muted">·</span>
+      <span class="tag">{{ product_rows|length }} product{{ '' if product_rows|length == 1 else 's' }}</span>
+      {% if page_url %}
+      <span class="muted">·</span>
+      <a class="muted-link" href="{{ page_url }}" target="_blank" rel="noopener">View live →</a>
+      {% endif %}
+      {% if collection.seo_updated_at %}
+      <span class="muted">·</span>
+      <span class="conn-desc">Last edit: {{ collection.seo_updated_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/collections/{{ collection.handle }}/seo/generate" class="inline-form"
+          onsubmit="return confirm('Replace this collection\\'s SEO copy with an AI-generated version, anchored on its organic queries and member-product keywords?');">
+      <button type="submit" class="btn-primary">✨ Generate with AI</button>
+    </form>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>SEO meta</h2>
+    <span class="conn-desc">These render as the page title, meta description, and body description on /collections/{{ collection.handle }}.</span>
+  </div>
+  <form method="post" action="/collections/{{ collection.handle }}/seo" class="conn-form">
+    <div class="field">
+      <label for="seo_title">Meta title <span class="muted">(≤ 60 chars)</span></label>
+      <input type="text" id="seo_title" name="seo_title" maxlength="120"
+             value="{{ collection.seo_title or '' }}"
+             placeholder="e.g. Sugar-Free Fruity Syrups | Brand" />
+      <span class="conn-desc">{{ (collection.seo_title or '')|length }} / 60</span>
+    </div>
+    <div class="field">
+      <label for="seo_meta_description">Meta description <span class="muted">(140-155 chars)</span></label>
+      <textarea id="seo_meta_description" name="seo_meta_description" rows="3"
+                maxlength="320"
+                placeholder="A short, keyword-rich pitch that ends with a soft CTA.">{{ collection.seo_meta_description or '' }}</textarea>
+      <span class="conn-desc">{{ (collection.seo_meta_description or '')|length }} / 155</span>
+    </div>
+    <div class="field">
+      <label for="description">Body description (HTML) — also doubles as H1 anchor text on the page.</label>
+      <textarea id="description" name="description" rows="10"
+                placeholder="<p>Discover our…</p><h2>Why our syrups</h2><ul><li>…</li></ul>">{{ collection.description or '' }}</textarea>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Save SEO</button>
+    </div>
+  </form>
+</section>
+
+<section class="two-col dash-two">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Organic queries landing on this URL</h2>
+      <span class="conn-desc">Last 90d · Search Console</span>
+    </div>
+    {% if organic_err %}
+    <div class="auth-error">
+      Search Console: {{ organic_err }}
+    </div>
+    {% elif organic_rows %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Query</th>
+          <th class="num">Pos</th>
+          <th class="num">Clicks</th>
+          <th class="num">Impr</th>
+          <th class="num">CTR</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in organic_rows[:30] %}
+        <tr>
+          <td>{{ r.query }}</td>
+          <td class="num">{{ '%.1f'|format(r.position) }}</td>
+          <td class="num">{{ r.clicks }}</td>
+          <td class="num">{{ r.impressions }}</td>
+          <td class="num">{{ '%.1f'|format((r.ctr or 0) * 100) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No organic queries for this URL yet.</p>
+      <p class="empty-sub">Either Search Console hasn't seen impressions for /collections/{{ collection.handle }}, or the integration isn't set up.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Linked products</h2>
+      <a href="/collections/{{ collection.handle }}/products" class="muted-link">Full product view →</a>
+    </div>
+    {% if product_rows %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th class="num">Units 90d</th>
+          <th class="num">Revenue 90d</th>
+          <th class="num">Keywords</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in product_rows %}
+        <tr>
+          <td>
+            <a href="/products/{{ p.id }}" class="muted-link">{{ p.title }}</a>
+          </td>
+          <td class="num">{{ p.units_sold_90d or 0 }}</td>
+          <td class="num">${{ '{:,.2f}'.format((p.net_sales_90d or 0)|float) }}</td>
+          <td class="num">
+            {% if p.keyword_count == 0 %}
+            <span class="pill pill-warn">none</span>
+            {% else %}
+            {{ p.keyword_count }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No products in this collection yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

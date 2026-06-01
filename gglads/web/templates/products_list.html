@@ -9,11 +9,10 @@
     <h1 class="page-title">{{ heading }}</h1>
     <p class="page-subtitle">
       {% if collection %}
-        <a href="/products" class="muted-link">← All collections</a>
-        · {{ items|length }} of {{ total_count }} products
+        <a href="/collections" class="muted-link">← Collections</a>
+        · {{ items|length }} of {{ total_count }} products in this collection
       {% else %}
-        <a href="/products" class="muted-link">← Collections</a>
-        · {{ total_count }} products
+        {{ total_count }} products across the catalog · filter by collection below
       {% endif %}
     </p>
   </div>
@@ -23,6 +22,11 @@
       <input type="hidden" name="scope_type" value="collection" />
       <input type="hidden" name="scope_id" value="{{ collection.id }}" />
       <button type="submit" class="btn-primary">+ Create campaign for {{ collection.title }}</button>
+    </form>
+    {% else %}
+    <form method="post" action="/products/keywords/research-all" class="inline-form"
+          onsubmit="return confirm('Run keyword research on every product that doesn\\'t have keywords yet? Could take a few minutes — Claude + Keyword Planner + Search Console per product.');">
+      <button type="submit" class="btn-primary">Research keywords for all products</button>
     </form>
     {% endif %}
     <form method="post" action="/products/sync" class="inline-form">
@@ -40,8 +44,8 @@
 {% endif %}
 
 <div class="tab-bar">
-  <a href="/products" class="tab">Collections</a>
-  <a href="/products/all" class="tab {{ 'is-active' if not collection }}">All products</a>
+  <a href="/products" class="tab {{ 'is-active' if not collection }}">All products</a>
+  <a href="/collections" class="tab">Collections</a>
   {% if collection %}
   <span class="tab is-active">{{ collection.title }}</span>
   {% endif %}

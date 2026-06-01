@@ -708,6 +708,24 @@ details[open] > summary {
 .src-title { font-weight: 600; margin-bottom: 4px; }
 .src-desc { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
 
+/* Collection card SEO completeness chip */
+.collection-thumb { position: relative; }
+.seo-chip {
+  position: absolute;
+  top: 8px; right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform var(--motion-fast) var(--easing);
+}
+.seo-chip-ok   { background: rgba(74, 222, 128, 0.18); color: var(--ok); }
+.seo-chip-warn { background: rgba(251, 191, 36, 0.18); color: var(--wait); }
+.collection-card:hover .seo-chip { transform: scale(1.06); }
+
 /* ----------  reduced-motion: respect user preference  ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

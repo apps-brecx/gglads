@@ -48,12 +48,22 @@
 </section>
 
 <section class="panel filter-bar">
-  <form method="get" class="filter-form" style="grid-template-columns:1fr 1fr auto;">
+  <form method="get" class="filter-form" style="grid-template-columns:1.4fr 1fr 1fr auto auto;">
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Search OOS products by title…" class="filter-search" />
     <select name="collection" class="filter-select">
       <option value="">All collections</option>
       {% for c in collections %}
       <option value="{{ c.handle }}" {{ 'selected' if collection_handle == c.handle }}>{{ c.title }}</option>
       {% endfor %}
+    </select>
+    <select name="since" class="filter-select"
+            title="Filter by how recently each product went OOS">
+      <option value=""    {{ 'selected' if not since }}>OOS — any time</option>
+      <option value="7"   {{ 'selected' if since == '7' }}>OOS in last 7 days (had stock recently)</option>
+      <option value="14"  {{ 'selected' if since == '14' }}>OOS in last 14 days</option>
+      <option value="30"  {{ 'selected' if since == '30' }}>OOS in last 30 days</option>
+      <option value="old" {{ 'selected' if since == 'old' }}>OOS for over 30 days</option>
     </select>
     <label class="chip" style="align-self:center;">
       <input type="checkbox" name="include_ignored" value="1"
@@ -88,7 +98,7 @@
 <form method="post" action="/products/out-of-stock/bulk" id="oos-bulk-form" class="bulk-bar">
   <span class="bulk-bar-label">
     Bulk: <span id="bulk-count">0</span> selected
-    <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all</button>
+    <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all in view ({{ rows|length }})</button>
     <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
   </span>
   <div class="bulk-bar-controls">
@@ -99,59 +109,84 @@
   </div>
 </form>
 
-<section class="panel">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th style="width:32px;"></th>
-        <th>Product</th>
-        <th class="num">OOS for</th>
-        <th class="num">Units 90d</th>
-        <th class="num">Revenue 90d</th>
-        <th>Last sale</th>
-        <th class="num">Variants</th>
-        <th class="actions-col">Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr class="{{ 'is-ignored' if r.oos_ignored }}">
-        <td>
-          <input type="checkbox" name="product_id" value="{{ r.id }}"
-                 form="oos-bulk-form" class="oos-bulk-cb" />
-        </td>
-        <td>
-          <a href="/products/{{ r.id }}" class="muted-link">{{ r.title }}</a>
-          {% if r.oos_ignored %}<span class="tag tag-neg" style="margin-left:6px;">ignored</span>{% endif %}
-          {% if r.status != 'active' %}<span class="tag" style="margin-left:6px;">{{ r.status }}</span>{% endif %}
-        </td>
-        <td class="num">
-          {% if r.days_oos is none %}—
-          {% elif r.days_oos == 0 %}today
-          {% else %}{{ r.days_oos }}d
-          {% endif %}
-        </td>
-        <td class="num">{{ r.units_sold_90d or 0 }}</td>
-        <td class="num">${{ '{:,.2f}'.format((r.net_sales_90d or 0)|float) }}</td>
-        <td>
-          {% if r.last_sale_at %}{{ r.last_sale_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
-        </td>
-        <td class="num">{{ r.variant_count }}</td>
-        <td class="actions-col">
-          {% if r.oos_ignored %}
-          <form method="post" action="/products/{{ r.id }}/oos/unignore" class="inline-form">
-            <button type="submit" class="btn-ghost" style="font-size:12px;">Un-ignore</button>
-          </form>
-          {% else %}
-          <form method="post" action="/products/{{ r.id }}/oos/ignore" class="inline-form">
-            <button type="submit" class="btn-ghost" style="font-size:12px;">Ignore</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% if not include_ignored and (q or collection_handle or since) %}
+<form method="post" action="/products/out-of-stock/ignore-matching" class="inline-form"
+      style="margin:0 0 12px;"
+      onsubmit="return confirm('Ignore EVERY OOS product matching the current filter ({{ rows|length }} products)? They\'ll reappear after their next restock+OOS cycle.');">
+  <input type="hidden" name="q" value="{{ q }}" />
+  <input type="hidden" name="collection" value="{{ collection_handle or '' }}" />
+  <input type="hidden" name="since" value="{{ since }}" />
+  <button type="submit" class="btn-ghost" style="font-size:12px;">
+    ⚡ Ignore all {{ rows|length }} matching this filter
+  </button>
+</form>
+{% endif %}
+
+<section class="panel" style="padding:0;overflow:hidden;">
+  <div class="oos-table-wrap">
+    <table class="data-table oos-table">
+      <colgroup>
+        <col style="width:36px" />
+        <col />
+        <col style="width:90px" />
+        <col style="width:90px" />
+        <col style="width:110px" />
+        <col style="width:110px" />
+        <col style="width:80px" />
+        <col style="width:110px" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Product</th>
+          <th class="num">OOS for</th>
+          <th class="num">Units 90d</th>
+          <th class="num">Revenue 90d</th>
+          <th>Last sale</th>
+          <th class="num">Variants</th>
+          <th class="actions-col">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'is-ignored' if r.oos_ignored }}">
+          <td>
+            <input type="checkbox" name="product_id" value="{{ r.id }}"
+                   form="oos-bulk-form" class="oos-bulk-cb" />
+          </td>
+          <td>
+            <a href="/products/{{ r.id }}" class="muted-link">{{ r.title }}</a>
+            {% if r.oos_ignored %}<span class="tag tag-neg" style="margin-left:6px;">ignored</span>{% endif %}
+            {% if r.status != 'active' %}<span class="tag" style="margin-left:6px;">{{ r.status }}</span>{% endif %}
+          </td>
+          <td class="num">
+            {% if r.days_oos is none %}—
+            {% elif r.days_oos == 0 %}today
+            {% else %}{{ r.days_oos }}d
+            {% endif %}
+          </td>
+          <td class="num">{{ r.units_sold_90d or 0 }}</td>
+          <td class="num">${{ '{:,.2f}'.format((r.net_sales_90d or 0)|float) }}</td>
+          <td>
+            {% if r.last_sale_at %}{{ r.last_sale_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}
+          </td>
+          <td class="num">{{ r.variant_count }}</td>
+          <td class="actions-col">
+            {% if r.oos_ignored %}
+            <form method="post" action="/products/{{ r.id }}/oos/unignore" class="inline-form">
+              <button type="submit" class="btn-ghost" style="font-size:12px;">Un-ignore</button>
+            </form>
+            {% else %}
+            <form method="post" action="/products/{{ r.id }}/oos/ignore" class="inline-form">
+              <button type="submit" class="btn-ghost" style="font-size:12px;">Ignore</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endif %}
 

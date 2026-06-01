@@ -565,6 +565,17 @@ details[open] > summary {
 .chip:hover { transform: translateY(-1px); border-color: var(--accent-soft-border); }
 .chip input { margin: 0; }
 .chip input:checked + .chip-dot { transform: scale(1.2); }
+
+/* "chip" used as a clickable filter toggle (anchor); .chip-on = active. */
+a.chip {
+  text-decoration: none;
+  color: var(--text);
+}
+a.chip.chip-on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .chip-dot {
   width: 10px; height: 10px;
   border-radius: 50%;
@@ -729,6 +740,51 @@ details[open] > summary {
 /* OOS list — ignored rows fade back so the active OOS items pop. */
 .data-table tbody tr.is-ignored { opacity: 0.55; }
 .data-table tbody tr.is-ignored:hover { opacity: 0.85; }
+
+/* OOS table layout — explicit column widths via <colgroup>, horizontal
+ * scroll if the viewport is too narrow, headers don't wrap. */
+.oos-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.oos-table {
+  width: 100%;
+  min-width: 820px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.oos-table th, .oos-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oos-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.oos-table td { font-size: 13px; border-bottom: 1px solid var(--border); }
+.oos-table tbody tr:last-child td { border-bottom: none; }
+.oos-table td.num, .oos-table th.num { text-align: right; }
+/* the Product cell may have long titles — let it ellipsis cleanly */
+.oos-table td:nth-child(2) { white-space: normal; }
+
+/* View-options dropdown — was z:5, getting overlapped by the mouse-glow
+ * (z:0) and page elements. Bump it well above. Also make the bg fully
+ * opaque so it doesn't bleed through. */
+.view-options-form {
+  z-index: 100 !important;
+  background: var(--panel) !important;
+  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.55) !important;
+}
+[data-theme="light"] .view-options-form {
+  box-shadow: 0 24px 60px -16px rgba(20, 25, 40, 0.18) !important;
+}
 
 /* AI collection suggestions */
 .suggestion-grid {

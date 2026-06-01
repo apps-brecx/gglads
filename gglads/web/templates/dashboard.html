@@ -317,19 +317,29 @@
 <section class="panel">
   <div class="panel-head">
     <h2>Channel scope</h2>
-    <span class="conn-desc">What's being counted in every product-level sales number</span>
+    <div class="page-actions" style="margin:0;">
+      <form method="post" action="/products/sync/sales" class="inline-form"
+            onsubmit="return confirm('Re-pull the last 90d of orders from Shopify and re-aggregate per-product totals with the channel filter applied?');">
+        <button type="submit" class="btn-primary" style="font-size:12px;">Re-sync sales now</button>
+      </form>
+    </div>
   </div>
   <p class="conn-desc" style="margin:0 0 10px;">
-    Tracked: {% for ch in tracked_channels %}<span class="channel-scope-pill" style="margin-right:6px;">{{ ch }}</span>{% endfor %}
+    Counted: {% for ch in tracked_channels %}<span class="channel-scope-pill" style="margin-right:6px;">{{ ch }}</span>{% endfor %}
     — anything else (Faire, Temu, POS, third-party apps) is dropped at ingest and never reaches per-product totals, the dashboard, the OOS list, or the keyword pages.
   </p>
   {% if last_sales_run_detail %}
-  <details>
-    <summary class="muted-link" style="cursor:pointer;font-size:12px;">Last sales sync — full breakdown</summary>
-    <pre style="margin-top:8px;font-size:11px;background:var(--bg-input);padding:10px;border-radius:8px;overflow:auto;white-space:pre-wrap;">{{ last_sales_run_detail }}</pre>
-  </details>
+  <div style="margin-top:6px;">
+    <div class="conn-desc" style="font-size:11px;margin-bottom:4px;">Last sales sync ran with this result:</div>
+    <pre style="margin:0;font-size:11px;background:var(--bg-input);padding:10px;border-radius:8px;overflow:auto;white-space:pre-wrap;">{{ last_sales_run_detail }}</pre>
+    <p class="conn-desc" style="margin-top:6px;font-size:11px;">
+      The "Dropped channels" line above lists every <code>sourceName</code> we filtered out and the count for each.
+      If you see a third-party channel here, those orders were excluded from every per-product number you see in the app.
+      If product totals look too high, click <strong>Re-sync sales now</strong> above — old aggregates (from before the filter was added) get fully reset and re-computed.
+    </p>
+  </div>
   {% else %}
-  <span class="conn-desc">No sales sync has run yet — kick one with the <strong>Sync now → Sales only</strong> button on the products page.</span>
+  <span class="conn-desc">No sales sync has run yet — kick one with the <strong>Re-sync sales now</strong> button above.</span>
   {% endif %}
 </section>
 

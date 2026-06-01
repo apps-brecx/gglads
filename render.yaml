@@ -43,7 +43,10 @@ services:
       - key: AUTONOMOUS_MODE
         sync: false
 
-  # 16:00 UTC — sales only (orders + today's snapshot). Much faster.
+  # 16:00 UTC — second full sync of the day (catalog + orders + snapshot).
+  # Inventory refreshes twice a day so OOS state never lags more than ~12h.
+  # (The script file is still named shopify_sync_sales for backwards-compat
+  # with the render.yaml entry name — but it now runs a full sync.)
   - type: cron
     name: gglads-shopify-sales
     runtime: python

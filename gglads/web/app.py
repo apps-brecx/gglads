@@ -1702,6 +1702,7 @@ _SYNC_FN_BY_KIND = {
     "catalog": shopify_svc.sync_catalog_only,
     "sales": shopify_svc.sync_sales_only,
     "inventory": shopify_svc.sync_inventory_only,
+    "stock": shopify_svc.sync_stock_refresh,
 }
 
 

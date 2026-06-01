@@ -1,7 +1,11 @@
-"""Sales-only Shopify sync (orders + today's inventory snapshot).
+"""Second-of-the-day full Shopify sync.
 
-Run by a Render Cron Job a second time per day, between the full-sync runs.
-Much faster than the full sync because it skips the catalog phases.
+Originally called sync_sales_only — but sales-only does NOT refresh
+total_inventory, so the OOS state could be 24h stale until the morning
+catalog sync. Bumped to sync_full so inventory really does refresh
+twice a day (matching what the OOS page promises).
+
+Filename kept for render.yaml back-compat.
 """
 
 from __future__ import annotations
@@ -23,12 +27,12 @@ def main() -> int:
     SessionLocal = get_sessionmaker()
     db = SessionLocal()
     try:
-        logger.info("Starting Shopify sales-only sync")
-        ok, detail, stats = shopify_svc.sync_sales_only(db)
+        logger.info("Starting Shopify second-of-day full sync")
+        ok, detail, stats = shopify_svc.sync_full(db)
         if ok:
-            logger.info("Sales sync succeeded: %s | stats=%s", detail, stats)
+            logger.info("Sync succeeded: %s | stats=%s", detail, stats)
             return 0
-        logger.error("Sales sync failed: %s", detail)
+        logger.error("Sync failed: %s", detail)
         return 1
     finally:
         db.close()

@@ -37,6 +37,21 @@
       <button type="submit" class="btn-primary">Research keywords for all products</button>
     </form>
     {% endif %}
+    <details class="sync-menu">
+      <summary class="btn-ghost">Download CSV ▾</summary>
+      <div class="sync-menu-pop">
+        <a class="sync-menu-item"
+           href="/products/export.csv?{% if query %}q={{ query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if collection_filter %}collection={{ collection_filter }}&{% endif %}{% if channel_filter %}channel={{ channel_filter }}&{% endif %}{% if include_drafts %}include_drafts=1&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}">
+          <span>This view ({{ listing.total or items|length }} rows)</span>
+          <span class="conn-desc">Respects every active filter and the draft / ignored toggles.</span>
+        </a>
+        <a class="sync-menu-item"
+           href="/products/export.csv?include_drafts=1&include_ignored=1">
+          <span>Every product (all statuses)</span>
+          <span class="conn-desc">All {{ total_count }} products including drafts and ignored. No other filters.</span>
+        </a>
+      </div>
+    </details>
     <form method="post" action="/products/sync" class="inline-form">
       <button type="submit" class="btn-ghost">Sync now</button>
     </form>

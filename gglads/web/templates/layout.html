@@ -70,6 +70,18 @@
         </div>
 
         <div class="nav-section">
+          <div class="nav-heading">Work</div>
+          <a href="/tasks/me" class="nav-item {% if active == 'tasks' %}is-active{% endif %}">
+            My tasks
+          </a>
+          {% if user.role == 'admin' %}
+          <a href="/reports/tasks" class="nav-item {% if active == 'reports' %}is-active{% endif %}">
+            Worker report
+          </a>
+          {% endif %}
+        </div>
+
+        <div class="nav-section">
           <div class="nav-heading">Decisions</div>
           <a href="/approvals" class="nav-item {% if active == 'approvals' %}is-active{% endif %}">
             Approvals

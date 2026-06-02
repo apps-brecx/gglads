@@ -1342,6 +1342,11 @@ def collection_detail(handle: str, request: Request, db: DbDep) -> Response:
     )
     page_url = collections_svc.page_url_for_collection(db, handle)
 
+    from gglads.services import tasks as tasks_svc
+    tasks = tasks_svc.tasks_for_entity(db, "collection", c.id)
+    task_progress = tasks_svc.progress_summary(db, "collection", c.id)
+    workers = tasks_svc.list_active_users(db)
+
     return templates.TemplateResponse(
         request,
         "collection_detail.html",
@@ -1354,6 +1359,10 @@ def collection_detail(handle: str, request: Request, db: DbDep) -> Response:
             "product_rows": product_rows,
             "organic_rows": organic_rows or [],
             "organic_err": organic_err,
+            "tasks": tasks,
+            "task_progress": task_progress,
+            "workers": workers,
+            "task_types": tasks_svc.COLLECTION_TASK_TYPES,
             "flashes": _consume_flashes(request),
         },
     )
@@ -2018,6 +2027,10 @@ def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     _p, product = _load_product_context(db, product_id)
+    from gglads.services import tasks as tasks_svc
+    tasks = tasks_svc.tasks_for_entity(db, "product", product_id)
+    progress = tasks_svc.progress_summary(db, "product", product_id)
+    workers = tasks_svc.list_active_users(db)
     return templates.TemplateResponse(
         request,
         "product_overview.html",
@@ -2027,8 +2040,217 @@ def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
             "active": "products",
             "tab": "overview",
             "product": product,
+            "tasks": tasks,
+            "task_progress": progress,
+            "workers": workers,
+            "task_types": tasks_svc.PRODUCT_TASK_TYPES,
             "flashes": _consume_flashes(request),
             **_chat_ctx(request, db, product_id),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Worker tasks — done/undone, assign/unassign, admin report
+# ---------------------------------------------------------------------------
+
+def _allowed_entity_types() -> set[str]:
+    return {"product", "collection"}
+
+
+@app.post("/tasks/{entity_type}/{entity_id}/{task_slug}/done")
+async def task_mark_done(
+    entity_type: str, entity_id: int, task_slug: str, request: Request, db: DbDep,
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if entity_type not in _allowed_entity_types():
+        raise HTTPException(status_code=404)
+    from gglads.services import tasks as tasks_svc
+    form = await request.form()
+    notes = (form.get("notes") or "").strip() or None
+    ok, detail = tasks_svc.mark_done(
+        db, entity_type, entity_id, task_slug, user.id, notes=notes
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/tasks/{entity_type}/{entity_id}/{task_slug}/undone")
+def task_mark_undone(
+    entity_type: str, entity_id: int, task_slug: str, request: Request, db: DbDep,
+) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    if entity_type not in _allowed_entity_types():
+        raise HTTPException(status_code=404)
+    from gglads.services import tasks as tasks_svc
+    ok, detail = tasks_svc.mark_undone(db, entity_type, entity_id, task_slug)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/tasks/{entity_type}/{entity_id}/{task_slug}/assign")
+async def task_assign(
+    entity_type: str, entity_id: int, task_slug: str, request: Request, db: DbDep,
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    if entity_type not in _allowed_entity_types():
+        raise HTTPException(status_code=404)
+    from gglads.services import tasks as tasks_svc
+    form = await request.form()
+    try:
+        assignee_id = int(form.get("assignee") or 0)
+    except (TypeError, ValueError):
+        assignee_id = 0
+    if not assignee_id:
+        ok, detail = tasks_svc.unassign(db, entity_type, entity_id, task_slug)
+    else:
+        ok, detail = tasks_svc.assign(
+            db, entity_type, entity_id, task_slug, assignee_id, user.id
+        )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/tasks/bulk-assign")
+async def task_bulk_assign(request: Request, db: DbDep) -> Response:
+    """Pick a worker, a task slug, and a list of entity IDs — assign all in one go."""
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import tasks as tasks_svc
+    form = await request.form()
+    entity_type = (form.get("entity_type") or "").strip()
+    if entity_type not in _allowed_entity_types():
+        _flash(request, "Pick product or collection.", "error")
+        return RedirectResponse("/reports/tasks", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        assignee_id = int(form.get("assignee") or 0)
+    except (TypeError, ValueError):
+        assignee_id = 0
+    if not assignee_id:
+        _flash(request, "Pick a worker.", "error")
+        return RedirectResponse("/reports/tasks", status_code=status.HTTP_303_SEE_OTHER)
+    raw_ids = form.getlist("entity_id")
+    entity_ids: list[int] = []
+    for v in raw_ids:
+        try:
+            entity_ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    slugs = form.getlist("task_slug")
+    ok, detail, _ = tasks_svc.bulk_assign(
+        db, entity_type, entity_ids, slugs, assignee_id, user.id
+    )
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", "/reports/tasks"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/tasks/me", response_class=HTMLResponse)
+def tasks_my(request: Request, db: DbDep) -> Response:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    from gglads.services import tasks as tasks_svc
+    rows = tasks_svc.my_assigned_open(db, user.id)
+    return templates.TemplateResponse(
+        request,
+        "tasks_my.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "tasks",
+            "rows": rows,
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.get("/reports/tasks", response_class=HTMLResponse)
+def tasks_report(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import tasks as tasks_svc
+
+    days_param = request.query_params.get("days") or "30"
+    try:
+        days = max(1, min(int(days_param), 365))
+    except ValueError:
+        days = 30
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    user_id_filter = request.query_params.get("worker") or ""
+    user_id_int: int | None = None
+    try:
+        user_id_int = int(user_id_filter) if user_id_filter else None
+    except ValueError:
+        user_id_int = None
+    entity_type_filter = request.query_params.get("entity_type") or None
+    if entity_type_filter not in (None, "product", "collection"):
+        entity_type_filter = None
+    task_slug_filter = request.query_params.get("task_slug") or None
+
+    activity = tasks_svc.per_user_completed(
+        db,
+        user_id=user_id_int,
+        entity_type=entity_type_filter,
+        task_slug=task_slug_filter,
+        since=since,
+        limit=200,
+    )
+    per_user = tasks_svc.per_user_summary(db, since=since)
+    summary = tasks_svc.open_tasks_summary(db)
+    open_by_slug_product = tasks_svc.per_slug_open_counts(db, "product")
+    open_by_slug_collection = tasks_svc.per_slug_open_counts(db, "collection")
+    workers = tasks_svc.list_active_users(db)
+
+    # Lists of entities missing each task slug — for "assign me X products" UI.
+    missing_lists: dict[str, list[dict]] = {}
+    et = entity_type_filter or "product"
+    if task_slug_filter:
+        missing_lists[task_slug_filter] = tasks_svc.entities_missing_task(
+            db, et, task_slug_filter, limit=200, skip_assigned=True,
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "tasks_report.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "reports",
+            "days": days,
+            "activity": activity,
+            "per_user": per_user,
+            "summary": summary,
+            "open_by_slug_product": open_by_slug_product,
+            "open_by_slug_collection": open_by_slug_collection,
+            "product_task_types": tasks_svc.PRODUCT_TASK_TYPES,
+            "collection_task_types": tasks_svc.COLLECTION_TASK_TYPES,
+            "workers": workers,
+            "user_id_filter": user_id_filter,
+            "entity_type_filter": entity_type_filter or "",
+            "task_slug_filter": task_slug_filter or "",
+            "missing_lists": missing_lists,
+            "flashes": _consume_flashes(request),
         },
     )
 

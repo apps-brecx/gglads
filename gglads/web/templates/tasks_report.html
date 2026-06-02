@@ -1,0 +1,236 @@
+{% extends "layout.html" %}
+
+{% block title %}Task report — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Worker tasks · report</h1>
+    <p class="page-subtitle">
+      Who's doing what on which product / collection.
+      Last {{ days }} days of activity.
+    </p>
+  </div>
+  <div class="page-actions">
+    <form method="get" class="period-form">
+      <input type="hidden" name="worker" value="{{ user_id_filter }}" />
+      <input type="hidden" name="entity_type" value="{{ entity_type_filter }}" />
+      <input type="hidden" name="task_slug" value="{{ task_slug_filter }}" />
+      <div class="seg-group">
+        {% for d in [7, 30, 90] %}
+        <button type="submit" name="days" value="{{ d }}"
+                class="seg-btn {{ 'is-active' if days == d }}">{{ d }}d</button>
+        {% endfor %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<!-- Coverage KPIs -->
+<section class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-label">Products</div>
+    <div class="kpi-value">{{ summary.product.done }} / {{ summary.product.expected }}</div>
+    <div class="kpi-foot">
+      <span class="conn-desc">{{ summary.product.entities }} products × {{ product_task_types|length }} tasks · {{ summary.product.open }} still open</span>
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Collections</div>
+    <div class="kpi-value">{{ summary.collection.done }} / {{ summary.collection.expected }}</div>
+    <div class="kpi-foot">
+      <span class="conn-desc">{{ summary.collection.entities }} collections × {{ collection_task_types|length }} tasks · {{ summary.collection.open }} still open</span>
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Active workers</div>
+    <div class="kpi-value">{{ per_user|length }}</div>
+    <div class="kpi-foot">
+      <span class="conn-desc">Anyone who's marked at least one task done in the window</span>
+    </div>
+  </div>
+</section>
+
+<!-- Filter row -->
+<section class="panel filter-bar">
+  <form method="get" class="filter-form" style="grid-template-columns:1fr 1fr 1fr 1fr auto;">
+    <input type="hidden" name="days" value="{{ days }}" />
+    <select name="worker" class="filter-select">
+      <option value="">All workers</option>
+      {% for w in workers %}
+      <option value="{{ w.id }}" {{ 'selected' if user_id_filter == w.id|string }}>{{ w.label }}</option>
+      {% endfor %}
+    </select>
+    <select name="entity_type" class="filter-select">
+      <option value="" {{ 'selected' if not entity_type_filter }}>Products + collections</option>
+      <option value="product" {{ 'selected' if entity_type_filter == 'product' }}>Products only</option>
+      <option value="collection" {{ 'selected' if entity_type_filter == 'collection' }}>Collections only</option>
+    </select>
+    <select name="task_slug" class="filter-select">
+      <option value="">All task types</option>
+      <optgroup label="Product tasks">
+        {% for slug, label in product_task_types %}
+        <option value="{{ slug }}" {{ 'selected' if task_slug_filter == slug }}>{{ label }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Collection tasks">
+        {% for slug, label in collection_task_types %}
+        <option value="{{ slug }}" {{ 'selected' if task_slug_filter == slug }}>{{ label }}</option>
+        {% endfor %}
+      </optgroup>
+    </select>
+    <span></span>
+    <button type="submit" class="btn-ghost">Apply</button>
+  </form>
+</section>
+
+<section class="two-col">
+  <div class="panel">
+    <div class="panel-head"><h2>Per-worker rollup</h2></div>
+    {% if per_user %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Worker</th>
+          <th class="num">Done · last {{ days }}d</th>
+          <th>Last done</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in per_user %}
+        <tr>
+          <td><a href="?worker={{ r.user_id }}&days={{ days }}" class="muted-link">{{ r.user_label }}</a></td>
+          <td class="num">{{ r.done_count }}</td>
+          <td>{% if r.last_done_at %}{{ r.last_done_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No completions in this window.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Activity feed</h2></div>
+    {% if activity %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Who</th>
+          <th>What</th>
+          <th>On</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in activity %}
+        <tr>
+          <td>{{ a.completed_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ a.completed_by_name }}</td>
+          <td>{{ a.task_label }}</td>
+          <td>
+            <a href="{{ a.entity_url }}" class="muted-link">{{ a.entity_title }}</a>
+            <span class="conn-desc">· {{ a.entity_type }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:16px 0;">
+      <p>No activity matches the current filters.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Open work + bulk-assign -->
+<section class="panel">
+  <div class="panel-head">
+    <h2>What's still open</h2>
+    <span class="conn-desc">Click a task type to see which entities haven't had it marked done.</span>
+  </div>
+  <div class="src-grid">
+    {% for slug, label in product_task_types %}
+    <a href="?entity_type=product&task_slug={{ slug }}&days={{ days }}"
+       class="src-card {{ 'src-on' if task_slug_filter == slug and entity_type_filter == 'product' else 'src-off' }}">
+      <div class="src-title">{{ label }}</div>
+      <div class="src-desc">{{ open_by_slug_product.get(slug, 0) }} product(s) still open</div>
+    </a>
+    {% endfor %}
+    {% for slug, label in collection_task_types %}
+    <a href="?entity_type=collection&task_slug={{ slug }}&days={{ days }}"
+       class="src-card {{ 'src-on' if task_slug_filter == slug and entity_type_filter == 'collection' else 'src-off' }}">
+      <div class="src-title">{{ label }} (collections)</div>
+      <div class="src-desc">{{ open_by_slug_collection.get(slug, 0) }} collection(s) still open</div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if task_slug_filter and entity_type_filter %}
+  {% set list_rows = missing_lists.get(task_slug_filter, []) %}
+  <div class="panel-head" style="margin-top:18px;">
+    <h2 style="font-size:13px;">
+      {{ list_rows|length }} {{ entity_type_filter }}(s) without "{{ task_slug_filter }}"
+      <span class="conn-desc">(unassigned ones only — assigned tasks live with the worker)</span>
+    </h2>
+  </div>
+  {% if list_rows %}
+  <form method="post" action="/tasks/bulk-assign" id="bulk-assign-form" class="bulk-bar">
+    <input type="hidden" name="entity_type" value="{{ entity_type_filter }}" />
+    <input type="hidden" name="task_slug" value="{{ task_slug_filter }}" />
+    <span class="bulk-bar-label">
+      Bulk: <span id="bulk-count">0</span> selected
+      <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all ({{ list_rows|length }})</button>
+      <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+    </span>
+    <div class="bulk-bar-controls">
+      <select name="assignee" required class="filter-select">
+        <option value="">— pick worker —</option>
+        {% for w in workers %}<option value="{{ w.id }}">{{ w.label }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn-primary">Assign selected</button>
+    </div>
+  </form>
+  <section class="panel" style="padding:0;overflow:visible;">
+    <table class="data-table">
+      <thead><tr><th style="width:36px"></th><th>Title</th></tr></thead>
+      <tbody>
+        {% for r in list_rows %}
+        <tr>
+          <td>
+            <input type="checkbox" name="entity_id" value="{{ r.id }}"
+                   form="bulk-assign-form" class="bulk-assign-cb" />
+          </td>
+          <td><a href="{{ r.url }}" class="muted-link">{{ r.title }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <script>
+    (function() {
+      const cbs = document.querySelectorAll('.bulk-assign-cb');
+      const count = document.getElementById('bulk-count');
+      const selectAll = document.getElementById('bulk-select-page');
+      const clearBtn = document.getElementById('bulk-clear');
+      function refresh() { count.textContent = String(document.querySelectorAll('.bulk-assign-cb:checked').length); }
+      cbs.forEach(cb => cb.addEventListener('change', refresh));
+      if (selectAll) selectAll.addEventListener('click', e => { e.preventDefault(); cbs.forEach(cb => cb.checked = true); refresh(); });
+      if (clearBtn) clearBtn.addEventListener('click', e => { e.preventDefault(); cbs.forEach(cb => cb.checked = false); refresh(); });
+      refresh();
+    })();
+  </script>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

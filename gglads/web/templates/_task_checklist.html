@@ -1,0 +1,100 @@
+{# Reusable task-checklist panel for a product or collection.
+   Args:
+     entity_type  — 'product' | 'collection'
+     entity_id    — bigint id (product_id, or collection.id)
+     tasks        — dict[slug → {label, is_done, is_assigned, completed_at,
+                                 completed_by_name, assigned_to_name, ...}]
+     task_types   — list[(slug, label)] in display order
+     progress     — {expected, done, open, pct}
+     workers      — list of {id, label} for the assignee dropdown
+     current_user — caller's user object (for who-is-acting)
+#}
+{% macro task_checklist(entity_type, entity_id, tasks, task_types, progress, workers, current_user) %}
+<section class="panel task-panel">
+  <div class="panel-head">
+    <div>
+      <h2>SEO &amp; Ads tasks</h2>
+      <p class="conn-desc" style="margin:4px 0 0;">
+        {{ progress.done }} of {{ progress.expected }} done · {{ progress.pct }}%
+      </p>
+    </div>
+    <div class="task-progress">
+      <div class="task-progress-bar">
+        <div class="task-progress-fill" style="width:{{ progress.pct }}%"></div>
+      </div>
+    </div>
+  </div>
+  <table class="data-table task-table">
+    <colgroup>
+      <col style="width:40px" />
+      <col />
+      <col style="width:180px" />
+      <col style="width:180px" />
+      <col style="width:90px" />
+    </colgroup>
+    <thead>
+      <tr>
+        <th></th>
+        <th>Task</th>
+        <th>Done by</th>
+        <th>Assigned to</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for slug, label in task_types %}
+      {% set t = tasks[slug] %}
+      <tr class="{{ 'is-done' if t.is_done }}">
+        <td>
+          {% if t.is_done %}
+          <form method="post" action="/tasks/{{ entity_type }}/{{ entity_id }}/{{ slug }}/undone" class="inline-form">
+            <button type="submit" class="task-check task-check-on"
+                    title="Mark {{ label }} as not done">✓</button>
+          </form>
+          {% else %}
+          <form method="post" action="/tasks/{{ entity_type }}/{{ entity_id }}/{{ slug }}/done" class="inline-form">
+            <button type="submit" class="task-check task-check-off"
+                    title="Mark {{ label }} as done by you"></button>
+          </form>
+          {% endif %}
+        </td>
+        <td>
+          <strong>{{ label }}</strong>
+          {% if t.notes %}<div class="conn-desc" style="font-size:11px;">{{ t.notes }}</div>{% endif %}
+        </td>
+        <td>
+          {% if t.is_done %}
+          <span>{{ t.completed_by_name }}</span><br>
+          <span class="conn-desc" style="font-size:11px;">{{ t.completed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+          {% else %}<span class="conn-desc">—</span>{% endif %}
+        </td>
+        <td>
+          {% if current_user.role == 'admin' %}
+          <form method="post" action="/tasks/{{ entity_type }}/{{ entity_id }}/{{ slug }}/assign" class="inline-form">
+            <select name="assignee" onchange="this.form.submit()" class="filter-select" style="font-size:12px;">
+              <option value="">— pick worker —</option>
+              {% for w in workers %}
+              <option value="{{ w.id }}" {{ 'selected' if t.assigned_to == w.id }}>{{ w.label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          {% if t.is_assigned %}
+          <div class="conn-desc" style="font-size:11px;margin-top:2px;">Assigned {{ t.assigned_at.strftime('%Y-%m-%d') if t.assigned_at }}</div>
+          {% endif %}
+          {% else %}
+          {% if t.is_assigned %}
+          <span>{{ t.assigned_to_name }}</span>
+          {% else %}<span class="conn-desc">—</span>{% endif %}
+          {% endif %}
+        </td>
+        <td class="num">
+          {% if t.is_assigned and t.assigned_to == current_user.id and not t.is_done %}
+          <span class="pill pill-warn">your task</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endmacro %}

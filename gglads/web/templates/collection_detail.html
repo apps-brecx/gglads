@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from "_task_checklist.html" import task_checklist %}
 
 {% block title %}{{ collection.title }} — Collection — gglads{% endblock %}
 
@@ -69,6 +70,8 @@
     </div>
   </form>
 </section>
+
+{{ task_checklist('collection', collection.id, tasks, task_types, task_progress, workers, user) }}
 
 <section class="two-col dash-two">
   <div class="panel">

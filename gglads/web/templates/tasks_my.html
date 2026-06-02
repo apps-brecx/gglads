@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+
+{% block title %}My tasks — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">My open tasks</h1>
+    <p class="page-subtitle">
+      Things assigned to you that aren't marked done yet. Click any row to jump to the product or collection and tick it off.
+    </p>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+{% if not rows %}
+<section class="panel">
+  <div class="empty-state" style="padding:32px 4px;">
+    <p><strong>Nothing assigned to you.</strong></p>
+    <p class="empty-sub">When an admin assigns work, it'll appear here.</p>
+  </div>
+</section>
+{% else %}
+<section class="panel" style="padding:0;overflow:visible;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>What</th>
+        <th>On</th>
+        <th>Assigned</th>
+        <th class="actions-col">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><strong>{{ r.task_label }}</strong></td>
+        <td>
+          <a href="{{ r.entity_url }}" class="muted-link">{{ r.entity_title }}</a>
+          <span class="conn-desc">· {{ r.entity_type }}</span>
+        </td>
+        <td>
+          {% if r.assigned_at %}{{ r.assigned_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}
+        </td>
+        <td class="actions-col">
+          <form method="post" action="/tasks/{{ r.entity_type }}/{{ r.entity_id }}/{{ r.task_slug }}/done"
+                class="inline-form">
+            <button type="submit" class="btn-primary" style="font-size:12px;">Mark done</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

@@ -967,6 +967,58 @@ a.chip.chip-on {
 }
 .channel-scope-pill:hover { transform: translateY(-1px); }
 
+/* SEO/Ads worker task checklist */
+.task-panel .panel-head { align-items: center; }
+.task-progress { display: flex; align-items: center; gap: 10px; min-width: 180px; }
+.task-progress-bar {
+  width: 160px; height: 6px;
+  background: var(--bg-hover);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.task-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--ok));
+  border-radius: 999px;
+  transition: width var(--motion-slow) var(--easing);
+}
+.task-table tr.is-done { opacity: 0.78; }
+.task-table tr.is-done td:nth-child(2) strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.task-check {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-input);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--motion-fast) var(--easing);
+}
+.task-check-off:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  transform: scale(1.06);
+}
+.task-check-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--btn-primary-text);
+}
+.task-check-on:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: var(--fail);
+  color: var(--fail);
+}
+
 /* ----------  reduced-motion: respect user preference  ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

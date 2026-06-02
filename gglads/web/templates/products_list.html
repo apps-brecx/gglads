@@ -186,10 +186,41 @@
   </div>
 </section>
 
-{% elif view == 'grid' %}
+{% else %}
+
+{# Bulk assign bar — collects checked product IDs from the cards/rows below
+   and submits them with a worker + task picker. Admin only. #}
+{% if user.role == 'admin' %}
+<form method="post" action="/tasks/bulk-assign" id="prod-bulk-assign-form" class="bulk-bar">
+  <input type="hidden" name="entity_type" value="product" />
+  <span class="bulk-bar-label">
+    Bulk assign: <span id="prod-bulk-count">0</span> selected
+    <button type="button" id="prod-bulk-select-all" class="muted-link" style="font-size:11px;margin-left:6px;">select all on page ({{ items|length }})</button>
+    <button type="button" id="prod-bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+  </span>
+  <div class="bulk-bar-controls">
+    <select name="assignee" required class="filter-select" style="font-size:12px;">
+      <option value="">— worker —</option>
+      {% for w in workers %}<option value="{{ w.id }}">{{ w.label }}</option>{% endfor %}
+    </select>
+    <select name="task_slug" required class="filter-select" style="font-size:12px;" multiple size="3"
+            title="Hold Ctrl/Cmd to pick multiple task types">
+      {% for slug, label in product_task_types %}<option value="{{ slug }}">{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn-primary">Assign to worker</button>
+  </div>
+</form>
+{% endif %}
+
+{% if view == 'grid' %}
 <div class="product-grid">
   {% for p in items %}
   <a href="/products/{{ p.id }}" class="product-card">
+    {% if user.role == 'admin' %}
+    <label class="product-card-pick" onclick="event.stopPropagation();">
+      <input type="checkbox" class="prod-bulk-cb" value="{{ p.id }}" />
+    </label>
+    {% endif %}
     {% if 'image' in cols %}
     <div class="product-thumb">
       {% if p.image_url %}
@@ -250,6 +281,7 @@
   <table class="data-table products-table">
     <thead>
       <tr>
+        {% if user.role == 'admin' %}<th style="width:36px"></th>{% endif %}
         {% if 'image' in cols %}<th class="thumb-col"></th>{% endif %}
         {{ sort_th("Title", "title", listing.sort, listing.direction, listing.qs_no_sort) }}
         {% if 'price' in cols %}<th class="num">Price</th>{% endif %}
@@ -269,6 +301,11 @@
     <tbody>
       {% for p in items %}
       <tr onclick="window.location='/products/{{ p.id }}'" class="{{ 'is-ignored' if p.is_ignored }}">
+        {% if user.role == 'admin' %}
+        <td onclick="event.stopPropagation();">
+          <input type="checkbox" class="prod-bulk-cb" value="{{ p.id }}" />
+        </td>
+        {% endif %}
         {% if 'image' in cols %}
         <td class="thumb-col">
           <div class="thumb-sm">
@@ -318,9 +355,78 @@
     </tbody>
   </table>
 </section>
-{% endif %}
+{% endif %}{# end view-branch #}
+
+{% endif %}{# end if not items #}
 
 {% if items and listing and listing.total_pages is defined %}
   {{ pagination(listing.page, listing.total_pages, listing.total, listing.per_page, listing.qs_no_page) }}
+{% endif %}
+
+{% if user.role == 'admin' and items %}
+<script>
+  (function() {
+    // Per-card / per-row checkboxes for bulk assign. Cards (grid view) and
+    // rows (list view) both get a `data-product-id` attribute below; clicking
+    // anywhere on them STILL navigates to the product. The checkbox itself
+    // stops propagation so toggling doesn't navigate.
+    const form = document.getElementById('prod-bulk-assign-form');
+    const countEl = document.getElementById('prod-bulk-count');
+    const selectAllBtn = document.getElementById('prod-bulk-select-all');
+    const clearBtn = document.getElementById('prod-bulk-clear');
+    const checkboxes = document.querySelectorAll('.prod-bulk-cb');
+    function refresh() {
+      countEl.textContent = String(
+        document.querySelectorAll('.prod-bulk-cb:checked').length
+      );
+    }
+    checkboxes.forEach(cb => {
+      cb.addEventListener('click', e => e.stopPropagation());
+      cb.addEventListener('change', refresh);
+    });
+    selectAllBtn && selectAllBtn.addEventListener('click', e => {
+      e.preventDefault();
+      checkboxes.forEach(cb => { cb.checked = true; });
+      refresh();
+    });
+    clearBtn && clearBtn.addEventListener('click', e => {
+      e.preventDefault();
+      checkboxes.forEach(cb => { cb.checked = false; });
+      refresh();
+    });
+    form && form.addEventListener('submit', e => {
+      // Strip any prior hidden entity_id inputs and add fresh ones for every
+      // checked checkbox at submit time.
+      form.querySelectorAll('input[type=hidden][name=entity_id]').forEach(n => n.remove());
+      const picked = document.querySelectorAll('.prod-bulk-cb:checked');
+      if (picked.length === 0) {
+        alert('Pick at least one product first.');
+        e.preventDefault();
+        return;
+      }
+      const assignee = form.querySelector('select[name=assignee]');
+      if (!assignee || !assignee.value) {
+        alert('Pick a worker.');
+        e.preventDefault();
+        return;
+      }
+      const slugSelect = form.querySelector('select[name=task_slug]');
+      const hasSlug = Array.from(slugSelect.options).some(o => o.selected);
+      if (!hasSlug) {
+        alert('Pick at least one task type.');
+        e.preventDefault();
+        return;
+      }
+      picked.forEach(cb => {
+        const h = document.createElement('input');
+        h.type = 'hidden';
+        h.name = 'entity_id';
+        h.value = cb.value;
+        form.appendChild(h);
+      });
+    });
+    refresh();
+  })();
+</script>
 {% endif %}
 {% endblock %}

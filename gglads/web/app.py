@@ -1045,11 +1045,15 @@ def _render_products_list(
             ShopifyProduct.is_ignored.is_(True)
         )
     ) or 0
+    from gglads.services import tasks as tasks_svc
+    workers = tasks_svc.list_active_users(db)
 
     return templates.TemplateResponse(
         request,
         "products_list.html",
         {
+            "workers": workers,
+            "product_task_types": tasks_svc.PRODUCT_TASK_TYPES,
             "version": __version__,
             "user": user,
             "active": "products",
@@ -2027,10 +2031,6 @@ def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     _p, product = _load_product_context(db, product_id)
-    from gglads.services import tasks as tasks_svc
-    tasks = tasks_svc.tasks_for_entity(db, "product", product_id)
-    progress = tasks_svc.progress_summary(db, "product", product_id)
-    workers = tasks_svc.list_active_users(db)
     return templates.TemplateResponse(
         request,
         "product_overview.html",
@@ -2040,9 +2040,32 @@ def product_overview(product_id: int, request: Request, db: DbDep) -> Response:
             "active": "products",
             "tab": "overview",
             "product": product,
-            "tasks": tasks,
-            "task_progress": progress,
-            "workers": workers,
+            "flashes": _consume_flashes(request),
+            **_chat_ctx(request, db, product_id),
+        },
+    )
+
+
+@app.get("/products/{product_id}/tasks", response_class=HTMLResponse)
+def product_tasks(product_id: int, request: Request, db: DbDep) -> Response:
+    """Dedicated Tasks sub-tab — the worker checklist for this product."""
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    _p, product = _load_product_context(db, product_id)
+    from gglads.services import tasks as tasks_svc
+    return templates.TemplateResponse(
+        request,
+        "product_tasks.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "products",
+            "tab": "tasks",
+            "product": product,
+            "tasks": tasks_svc.tasks_for_entity(db, "product", product_id),
+            "task_progress": tasks_svc.progress_summary(db, "product", product_id),
+            "workers": tasks_svc.list_active_users(db),
             "task_types": tasks_svc.PRODUCT_TASK_TYPES,
             "flashes": _consume_flashes(request),
             **_chat_ctx(request, db, product_id),

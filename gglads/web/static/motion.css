@@ -967,6 +967,30 @@ a.chip.chip-on {
 }
 .channel-scope-pill:hover { transform: translateY(-1px); }
 
+/* Bulk-assign checkbox overlaid on a product card (grid view). */
+.product-card { position: relative; }
+.product-card-pick {
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 4;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  transition: transform var(--motion-fast) var(--easing),
+              border-color var(--motion-fast) var(--easing);
+}
+.product-card-pick:hover {
+  transform: scale(1.06);
+  border-color: var(--accent);
+}
+.product-card-pick input { margin: 0; cursor: pointer; }
+
 /* SEO/Ads worker task checklist */
 .task-panel .panel-head { align-items: center; }
 .task-progress { display: flex; align-items: center; gap: 10px; min-width: 180px; }

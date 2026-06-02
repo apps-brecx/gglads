@@ -1,0 +1,6 @@
+{% extends "product_layout.html" %}
+{% from "_task_checklist.html" import task_checklist %}
+
+{% block product_content %}
+{{ task_checklist('product', product.id, tasks, task_types, task_progress, workers, user) }}
+{% endblock %}

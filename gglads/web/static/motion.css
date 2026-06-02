@@ -157,7 +157,11 @@ details > summary, .product-tab, .product-tab-link,
 /* ----------  cards / panels  ---------- */
 .card, .panel {
   position: relative;
-  overflow: hidden;
+  /* NB: NO overflow:hidden here. Several pages use position:sticky inside
+   * panels (the keyword-rank table pins its first column) and sticky
+   * stops working when an ancestor clips overflow. The diagonal sheen
+   * pseudo-element below is `inset: 0` so it stays within the panel
+   * anyway — clipping isn't needed. */
 }
 .card::after, .panel::after {
   content: "";

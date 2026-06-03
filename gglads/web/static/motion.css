@@ -1100,6 +1100,76 @@ a.chip.chip-on {
   gap: 4px;
 }
 
+/* ============================================================================
+ * Products list table — column alignment + status badges
+ * Locks down column widths and alignment so headers/data always line up.
+ * ============================================================================ */
+.products-table {
+  width: 100%;
+  table-layout: auto;            /* let title col grow, others fixed via min-width */
+  border-collapse: collapse;
+}
+.products-table th,
+.products-table td {
+  vertical-align: middle;
+  white-space: nowrap;           /* no rogue wrapping; titles override below */
+  padding: 10px 12px;
+}
+.products-table th {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Right-align numeric columns BOTH header and body so PRICE / SOLD / etc.
+ * are visually aligned. text-align: right on the th's <a> too. */
+.products-table th.num,
+.products-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.products-table th.num a { display: inline-block; text-align: right; }
+
+/* Title cell — allow soft wrapping for long product names. */
+.products-table td:has(a.row-link) { white-space: normal; min-width: 280px; }
+
+/* Stock-days badges: enforced single row using flex+nowrap. */
+.stock-days-cell { min-width: 200px; }
+.stock-days-badges {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.stock-days-badges .tag {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 7px;
+}
+.tag.tag-in  { color: var(--ok);   border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.08); }
+.tag.tag-out { color: var(--fail); border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.08); }
+
+/* Explicit min-widths so each numeric column gets enough room and never
+ * gets squeezed by a wider neighbor. */
+.products-table .thumb-col { width: 56px; min-width: 56px; }
+.products-table th.num,
+.products-table td.num { min-width: 96px; }
+/* status column gets a comfortable width for the longest label ("ARCHIVED") */
+.products-table th:last-child,
+.products-table td:last-child { min-width: 100px; }
+
+/* Status column: badge stays inline-block in its own cell, never floats. */
+.products-table .product-status {
+  display: inline-block;
+  white-space: nowrap;
+  position: static !important;   /* defeat the grid-card absolute positioning */
+}
+
 /* Bulk-assign checkbox overlaid on a product card (grid view). */
 .product-card { position: relative; }
 .product-card-pick {

@@ -197,6 +197,33 @@ body, .app-body {
   border-color: rgba(239, 68, 68, 0.35);
   background: rgba(239, 68, 68, 0.06);
 }
+/* Small in-row action button — same shape, smaller hit area. Use for
+ * per-row "Apply", "AI suggest", "Push", "Remove" etc. so they don't
+ * shout louder than the surrounding primary actions. */
+.btn-primary.btn-sm,
+.btn-ghost.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+
+/* Position-pill for the Keywords/Ads tab Org-pos column. Color-coded by
+ * SERP-position bucket; renders as "#4.8" with a clear unit prefix. */
+.pos-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+}
+.pos-top3  { background: rgba(16, 185, 129, 0.18); color: var(--ok);   border-color: rgba(16, 185, 129, 0.30); }
+.pos-top10 { background: rgba(79, 70, 229, 0.14);  color: var(--accent); border-color: var(--accent-soft-border); }
+.pos-page1 { background: rgba(245, 158, 11, 0.16); color: var(--wait); border-color: rgba(245, 158, 11, 0.30); }
+.pos-deep  { background: var(--bg-hover);          color: var(--muted); border-color: var(--border); }
 
 /* ----------  global ease  ---------- */
 a, button, input, textarea, select,
@@ -384,6 +411,75 @@ details > summary, .product-tab, .product-tab-link,
 /* (old over-styled nav rules removed — superseded by the new icon-aware
  * block above. translateX hover, scaling badge, etc. all dropped to keep
  * the sidebar quiet and modern.) */
+
+/* ----------  tab bar (Overview / Images / SEO / Ads / etc.)  ---------- */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-4);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.tab-bar::-webkit-scrollbar { height: 4px; }
+.tab-bar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+
+.tab {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border-radius: 6px 6px 0 0;
+  transition: color var(--motion-fast) var(--easing),
+              background-color var(--motion-fast) var(--easing),
+              border-color var(--motion-fast) var(--easing);
+}
+.tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  border-bottom-width: 3px;
+  font-weight: 600;
+  background: var(--accent-soft);
+}
+
+/* ----------  channel chips on product overview (capped + +N more)  ---------- */
+.channel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.channel-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+  cursor: default;
+}
+.channel-chips:not(.expanded) .channel-chip.is-extra { display: none; }
+.channel-chip-more {
+  cursor: pointer;
+  color: var(--accent);
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.channel-chip-more:hover { background: var(--accent); color: var(--btn-primary-text); }
 
 /* Cards / panels — quiet hover (subtle elevation only). Standardized look
  * already set up top via the new design tokens. */

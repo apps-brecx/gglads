@@ -21,7 +21,17 @@
       <dt>Channels</dt>
       <dd>
         {% if product.channels %}
-          {% for ch in product.channels %}<span class="tag">{{ ch }}</span>{% endfor %}
+        <div class="channel-chips" data-total="{{ product.channels|length }}">
+          {% for ch in product.channels %}
+          <span class="channel-chip {{ 'is-extra' if loop.index0 >= 5 }}">{{ ch }}</span>
+          {% endfor %}
+          {% if product.channels|length > 5 %}
+          <button type="button" class="channel-chip channel-chip-more"
+                  onclick="this.parentElement.classList.add('expanded'); this.remove();">
+            +{{ product.channels|length - 5 }} more
+          </button>
+          {% endif %}
+        </div>
         {% else %}—{% endif %}
       </dd>
       <dt>Created</dt><dd>{{ product.created_at }}</dd>
@@ -34,31 +44,32 @@
   Sales numbers below count <span class="channel-scope-pill" title="Includes Online Store, Shop app, Faire, Temu, POS, and any third-party channel reported by Shopify">all Shopify channels</span>.
 </p>
 
-<section class="metric-row" style="grid-template-columns:repeat(5,1fr);">
-  <div class="metric">
-    <div class="metric-label">Units sold (90d)</div>
-    <div class="metric-value">{{ product.units_sold_90d }}</div>
+{# Standard KPI tiles — same component the Dashboard uses. #}
+<section class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-label">Units sold · 90d</div>
+    <div class="kpi-value">{{ '{:,}'.format(product.units_sold_90d or 0) }}</div>
   </div>
-  <div class="metric">
-    <div class="metric-label">Buyers (90d)</div>
-    <div class="metric-value">{{ product.unique_customers_90d }}</div>
+  <div class="kpi">
+    <div class="kpi-label">Buyers · 90d</div>
+    <div class="kpi-value">{{ '{:,}'.format(product.unique_customers_90d or 0) }}</div>
   </div>
-  <div class="metric metric-accent">
-    <div class="metric-label">Net sales (90d)</div>
-    <div class="metric-value">${{ product.net_sales_90d }}</div>
+  <div class="kpi">
+    <div class="kpi-label">Net sales · 90d</div>
+    <div class="kpi-value">${{ '{:,.2f}'.format((product.net_sales_90d or 0)|float) }}</div>
   </div>
-  <div class="metric">
-    <div class="metric-label">Last sale</div>
-    <div class="metric-value" style="font-size:18px;">{{ product.last_sale_at }}</div>
+  <div class="kpi">
+    <div class="kpi-label">Last sale</div>
+    <div class="kpi-value" style="font-size:18px;font-weight:600;">{{ product.last_sale_at or '—' }}</div>
   </div>
-  <div class="metric">
-    <div class="metric-label">Stock days (30d)</div>
-    <div class="metric-value" style="font-size:18px;">
+  <div class="kpi">
+    <div class="kpi-label">Stock days · 30d</div>
+    <div class="kpi-value" style="font-size:18px;font-weight:600;">
       {% if product.stock_total_days > 0 %}
         {{ product.stock_in_days }} in · {{ product.stock_out_days }} out
       {% else %}no data{% endif %}
     </div>
-    <div class="metric-foot">of {{ product.stock_total_days }} tracked</div>
+    <div class="kpi-foot"><span class="conn-desc">of {{ product.stock_total_days }} tracked</span></div>
   </div>
 </section>
 

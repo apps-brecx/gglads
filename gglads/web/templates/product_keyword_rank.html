@@ -130,8 +130,8 @@
   <form method="post" action="/products/{{ product.id }}/keywords/bulk-place" id="bulk-kw-form" class="bulk-bar">
     <span class="bulk-bar-label">
       Bulk: <span id="bulk-count">0</span> selected
-      <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all on page</button>
-      <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+      <button type="button" id="bulk-select-page" class="bulk-action">select all on page</button>
+      <button type="button" id="bulk-clear" class="bulk-action">clear</button>
     </span>
     <div class="bulk-bar-controls">
       <label class="bulk-bar-group">
@@ -255,7 +255,15 @@
           {% if 'source' in cols %}<td><span class="tag">{{ r.source_label }}</span></td>{% endif %}
           {% if 'volume' in cols %}<td class="num">{{ r.volume if r.volume else '—' }}</td>{% endif %}
           {% if 'competition' in cols %}<td>{% if r.competition %}<span class="tag tag-comp-{{ r.competition }}">{{ r.competition }}</span>{% else %}—{% endif %}</td>{% endif %}
-          {% if 'org_pos' in cols %}<td class="num">{{ '%.1f'|format(r.organic_position) if r.organic_position else '—' }}</td>{% endif %}
+          {% if 'org_pos' in cols %}
+          <td class="num" title="Average Google search position over the last 90 days (lower is better — #1 is the top result).">
+            {% if r.organic_position %}
+            <span class="pos-pill pos-{{ 'top3' if r.organic_position <= 3 else 'top10' if r.organic_position <= 10 else 'page1' if r.organic_position <= 20 else 'deep' }}">
+              #{{ '%.1f'|format(r.organic_position) }}
+            </span>
+            {% else %}—{% endif %}
+          </td>
+          {% endif %}
           {% if 'org_clicks' in cols %}<td class="num">{{ r.organic_clicks if r.organic_clicks else '—' }}</td>{% endif %}
           {% if 'org_impr' in cols %}<td class="num">{{ r.organic_impressions if r.organic_impressions else '—' }}</td>{% endif %}
           {% if 'cov_title' in cols %}<td class="cov-td">{{ cov(r.in_title) }}</td>{% endif %}
@@ -280,7 +288,7 @@
           {% endif %}
           <td class="actions-col">
             <details class="kw-actions-menu">
-              <summary class="btn-ghost" style="padding:4px 10px;font-size:12px;">Push ▾</summary>
+              <summary class="btn-ghost btn-sm">Push ▾</summary>
               <form method="post" action="/products/{{ product.id }}/keywords/{{ r.id }}/place" class="kw-place-form">
                 <div class="place-section">
                   <div class="place-label">Use in SEO</div>
@@ -298,8 +306,8 @@
                   <label><input type="radio" name="bucket" value="negative"  {{ 'checked' if r.bucket == 'negative' }}> Negative</label>
                 </div>
                 <div class="form-actions" style="margin-top:8px;">
-                  <button type="submit" formaction="/products/{{ product.id }}/keywords/{{ r.id }}/ai-suggest" class="btn-ghost" style="font-size:12px;">AI suggest</button>
-                  <button type="submit" class="btn-primary" style="font-size:12px;">Apply</button>
+                  <button type="submit" formaction="/products/{{ product.id }}/keywords/{{ r.id }}/ai-suggest" class="btn-ghost btn-sm">AI suggest</button>
+                  <button type="submit" class="btn-primary btn-sm">Apply</button>
                 </div>
               </form>
               {% if product_campaigns %}
@@ -321,7 +329,7 @@
                   </div>
                 </div>
                 <div class="form-actions" style="margin-top:8px;">
-                  <button type="submit" class="btn-primary" style="font-size:12px;">Push to campaign</button>
+                  <button type="submit" class="btn-primary btn-sm">Push to campaign</button>
                 </div>
               </form>
               {% endif %}

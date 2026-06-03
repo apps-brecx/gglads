@@ -1013,31 +1013,50 @@ a.chip.chip-on {
 }
 .channel-scope-pill:hover { transform: translateY(-1px); }
 
-/* Bulk-bar inline-action buttons (Select all / Clear). Were rendered with
- * `muted-link` which made them look like 90s underlined text. Now styled
- * as compact tonal buttons matching the rest of the design. */
+/* Bulk-bar inline-action buttons (Select all / Clear).
+ * Styled to feel like real buttons — not text links. Bigger hit area,
+ * subtle elevation, hover-into-accent state. */
 .bulk-bar .bulk-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 12px;
   font-weight: 500;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 10px;
+  line-height: 1;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 7px 12px;
   color: var(--text);
   cursor: pointer;
-  margin-left: 6px;
-  transition: all var(--motion-fast) var(--easing);
+  margin-left: 8px;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  transition:
+    background-color var(--motion-fast) var(--easing),
+    border-color var(--motion-fast) var(--easing),
+    color var(--motion-fast) var(--easing),
+    box-shadow var(--motion-med) var(--easing),
+    transform var(--motion-fast) var(--easing);
 }
 .bulk-bar .bulk-action:hover {
   background: var(--accent-soft);
-  border-color: var(--accent-soft-border);
+  border-color: var(--accent);
   color: var(--accent);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px var(--accent-soft);
 }
-.bulk-bar .bulk-action:active { transform: translateY(0); }
+.bulk-bar .bulk-action:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+/* Keep the bar's label group cleanly inline-aligned with its inner buttons. */
+.bulk-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
 /* Bulk-assign checkbox overlaid on a product card (grid view). */
 .product-card { position: relative; }

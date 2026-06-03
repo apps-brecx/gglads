@@ -140,23 +140,30 @@
 {% if collections %}
 <div class="collection-grid">
   {% for c in collections %}
+  {# Deterministic gradient hue per row: handle length + title length
+     spread across the wheel, golden-ratio-stepped to avoid adjacent
+     neighbors clashing. #}
+  {% set _hue = ((c.handle or '') | length * 47 + (c.title or '') | length * 23 + loop.index0 * 137) % 360 %}
   <a href="/collections/{{ c.handle }}" class="collection-card">
     <div class="collection-thumb">
       {% if c.image_url %}
       <img src="{{ c.image_url }}" alt="{{ c.title }}" />
       {% else %}
-      <div class="collection-thumb-placeholder">{{ c.title[0]|upper }}</div>
+      <div class="collection-thumb-placeholder"
+           style="--hue: {{ _hue }};">
+        <span class="placeholder-text">{{ c.title }}</span>
+      </div>
       {% endif %}
       <span class="seo-chip {{ 'seo-chip-ok' if c.seo_filled else 'seo-chip-warn' }}">
-        {{ 'SEO ✓' if c.seo_filled else 'SEO ✗' }}
+        {{ 'SEO: complete' if c.seo_filled else 'SEO: incomplete' }}
       </span>
     </div>
     <div class="collection-body">
       <div class="collection-title">{{ c.title }}</div>
-      {% if c.seo_meta_description %}
-      <div class="collection-desc">{{ c.seo_meta_description[:160] }}</div>
-      {% elif c.description %}
-      <div class="collection-desc">{{ c.description[:160] }}</div>
+      {% set desc_raw = c.seo_meta_description or c.description or '' %}
+      {% set desc_text = desc_raw | striptags %}
+      {% if desc_text %}
+      <div class="collection-desc">{{ desc_text[:160] }}{% if desc_text|length > 160 %}…{% endif %}</div>
       {% endif %}
       <div class="collection-count">{{ c.product_count }} product{{ '' if c.product_count == 1 else 's' }}</div>
     </div>

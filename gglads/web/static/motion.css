@@ -310,6 +310,47 @@ input[type="checkbox"]:hover, input[type="radio"]:hover { transform: scale(1.15)
   /* NB: no transform here either — would briefly establish a stacking
    * context and break the keyword-rank table's sticky first column on hover. */
 }
+
+/* Force the keyword-rank table's first column to behave like a normal cell.
+ * The sticky+stacking-context combination has caused repeated rendering
+ * bugs (KEYWORD column appearing empty / shifted under SOURCE header).
+ * The trade-off: when the table is scrolled horizontally, the keyword text
+ * scrolls out of view with it. We can revisit sticky after a future redesign. */
+.master-kw thead th:first-child,
+.master-kw tbody td:first-child {
+  position: static !important;
+  left: auto !important;
+  z-index: auto !important;
+  min-width: 280px;
+  max-width: 360px;
+  box-shadow: none !important;
+  /* Restore the accent stripe via border-left since box-shadow is off */
+}
+.master-kw tbody tr.is-pushed td:first-child,
+.master-kw tbody tr.pushed-primary td:first-child {
+  border-left: 3px solid var(--accent);
+}
+.master-kw tbody tr.pushed-secondary td:first-child {
+  border-left: 3px solid var(--muted-strong);
+}
+.master-kw tbody tr.pushed-negative td:first-child {
+  border-left: 3px solid var(--fail);
+}
+/* Make sure the first cell content actually paints — guard against any
+ * inherited visibility/opacity rules from neighboring panel CSS. */
+.master-kw tbody td:first-child .kw-row-pick,
+.master-kw tbody td:first-child .kw-text,
+.master-kw tbody td:first-child .kw-rationale,
+.master-kw tbody td:first-child .kw-targets {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+.master-kw tbody td:first-child .kw-row-pick {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
 .kw-table tbody tr:hover::before,
 .data-table tbody tr:hover::before { transform: scaleY(1); }
 

@@ -9,7 +9,7 @@
      workers      — list of {id, label} for the assignee dropdown
      current_user — caller's user object (for who-is-acting)
 #}
-{% macro task_checklist(entity_type, entity_id, tasks, task_types, progress, workers, current_user) %}
+{% macro task_checklist(entity_type, entity_id, tasks, task_types, progress, workers, current_user, assignee=None) %}
 <section class="panel task-panel">
   <div class="panel-head">
     <div>
@@ -24,12 +24,32 @@
       </div>
     </div>
   </div>
+
+  {% if entity_type == 'product' %}
+  <div class="assignee-row">
+    <span class="conn-desc" style="margin-right:8px;">Assigned to:</span>
+    {% if current_user.role == 'admin' %}
+    <form method="post" action="/products/{{ entity_id }}/assign" class="inline-form">
+      <select name="assignee" onchange="this.form.submit()" class="filter-select" style="font-size:13px;">
+        <option value="">— nobody —</option>
+        {% for w in workers %}
+        <option value="{{ w.id }}" {{ 'selected' if assignee and assignee.user_id == w.id }}>{{ w.label }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% else %}
+    <strong>{{ assignee.label if assignee else 'nobody yet' }}</strong>
+    {% endif %}
+    {% if assignee and assignee.assigned_at %}
+    <span class="conn-desc" style="margin-left:8px;font-size:11px;">since {{ assignee.assigned_at.strftime('%Y-%m-%d') }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
   <table class="data-table task-table">
     <colgroup>
       <col style="width:40px" />
       <col />
-      <col style="width:180px" />
-      <col style="width:180px" />
+      <col style="width:220px" />
       <col style="width:90px" />
     </colgroup>
     <thead>
@@ -37,7 +57,6 @@
         <th></th>
         <th>Task</th>
         <th>Done by</th>
-        <th>Assigned to</th>
         <th></th>
       </tr>
     </thead>
@@ -68,27 +87,8 @@
           <span class="conn-desc" style="font-size:11px;">{{ t.completed_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
           {% else %}<span class="conn-desc">—</span>{% endif %}
         </td>
-        <td>
-          {% if current_user.role == 'admin' %}
-          <form method="post" action="/tasks/{{ entity_type }}/{{ entity_id }}/{{ slug }}/assign" class="inline-form">
-            <select name="assignee" onchange="this.form.submit()" class="filter-select" style="font-size:12px;">
-              <option value="">— pick worker —</option>
-              {% for w in workers %}
-              <option value="{{ w.id }}" {{ 'selected' if t.assigned_to == w.id }}>{{ w.label }}</option>
-              {% endfor %}
-            </select>
-          </form>
-          {% if t.is_assigned %}
-          <div class="conn-desc" style="font-size:11px;margin-top:2px;">Assigned {{ t.assigned_at.strftime('%Y-%m-%d') if t.assigned_at }}</div>
-          {% endif %}
-          {% else %}
-          {% if t.is_assigned %}
-          <span>{{ t.assigned_to_name }}</span>
-          {% else %}<span class="conn-desc">—</span>{% endif %}
-          {% endif %}
-        </td>
         <td class="num">
-          {% if t.is_assigned and t.assigned_to == current_user.id and not t.is_done %}
+          {% if assignee and assignee.user_id == current_user.id and not t.is_done %}
           <span class="pill pill-warn">your task</span>
           {% endif %}
         </td>

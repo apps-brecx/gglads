@@ -193,21 +193,68 @@ def unassign(
     return True, "Un-assigned."
 
 
+def assign_product(
+    db: Session, product_id: int, assignee_user_id: int, assigned_by_user_id: int
+) -> tuple[bool, str]:
+    """Product-level assignment — the worker owns every task on the product."""
+    p = db.get(ShopifyProduct, product_id)
+    if p is None:
+        return False, "Product not found."
+    now = datetime.now(timezone.utc)
+    p.assigned_to_user_id = assignee_user_id
+    p.assigned_by_user_id = assigned_by_user_id
+    p.assigned_at = now
+    db.commit()
+    return True, "Assigned."
+
+
+def unassign_product(db: Session, product_id: int) -> tuple[bool, str]:
+    p = db.get(ShopifyProduct, product_id)
+    if p is None:
+        return False, "Product not found."
+    p.assigned_to_user_id = None
+    p.assigned_by_user_id = None
+    p.assigned_at = None
+    db.commit()
+    return True, "Un-assigned."
+
+
 def bulk_assign(
     db: Session,
     entity_type: str,
     entity_ids: list[int],
-    task_slugs: list[str],
+    task_slugs: list[str],  # kept for API compat; ignored for products
     assignee_user_id: int,
     assigned_by_user_id: int,
 ) -> tuple[bool, str, int]:
-    """Assign one or more task slugs across many entities to a single worker."""
-    if not entity_ids or not task_slugs:
-        return False, "Pick at least one entity and task.", 0
+    """Assign many entities to a single worker.
+
+    Products: sets shopify_products.assigned_to_user_id directly. The worker
+    owns ALL task types for the product; we don't pre-create entity_tasks
+    rows. Callers may pass task_slugs but it's ignored for product entities.
+
+    Collections (legacy): still creates entity_tasks rows per slug, since
+    collections don't have a product-style assignee column yet.
+    """
+    if not entity_ids:
+        return False, "Pick at least one entity.", 0
+    n = 0
+    now = datetime.now(timezone.utc)
+    if entity_type == "product":
+        for pid in entity_ids:
+            p = db.get(ShopifyProduct, pid)
+            if p is None:
+                continue
+            p.assigned_to_user_id = assignee_user_id
+            p.assigned_by_user_id = assigned_by_user_id
+            p.assigned_at = now
+            n += 1
+        db.commit()
+        return True, f"Assigned {n} product(s) to the worker.", n
+    # Collections fall through to per-task assignment for now.
     valid_slugs = [s for s in task_slugs if _valid_slug(entity_type, s)]
     if not valid_slugs:
-        return False, "No valid task types.", 0
-    n = 0
+        valid_slugs = [s for s, _ in task_types_for(entity_type)]
     for eid in entity_ids:
         if not _entity_exists(db, entity_type, eid):
             continue
@@ -215,11 +262,65 @@ def bulk_assign(
             row = _get_or_create(db, entity_type, eid, slug)
             row.assigned_to_user_id = assignee_user_id
             row.assigned_by_user_id = assigned_by_user_id
-            row.assigned_at = datetime.now(timezone.utc)
-            row.updated_at = row.assigned_at
+            row.assigned_at = now
+            row.updated_at = now
             n += 1
     db.commit()
     return True, f"Assigned {n} task(s).", n
+
+
+def progress_by_product(
+    db: Session, product_ids: list[int]
+) -> dict[int, dict]:
+    """Per-product completion counts, in a single grouped query.
+    Returns {product_id: {'done': N, 'expected': M, 'is_complete': bool}}."""
+    if not product_ids:
+        return {}
+    expected = len(PRODUCT_TASK_TYPES)
+    done_by_pid: dict[int, int] = {}
+    rows = db.execute(
+        select(EntityTask.entity_id, func.count(EntityTask.id))
+        .where(EntityTask.entity_type == "product")
+        .where(EntityTask.entity_id.in_(product_ids))
+        .where(EntityTask.completed_at.is_not(None))
+        .group_by(EntityTask.entity_id)
+    ).all()
+    for pid, n in rows:
+        done_by_pid[pid] = int(n)
+    out: dict[int, dict] = {}
+    for pid in product_ids:
+        done = done_by_pid.get(pid, 0)
+        out[pid] = {
+            "done": done,
+            "expected": expected,
+            "is_complete": done >= expected,
+        }
+    return out
+
+
+def assignee_by_product(
+    db: Session, product_ids: list[int]
+) -> dict[int, dict | None]:
+    """Per-product assignee with display label, in a single join."""
+    if not product_ids:
+        return {}
+    out: dict[int, dict | None] = {pid: None for pid in product_ids}
+    rows = db.execute(
+        select(
+            ShopifyProduct.id, ShopifyProduct.assigned_to_user_id,
+            ShopifyProduct.assigned_at, User.name, User.email,
+        )
+        .outerjoin(User, User.id == ShopifyProduct.assigned_to_user_id)
+        .where(ShopifyProduct.id.in_(product_ids))
+    ).all()
+    for r in rows:
+        if r.assigned_to_user_id:
+            out[r.id] = {
+                "user_id": r.assigned_to_user_id,
+                "label": r.name or r.email or f"User {r.assigned_to_user_id}",
+                "assigned_at": r.assigned_at,
+            }
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -570,68 +671,70 @@ def entities_missing_task(
 
 
 def my_assigned_open(db: Session, user_id: int) -> list[dict]:
-    """Tasks assigned to this user that aren't done yet — used on /tasks/me."""
-    rows = db.execute(
+    """Products assigned to this user that still have at least one open task,
+    plus any collection-level entity_tasks rows (legacy path). One entry per
+    product / per collection task."""
+    products = db.execute(
+        select(ShopifyProduct.id, ShopifyProduct.title, ShopifyProduct.assigned_at)
+        .where(ShopifyProduct.assigned_to_user_id == user_id)
+        .order_by(ShopifyProduct.assigned_at.desc().nullslast())
+    ).all()
+    pids = [r.id for r in products]
+    prog = progress_by_product(db, pids)
+    out: list[dict] = []
+    for r in products:
+        p = prog.get(r.id) or {"done": 0, "expected": len(PRODUCT_TASK_TYPES), "is_complete": False}
+        if p["is_complete"]:
+            continue  # nothing open for this user on this product
+        out.append({
+            "id": r.id,
+            "entity_type": "product",
+            "entity_id": r.id,
+            "entity_title": r.title,
+            "entity_url": f"/products/{r.id}/tasks",
+            "task_slug": None,
+            "task_label": f"{p['expected'] - p['done']} of {p['expected']} task(s) open",
+            "assigned_at": r.assigned_at,
+        })
+    # Collection-level rows still flow through entity_tasks.
+    crows = db.execute(
         select(EntityTask)
+        .where(EntityTask.entity_type == "collection")
         .where(EntityTask.assigned_to_user_id == user_id)
         .where(EntityTask.completed_at.is_(None))
         .order_by(EntityTask.assigned_at.desc().nullslast())
     ).scalars().all()
-    if not rows:
-        return []
-    product_ids = [r.entity_id for r in rows if r.entity_type == "product"]
-    collection_ids = [r.entity_id for r in rows if r.entity_type == "collection"]
-    p_titles: dict[int, tuple[str, str]] = {}
-    c_titles: dict[int, tuple[str, str]] = {}
-    if product_ids:
-        for p in db.execute(
-            select(ShopifyProduct.id, ShopifyProduct.title)
-            .where(ShopifyProduct.id.in_(set(product_ids)))
-        ).all():
-            p_titles[p.id] = (p.title, f"/products/{p.id}")
-    if collection_ids:
+    if crows:
+        c_titles: dict[int, tuple[str, str]] = {}
         for c in db.execute(
             select(ShopifyCollection.id, ShopifyCollection.title, ShopifyCollection.handle)
-            .where(ShopifyCollection.id.in_(set(collection_ids)))
+            .where(ShopifyCollection.id.in_({c.entity_id for c in crows}))
         ).all():
             c_titles[c.id] = (c.title, f"/collections/{c.handle}")
-    out: list[dict] = []
-    for r in rows:
-        info = (
-            p_titles.get(r.entity_id)
-            if r.entity_type == "product"
-            else c_titles.get(r.entity_id)
-        ) or ("(deleted)", "#")
-        out.append({
-            "id": r.id,
-            "entity_type": r.entity_type,
-            "entity_id": r.entity_id,
-            "entity_title": info[0],
-            "entity_url": info[1],
-            "task_slug": r.task_slug,
-            "task_label": task_label(r.entity_type, r.task_slug),
-            "assigned_at": r.assigned_at,
-        })
+        for r in crows:
+            info = c_titles.get(r.entity_id) or ("(deleted)", "#")
+            out.append({
+                "id": r.id,
+                "entity_type": r.entity_type,
+                "entity_id": r.entity_id,
+                "entity_title": info[0],
+                "entity_url": info[1],
+                "task_slug": r.task_slug,
+                "task_label": task_label(r.entity_type, r.task_slug),
+                "assigned_at": r.assigned_at,
+            })
     return out
 
 
 def product_ids_unassigned(db: Session) -> list[int]:
-    """Product ids that have NO entity_tasks row with an assignee set.
-    'Unassigned' is interpreted at the product level — even if just one
-    task has been assigned, the product counts as assigned."""
-    rows = db.execute(
-        select(EntityTask.entity_id)
-        .where(EntityTask.entity_type == "product")
-        .where(EntityTask.assigned_to_user_id.is_not(None))
-        .distinct()
-    ).scalars().all()
-    if not rows:
-        # Nobody has been assigned anything — every product is unassigned.
-        all_ids = db.execute(select(ShopifyProduct.id)).scalars().all()
-        return list(all_ids)
-    assigned: set[int] = set(rows)
-    all_ids = db.execute(select(ShopifyProduct.id)).scalars().all()
-    return [pid for pid in all_ids if pid not in assigned]
+    """Product ids whose assigned_to_user_id is NULL."""
+    return list(
+        db.execute(
+            select(ShopifyProduct.id).where(
+                ShopifyProduct.assigned_to_user_id.is_(None)
+            )
+        ).scalars().all()
+    )
 
 
 def product_ids_missing_task(db: Session, task_slug: str) -> list[int]:

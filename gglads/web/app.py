@@ -706,7 +706,6 @@ DEFAULT_COLUMNS = {
     "customers",
     "inventory",
     "stock_history",
-    "collections",
     "status",
 }
 
@@ -1069,6 +1068,8 @@ def _render_products_list(
             "ignored_count": ignored_count,
             "include_drafts": request.query_params.get("include_drafts") in ("1", "true", "on"),
             "include_ignored": request.query_params.get("include_ignored") in ("1", "true", "on"),
+            "task_filter": request.query_params.get("task_filter") or "",
+            "missing_task": request.query_params.get("missing_task") or "",
             "collections": _collections_summary(db),
             "channels": _channel_options(db),
             "query": (request.query_params.get("q") or "").strip(),
@@ -1098,6 +1099,8 @@ def _apply_filters(
     *,
     include_drafts: bool = True,
     include_ignored: bool = True,
+    task_filter: str | None = None,
+    task_slug_filter: str | None = None,
 ):
     if q:
         base_query = base_query.where(ShopifyProduct.title.ilike(f"%{q}%"))
@@ -1109,6 +1112,24 @@ def _apply_filters(
         base_query = base_query.where(ShopifyProduct.status != "draft")
     if not include_ignored:
         base_query = base_query.where(ShopifyProduct.is_ignored.is_(False))
+
+    # Worker-task filters — narrow to specific subsets of the catalog.
+    if task_filter or task_slug_filter:
+        from gglads.services import tasks as tasks_svc
+        keep_ids: list[int] | None = None
+        if task_filter == "unassigned":
+            keep_ids = tasks_svc.product_ids_unassigned(db)
+        elif task_filter == "open":
+            keep_ids = tasks_svc.product_ids_has_open(db)
+        elif task_slug_filter:
+            keep_ids = tasks_svc.product_ids_missing_task(db, task_slug_filter)
+        if keep_ids is not None:
+            if not keep_ids:
+                # Force an empty result rather than an unconstrained query.
+                base_query = base_query.where(ShopifyProduct.id == -1)
+            else:
+                base_query = base_query.where(ShopifyProduct.id.in_(keep_ids))
+
     if collection_handle:
         coll = db.scalar(
             select(ShopifyCollection).where(ShopifyCollection.handle == collection_handle)
@@ -1163,6 +1184,10 @@ def products_index(request: Request, db: DbDep) -> Response:
     channel_filter = request.query_params.get("channel") or ""
     include_drafts = request.query_params.get("include_drafts") in ("1", "true", "on")
     include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
+    task_filter = request.query_params.get("task_filter") or ""
+    if task_filter not in ("", "unassigned", "open"):
+        task_filter = ""
+    task_slug_filter = request.query_params.get("missing_task") or ""
 
     sort = listing_util.parse_sort(
         request.query_params.get("sort"), _PRODUCT_SORT_KEYS, "units_sold"
@@ -1176,6 +1201,8 @@ def products_index(request: Request, db: DbDep) -> Response:
         db, base, q, status_filter, collection_filter, channel_filter,
         include_drafts=include_drafts,
         include_ignored=include_ignored,
+        task_filter=task_filter or None,
+        task_slug_filter=task_slug_filter or None,
     )
 
     # Sort

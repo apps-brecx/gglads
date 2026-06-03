@@ -295,7 +295,16 @@ input[type="checkbox"]:hover, input[type="radio"]:hover { transform: scale(1.15)
 .kw-table tbody tr, .data-table tbody tr {
   position: relative;
 }
-.kw-table tbody tr::before, .data-table tbody tr::before {
+/* Accent stripe on row hover. Attached to the FIRST <td>, not the <tr>:
+ * a ::before on a display:table-row generates an anonymous table cell,
+ * which adds a phantom column and shifts every body cell out of alignment
+ * with the header. Putting it on the first cell sidesteps that entirely. */
+.kw-table tbody tr > td:first-child,
+.data-table tbody tr > td:first-child {
+  position: relative;
+}
+.kw-table tbody tr > td:first-child::before,
+.data-table tbody tr > td:first-child::before {
   content: "";
   position: absolute;
   left: 0; top: 0; bottom: 0;
@@ -304,12 +313,15 @@ input[type="checkbox"]:hover, input[type="radio"]:hover { transform: scale(1.15)
   transform: scaleY(0);
   transform-origin: center;
   transition: transform var(--motion-fast) var(--easing);
+  pointer-events: none;
 }
 .kw-table tbody tr:hover, .data-table tbody tr:hover {
   background: var(--bg-hover);
   /* NB: no transform here either — would briefly establish a stacking
    * context and break the keyword-rank table's sticky first column on hover. */
 }
+.kw-table tbody tr:hover > td:first-child::before,
+.data-table tbody tr:hover > td:first-child::before { transform: scaleY(1); }
 
 /* Force the keyword-rank table's first column to behave like a normal cell.
  * The sticky+stacking-context combination has caused repeated rendering
@@ -351,8 +363,8 @@ input[type="checkbox"]:hover, input[type="radio"]:hover { transform: scale(1.15)
   align-items: center;
   gap: 6px;
 }
-.kw-table tbody tr:hover::before,
-.data-table tbody tr:hover::before { transform: scaleY(1); }
+/* old row-level hover rule lived here — superseded by the
+ * td:first-child::before rule above. Kept this comment in case of grep. */
 
 /* ----------  collection cards (products page)  ---------- */
 .collection-card {

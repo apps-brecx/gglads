@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accept invite — gglads</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/motion.css" />
+</head>
+<body class="auth-body">
+  <main class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <h1>gglads</h1>
+        <p>You've been invited</p>
+      </div>
+
+      {% if expired %}
+      <div class="auth-error">
+        This invite link is invalid or has expired. Ask the admin to re-issue it.
+      </div>
+      <p style="margin-top:14px;text-align:center;">
+        <a href="/login" class="muted-link">← Back to login</a>
+      </p>
+      {% else %}
+      <p class="conn-desc" style="text-align:center;margin-bottom:14px;">
+        Set up your account for <strong>{{ invitee.email }}</strong>
+        ({{ invitee.role }})
+      </p>
+
+      {% if error %}
+      <div class="auth-error" style="margin-bottom:10px;">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/invite/{{ token }}" class="auth-form">
+        <div class="field">
+          <label for="name">Your name</label>
+          <input type="text" id="name" name="name" required value="{{ invitee.name or '' }}" autofocus />
+        </div>
+        <div class="field">
+          <label for="password">Password <span class="muted">(8+ chars)</span></label>
+          <input type="password" id="password" name="password" required minlength="8" />
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Create account &amp; sign in</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+    <p class="auth-footer">gglads · v{{ version }}</p>
+  </main>
+</body>
+</html>

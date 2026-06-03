@@ -114,6 +114,7 @@ def invite_user(
     role: str,
     invited_by_user_id: int,
     name: str | None = None,
+    invite_base_url: str | None = None,
 ) -> tuple[bool, str, User | None]:
     email = _normalize_email(email)
     if not _valid_email(email):
@@ -134,7 +135,13 @@ def invite_user(
             if name and not existing.name:
                 existing.name = name.strip()[:255]
             db.commit()
-            return True, "Re-issued invite (user existed but hadn't set a password yet).", existing
+            detail = "Re-issued invite (user existed but hadn't set a password yet)."
+            email_detail = _send_invite_email(
+                db, existing, invited_by_user_id, invite_base_url
+            )
+            if email_detail:
+                detail += " " + email_detail
+            return True, detail, existing
         return False, "A user with that email already exists and has logged in.", None
 
     user = User(
@@ -151,7 +158,47 @@ def invite_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    return True, "Invite created. Share the link below with the new user.", user
+    detail = "Invite created."
+    email_detail = _send_invite_email(db, user, invited_by_user_id, invite_base_url)
+    if email_detail:
+        detail += " " + email_detail
+    else:
+        detail += " Share the link below with the new user."
+    return True, detail, user
+
+
+def _send_invite_email(
+    db: Session,
+    user: User,
+    invited_by_user_id: int,
+    invite_base_url: str | None,
+) -> str | None:
+    """Best-effort invite-email send. Returns a short status message for
+    the admin (or None when SMTP isn't configured)."""
+    from gglads.services import email as email_svc
+    if not email_svc.is_configured(db):
+        return None
+    if not invite_base_url:
+        return "(SMTP configured but no base URL to build the invite link from — set it via the calling route.)"
+    invite_url = f"{invite_base_url.rstrip('/')}/invite/{user.invite_token}"
+
+    inviter = db.get(User, invited_by_user_id) if invited_by_user_id else None
+    inviter_name = (inviter.name or inviter.email) if inviter else None
+    expires_iso = (
+        user.invite_token_expires_at.strftime("%Y-%m-%d %H:%M")
+        if user.invite_token_expires_at else None
+    )
+    subject, html, text = email_svc.build_invite_email(
+        invite_url=invite_url,
+        invitee_email=user.email,
+        role_label=role_label(user.role),
+        invited_by_name=inviter_name,
+        expires_at_iso=expires_iso,
+    )
+    ok, msg = email_svc.send_email(db, user.email, subject, html, text)
+    if ok:
+        return f"Email sent to {user.email}."
+    return f"⚠ Couldn't send email ({msg}). Share the link below manually."
 
 
 def find_by_invite_token(db: Session, token: str) -> User | None:
@@ -188,9 +235,15 @@ def accept_invite(
     return True, "Welcome aboard — you're signed in.", u
 
 
-def reissue_invite(db: Session, user_id: int) -> tuple[bool, str, str | None]:
+def reissue_invite(
+    db: Session,
+    user_id: int,
+    invited_by_user_id: int | None = None,
+    invite_base_url: str | None = None,
+) -> tuple[bool, str, str | None]:
     """Admin action: refresh the invite token + expiry for a pending invite.
-    Returns the new token in the result tuple."""
+    Returns the new token in the result tuple. Also re-sends the email
+    when SMTP is configured."""
     u = db.get(User, user_id)
     if u is None:
         return False, "User not found.", None
@@ -199,7 +252,13 @@ def reissue_invite(db: Session, user_id: int) -> tuple[bool, str, str | None]:
         days=INVITE_LIFETIME_DAYS
     )
     db.commit()
-    return True, "Invite re-issued.", u.invite_token
+    detail = "Invite re-issued."
+    email_detail = _send_invite_email(
+        db, u, invited_by_user_id or 0, invite_base_url
+    )
+    if email_detail:
+        detail += " " + email_detail
+    return True, detail, u.invite_token
 
 
 # ---------------------------------------------------------------------------

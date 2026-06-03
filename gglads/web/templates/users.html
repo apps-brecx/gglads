@@ -72,15 +72,17 @@
           <strong>{{ u.email }}</strong>
           {% if u.name %}<div class="conn-desc">{{ u.name }}</div>{% endif %}
           {% if u.invite_pending %}
-          <details style="margin-top:6px;">
-            <summary class="muted-link" style="font-size:11px;">Invite link (click to copy)</summary>
-            <code class="invite-url" data-url="{{ u.invite_url }}"
-                  onclick="navigator.clipboard.writeText(this.dataset.url); this.classList.add('copied');"
-                  >{{ u.invite_url }}</code>
-            <div class="conn-desc" style="font-size:11px;">
-              Expires {{ u.invite_expires_at.strftime('%Y-%m-%d %H:%M UTC') if u.invite_expires_at else '—' }}
-            </div>
-          </details>
+          <div class="invite-link-row">
+            <input type="text" class="invite-url-input" value="{{ u.invite_url }}" readonly
+                   onclick="this.select();" />
+            <button type="button" class="btn-ghost copy-invite-btn"
+                    data-url="{{ u.invite_url }}">
+              📋 Copy link
+            </button>
+          </div>
+          <div class="conn-desc" style="font-size:11px;margin-top:2px;">
+            Expires {{ u.invite_expires_at.strftime('%Y-%m-%d %H:%M UTC') if u.invite_expires_at else '—' }}
+          </div>
           {% endif %}
         </td>
         <td>
@@ -124,4 +126,43 @@
     </tbody>
   </table>
 </section>
+
+<script>
+  (function() {
+    // Copy-invite-link button. Uses navigator.clipboard when available,
+    // falls back to selecting the visible input and document.execCommand
+    // so it still works on http:// preview deploys.
+    document.querySelectorAll('.copy-invite-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var url = btn.getAttribute('data-url') || '';
+        var done = function () {
+          var original = btn.innerHTML;
+          btn.innerHTML = '✓ Copied';
+          btn.classList.add('copied');
+          setTimeout(function () {
+            btn.innerHTML = original;
+            btn.classList.remove('copied');
+          }, 1800);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(url).then(done).catch(function () {
+            fallback();
+          });
+        } else {
+          fallback();
+        }
+        function fallback() {
+          var input = btn.parentElement.querySelector('.invite-url-input');
+          if (!input) return;
+          input.removeAttribute('readonly');
+          input.select();
+          input.setSelectionRange(0, 99999);
+          try { document.execCommand('copy'); done(); } catch (e) {}
+          input.setAttribute('readonly', 'readonly');
+          input.blur();
+        }
+      });
+    });
+  })();
+</script>
 {% endblock %}

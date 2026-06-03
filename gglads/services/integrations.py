@@ -36,6 +36,15 @@ INTEGRATION_FIELDS: dict[str, list[tuple[str, str, bool]]] = {
         ("oauth_client_secret", "OAuth client secret", True),
         ("refresh_token", "Refresh token", True),
     ],
+    "smtp": [
+        ("host", "SMTP host", False),
+        ("port", "SMTP port", False),
+        ("username", "SMTP username", False),
+        ("password", "SMTP password / API key", True),
+        ("from_email", "From address", False),
+        ("from_name", "From name", False),
+        ("use_tls", "Use TLS (yes/no)", False),
+    ],
 }
 
 
@@ -64,6 +73,16 @@ def _env_fallback(name: str) -> dict[str, Any]:
             "oauth_client_id": "",
             "oauth_client_secret": "",
             "refresh_token": "",
+        }
+    if name == "smtp":
+        return {
+            "host": "",
+            "port": "",
+            "username": "",
+            "password": "",
+            "from_email": "",
+            "from_name": "",
+            "use_tls": "yes",
         }
     return {}
 
@@ -166,6 +185,8 @@ def required_keys(name: str) -> list[str]:
         ]
     if name == "google_search_console":
         return ["site_url", "oauth_client_id", "oauth_client_secret", "refresh_token"]
+    if name == "smtp":
+        return ["host", "port", "from_email"]
     return []
 
 

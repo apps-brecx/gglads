@@ -318,6 +318,78 @@
   </form>
 </section>
 
+<!-- SMTP (outbound email — used for user invite emails) -->
+{% set sm = integrations.smtp %}
+<section class="panel conn-panel">
+  <div class="panel-head conn-head">
+    <div>
+      <h2>SMTP (outbound email)</h2>
+      <p class="conn-desc">Sends user-invite emails. Works with any SMTP provider — Gmail, SendGrid, Postmark, Mailgun, Amazon SES, self-hosted Postfix.</p>
+    </div>
+    {{ status_pill(sm) }}
+  </div>
+
+  <form method="post" action="/connections/smtp/save" class="conn-form" novalidate>
+    <div class="field-row-2">
+      <div class="field">
+        <label for="smtp_host">SMTP host</label>
+        <input type="text" id="smtp_host" name="host" value="{{ sm.fields.host.value }}"
+               placeholder="smtp.sendgrid.net" />
+      </div>
+      <div class="field">
+        <label for="smtp_port">Port</label>
+        <input type="text" id="smtp_port" name="port" value="{{ sm.fields.port.value }}"
+               placeholder="587 (STARTTLS) or 465 (implicit SSL)" />
+      </div>
+    </div>
+
+    <div class="field-row-2">
+      <div class="field">
+        <label for="smtp_username">Username</label>
+        <input type="text" id="smtp_username" name="username" value="{{ sm.fields.username.value }}"
+               placeholder="apikey  (SendGrid) / your-address@gmail.com" />
+      </div>
+      <div class="field">
+        <label for="smtp_password">Password / API key</label>
+        <input type="password" id="smtp_password" name="password"
+               placeholder="{{ 'Saved — leave blank to keep' if sm.fields.password.has_stored else '••••••••' }}" autocomplete="off" />
+      </div>
+    </div>
+
+    <div class="field-row-2">
+      <div class="field">
+        <label for="smtp_from_email">From address</label>
+        <input type="email" id="smtp_from_email" name="from_email" value="{{ sm.fields.from_email.value }}"
+               placeholder="invites@yourbrand.com" />
+        <p class="field-help">Must be allowed by your SMTP provider (verified sender for SendGrid / Postmark etc.).</p>
+      </div>
+      <div class="field">
+        <label for="smtp_from_name">From name</label>
+        <input type="text" id="smtp_from_name" name="from_name" value="{{ sm.fields.from_name.value }}"
+               placeholder="gglads" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="smtp_use_tls">Use STARTTLS</label>
+      <select id="smtp_use_tls" name="use_tls">
+        {% set tls = sm.fields.use_tls.value or 'yes' %}
+        <option value="yes" {{ 'selected' if tls == 'yes' }}>Yes (port 587)</option>
+        <option value="no"  {{ 'selected' if tls == 'no' }}>No (plain or implicit SSL on 465)</option>
+      </select>
+      <p class="field-help">Pick "yes" for port 587. Port 465 uses implicit SSL automatically.</p>
+    </div>
+
+    <div class="form-actions">
+      {% if sm.from_db %}
+      <button type="submit" formaction="/connections/smtp/disconnect" class="btn-ghost btn-danger">Disconnect</button>
+      {% endif %}
+      <button type="submit" formaction="/connections/smtp/test" class="btn-ghost">Test connection</button>
+      <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
+</section>
+
 <p class="security-note">
   All credentials are encrypted at rest using a key derived from <code>APP_SECRET</code>.
   Rotating <code>APP_SECRET</code> invalidates every stored secret.

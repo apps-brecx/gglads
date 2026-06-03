@@ -81,19 +81,26 @@
 <section class="panel chart-panel">
   <div class="panel-head">
     <h2>Day-by-day {{ metric }}</h2>
-    <form method="get" class="chip-bar">
-      <input type="hidden" name="days" value="{{ days }}" />
-      <input type="hidden" name="metric" value="{{ metric }}" />
+    <div class="channel-filter">
+      {# Pill filters — each is a link that toggles the channel in the URL.
+         Acts as a single unified legend; the duplicate legend under the
+         chart was removed. #}
       {% for ch, label in channel_labels.items() %}
-      <label class="chip">
-        <input type="checkbox" name="channel" value="{{ ch }}"
-               {{ 'checked' if ch in selected_channels }}
-               onchange="this.form.submit()" />
-        <span class="chip-dot" style="background:{{ channel_colors[ch] }};"></span>
-        {{ label }}
-      </label>
+        {% set is_on = ch in selected_channels %}
+        {% if is_on %}
+          {% set new_channels = selected_channels | reject('equalto', ch) | list %}
+        {% else %}
+          {% set new_channels = selected_channels + [ch] %}
+        {% endif %}
+        <a class="channel-pill {{ 'is-on' if is_on }}"
+           href="?days={{ days }}&metric={{ metric }}{% for c in new_channels %}&channel={{ c }}{% endfor %}"
+           style="--pill-color: {{ channel_colors[ch] }};"
+           title="{{ 'Hide' if is_on else 'Show' }} {{ label }}">
+          <span class="channel-dot"></span>
+          {{ label }}
+        </a>
       {% endfor %}
-    </form>
+    </div>
   </div>
 
   {% if chart.empty %}
@@ -136,13 +143,13 @@
     </text>
     {% endfor %}
   </svg>
-  <div class="chart-legend">
+  {# Tail-value caption — replaces the redundant legend (channels live in
+     the .channel-filter pills in the panel head). #}
+  <div class="chart-tail">
     {% for p in chart.paths %}
-    {% set series_color = channel_colors.get('web', '#7c9cff') if loop.index0 == 0 else (channel_colors.get('shop', '#f4a261') if loop.index0 == 1 else '#a78bfa') %}
-    <span class="legend-item">
-      <span class="legend-swatch" style="background:{{ series_color }};"></span>
-      {{ p.label }}
-      <span class="conn-desc">
+    <span class="tail-item">
+      <span class="tail-label">{{ p.label }}</span>
+      <span class="tail-value">
         {% if metric == 'revenue' %}{{ money(p.last_value) }}{% else %}{{ '{:,.0f}'.format(p.last_value) }}{% endif %}
       </span>
     </span>
@@ -331,15 +338,15 @@
     (anything else falls through with a title-cased version of its raw slug).
   </p>
   {% if last_sales_run_detail %}
-  <div style="margin-top:6px;">
-    <div class="conn-desc" style="font-size:11px;margin-bottom:4px;">Last sales sync ran with this result:</div>
-    <pre style="margin:0;font-size:11px;background:var(--bg-input);padding:10px;border-radius:8px;overflow:auto;white-space:pre-wrap;">{{ last_sales_run_detail }}</pre>
+  <details class="scope-details">
+    <summary>Last sales sync — full breakdown</summary>
+    <pre class="scope-pre">{{ last_sales_run_detail }}</pre>
     <p class="conn-desc" style="margin-top:6px;font-size:11px;">
       The "Dropped channels" line above lists every <code>sourceName</code> we filtered out and the count for each.
-      If you see a third-party channel here, those orders were excluded from every per-product number you see in the app.
-      If product totals look too high, click <strong>Re-sync sales now</strong> above — old aggregates (from before the filter was added) get fully reset and re-computed.
+      If you see a third-party channel there, those orders were excluded from every per-product number you see in the app.
+      If product totals look too high, click <strong>Re-sync sales now</strong> above — old aggregates get fully reset and re-computed.
     </p>
-  </div>
+  </details>
   {% else %}
   <span class="conn-desc">No sales sync has run yet — kick one with the <strong>Re-sync sales now</strong> button above.</span>
   {% endif %}

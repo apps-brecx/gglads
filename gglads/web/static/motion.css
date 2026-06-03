@@ -292,38 +292,98 @@ details > summary, .product-tab, .product-tab-link,
   color: var(--accent);
 }
 
-/* ----------  side nav  ---------- */
+/* ----------  side nav (icon + label, active state, dividers)  ---------- */
+.app-nav nav {
+  display: flex;
+  flex-direction: column;
+}
+.nav-section {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.nav-section:first-of-type { border-top: none; padding-top: 0; }
+.nav-heading {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+}
+
 .nav-item {
   position: relative;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 2px 6px;
+  border-radius: var(--radius-md);
+  color: var(--muted-strong);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.nav-item > span:not(.nav-badge) { flex: 1 1 auto; }
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color var(--motion-fast) var(--easing);
+}
+.nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+.nav-item:hover .nav-icon { color: var(--accent); }
+
+/* Active item: tinted background + colored icon/text + accent left bar */
+.nav-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.nav-item.is-active .nav-icon { color: var(--accent); }
+.nav-item.is-active::before {
+  transform: scaleY(1) !important;
 }
 .nav-item::before {
   content: "";
   position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 2px;
+  left: -6px; top: 6px; bottom: 6px;
+  width: 3px;
   background: var(--accent);
+  border-radius: 0 3px 3px 0;
   transform: scaleY(0);
   transform-origin: center;
-  transition: transform var(--motion-med) var(--easing);
-  border-radius: 0 2px 2px 0;
-}
-.nav-item:hover {
-  background: var(--bg-hover);
-  transform: translateX(4px);
-  color: var(--text-strong);
-}
-.nav-item:hover::before { transform: scaleY(1); }
-.nav-item.is-active::before { transform: scaleY(1); }
-
-.nav-badge {
   transition: transform var(--motion-fast) var(--easing);
 }
-.nav-item:hover .nav-badge {
-  transform: scale(1.05);
-  background: var(--accent-soft);
-  color: var(--accent);
+
+/* "Soon" items — visibly disabled. */
+.nav-item.is-soon {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
+.nav-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  margin-left: auto;
+}
+
+/* Hide the old hover slide + duplicate ::before from earlier rules. */
+/* (old over-styled nav rules removed — superseded by the new icon-aware
+ * block above. translateX hover, scaling badge, etc. all dropped to keep
+ * the sidebar quiet and modern.) */
 
 /* Cards / panels — quiet hover (subtle elevation only). Standardized look
  * already set up top via the new design tokens. */
@@ -661,11 +721,13 @@ details[open] > summary {
   color: var(--muted);
 }
 .kpi-value {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  margin: 6px 0 6px;
+  /* Bigger, heavier — KPIs are the headline number on the page. */
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 6px 0 8px;
   color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
 }
 .kpi-foot {
   font-size: 12px;
@@ -675,15 +737,81 @@ details[open] > summary {
   flex-wrap: wrap;
 }
 .delta {
-  display: inline-block;
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+}
+.delta-up   { background: rgba(16, 185, 129, 0.14); color: var(--ok);   border-color: rgba(16,185,129,0.30); }
+.delta-down { background: rgba(239, 68, 68, 0.12); color: var(--fail); border-color: rgba(239,68,68,0.28); }
+.delta-flat { background: var(--bg-hover); color: var(--muted); border-color: var(--border); }
+
+/* Empty-state KPI tile (campaigns dashboard before Google Ads is wired). */
+.kpi-empty {
+  background: var(--bg-input);
+  cursor: default;
+}
+.kpi-empty:hover { transform: none; box-shadow: none; border-color: var(--border); }
+.kpi-empty .kpi-label { color: var(--muted); }
+.kpi-value-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 24px;
   font-weight: 600;
 }
-.delta-up   { background: rgba(74, 222, 128, 0.12); color: var(--ok); }
-.delta-down { background: rgba(248, 113, 113, 0.12); color: var(--fail); }
-.delta-flat { background: var(--bg-hover); color: var(--muted); }
+.kpi-value-empty svg { opacity: 0.65; }
+.kpi-empty .kpi-foot { display: none; }
+
+/* "Google Ads not connected" CTA banner above the KPI row. */
+.kpi-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.conn-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.conn-status-off {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--wait);
+  border-color: rgba(245, 158, 11, 0.30);
+}
+.conn-status-on  {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--ok);
+  border-color: rgba(16, 185, 129, 0.30);
+}
+.kpi-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 14px;
+}
+.kpi-cta-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kpi-cta-body strong { color: var(--text-strong); }
+.kpi-cta .btn-primary { flex-shrink: 0; }
 
 /* Period selector segmented buttons */
 .period-form .seg-group {
@@ -862,7 +990,92 @@ a.chip.chip-on {
   fill: var(--accent);
 }
 
-/* "Why did sales move" cards */
+/* ----- dashboard chart: pill filters + tail caption ----- */
+.channel-filter {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.channel-pill {
+  --pill-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--motion-fast) var(--easing);
+}
+.channel-pill .channel-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--pill-color);
+  display: inline-block;
+}
+.channel-pill:hover { color: var(--text); border-color: var(--border-strong); }
+.channel-pill.is-on {
+  background: color-mix(in srgb, var(--pill-color) 12%, var(--panel));
+  border-color: var(--pill-color);
+  color: var(--text);
+}
+.channel-pill.is-on .channel-dot {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pill-color) 25%, transparent);
+}
+
+.chart-tail {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 10px 4px 6px;
+  font-size: 12px;
+  border-top: 1px dashed var(--border);
+  margin-top: 6px;
+}
+.tail-item { display: inline-flex; align-items: baseline; gap: 6px; }
+.tail-label { color: var(--muted); }
+.tail-value { color: var(--text-strong); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ----- "Channel scope" details disclosure (was a raw debug <pre>) ----- */
+.scope-details {
+  margin-top: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.scope-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
+  user-select: none;
+}
+.scope-details > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform var(--motion-fast) var(--easing);
+}
+.scope-details[open] > summary::before { transform: rotate(90deg); }
+.scope-details > summary:hover { color: var(--accent); }
+.scope-pre {
+  margin: 10px 0 0;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  background: var(--bg-input);
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  color: var(--muted-strong);
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* "Why did sales move" cards — active stand out, inactive recede. */
 .src-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -876,14 +1089,38 @@ a.chip.chip-on {
   position: relative;
   overflow: hidden;
 }
-.src-card.src-on { border-color: var(--accent-soft-border); }
-.src-card.src-off { opacity: 0.6; }
-.src-card:hover {
+.src-card.src-on {
+  background: var(--panel);
+  border-color: var(--accent-soft-border);
+}
+.src-card.src-on:hover {
   transform: translateY(-2px);
   border-color: var(--accent);
+  box-shadow: var(--shadow-md);
 }
-.src-title { font-weight: 600; margin-bottom: 4px; }
-.src-desc { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+/* Inactive integrations recede — dashed border + grayed text so the active
+ * cards (SEO & organic, Google Ads) stand out. */
+.src-card.src-off {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  opacity: 0.62;
+  cursor: default;
+}
+.src-card.src-off:hover { transform: none; border-color: var(--border-strong); }
+.src-card.src-off .src-title { color: var(--muted); font-weight: 500; }
+.src-card.src-off .src-desc  { color: var(--muted); }
+.src-card.src-off::after {
+  content: "Coming soon";
+  position: absolute;
+  top: 8px; right: 10px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.src-title { font-weight: 600; margin-bottom: 4px; color: var(--text); }
+.src-desc { color: var(--muted-strong); font-size: 12px; margin-bottom: 8px; }
 
 /* Collection card thumb + placeholder + SEO chip */
 .collection-thumb { position: relative; }

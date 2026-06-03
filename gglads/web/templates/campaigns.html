@@ -6,7 +6,17 @@
 {% macro kpi(label, value, foot, accent=False, empty=False) -%}
 <div class="kpi {{ 'kpi-accent' if accent }} {{ 'kpi-empty' if empty }}">
   <div class="kpi-label">{{ label }}</div>
-  <div class="kpi-value">{{ value }}</div>
+  {% if empty %}
+    <div class="kpi-value kpi-value-empty">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span>—</span>
+    </div>
+  {% else %}
+    <div class="kpi-value">{{ value }}</div>
+  {% endif %}
   {% if foot %}<div class="kpi-foot">{{ foot }}</div>{% endif %}
 </div>
 {%- endmacro %}
@@ -30,16 +40,38 @@
 
 {# ============ KPI ROW (8 cards) ============ #}
 <section class="kpi-section">
-  <h2 class="dash-section-title">Performance · last 30 days</h2>
+  <div class="kpi-section-head">
+    <h2 class="dash-section-title">Performance · last 30 days</h2>
+    {% if not gads_connected %}
+    <span class="conn-status conn-status-off">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+      </svg>
+      Google Ads not connected
+    </span>
+    {% endif %}
+  </div>
+
+  {% if not gads_connected %}
+  <div class="kpi-cta">
+    <div class="kpi-cta-body">
+      <strong>Live ad metrics fill in once Google Ads is connected.</strong>
+      <span class="conn-desc">Spend, CTR, conversions, CPA, ROAS and revenue all sync from your Google Ads account.</span>
+    </div>
+    <a href="/connections" class="btn-primary">Connect Google Ads</a>
+  </div>
+  {% endif %}
+
   <div class="kpi-row">
-    {{ kpi("Spend",        "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("Impressions",  "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("Clicks",       "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("CTR",          "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("Conversions",  "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("CPA",          "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("ROAS",         "—",  "Awaiting GAds sync",      empty=True) }}
-    {{ kpi("Revenue",      "—",  "Awaiting GAds sync",      empty=True) }}
+    {{ kpi("Spend",        "—",  empty=True, foot="") }}
+    {{ kpi("Impressions",  "—",  empty=True, foot="") }}
+    {{ kpi("Clicks",       "—",  empty=True, foot="") }}
+    {{ kpi("CTR",          "—",  empty=True, foot="") }}
+    {{ kpi("Conversions",  "—",  empty=True, foot="") }}
+    {{ kpi("CPA",          "—",  empty=True, foot="") }}
+    {{ kpi("ROAS",         "—",  empty=True, foot="") }}
+    {{ kpi("Revenue",      "—",  empty=True, foot="") }}
   </div>
 </section>
 

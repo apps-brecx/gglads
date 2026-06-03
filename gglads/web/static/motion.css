@@ -34,7 +34,6 @@
 /* ----------  global ease  ---------- */
 a, button, input, textarea, select,
 .card, .panel, .tag, .pill, .nav-item, .btn-primary, .btn-ghost,
-.kw-table tbody tr, .data-table tbody tr,
 .collection-card, .bucket-btn, .chat-scope-btn,
 details > summary, .product-tab, .product-tab-link,
 .in-ads-badge, .tag-primary, .tag-neg, .charcount {
@@ -46,7 +45,12 @@ details > summary, .product-tab, .product-tab-link,
     transform        var(--motion-med)  var(--easing),
     opacity          var(--motion-med)  var(--easing-soft),
     filter           var(--motion-med)  var(--easing-soft);
-  will-change: transform;
+  /* NB: do NOT set `will-change: transform` here. It promotes every
+   * element to its own compositor layer + creates a stacking context,
+   * which breaks `position: sticky` on descendants (the keyword-rank
+   * table's first column was being hidden because of this). Browsers
+   * will hint composite layers themselves when transitions are actually
+   * running. */
 }
 
 /* ----------  ambient mouse-follow glow (set by motion.js)  ---------- */
@@ -303,7 +307,8 @@ input[type="checkbox"]:hover, input[type="radio"]:hover { transform: scale(1.15)
 }
 .kw-table tbody tr:hover, .data-table tbody tr:hover {
   background: var(--bg-hover);
-  transform: translateX(2px);
+  /* NB: no transform here either — would briefly establish a stacking
+   * context and break the keyword-rank table's sticky first column on hover. */
 }
 .kw-table tbody tr:hover::before,
 .data-table tbody tr:hover::before { transform: scaleY(1); }

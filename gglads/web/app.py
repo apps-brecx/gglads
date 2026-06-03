@@ -1023,6 +1023,10 @@ def _render_products_list(
     channels_by_pid = _product_channel_names(db, pids)
     stock_by_pid = _stock_history(db, pids)
     items = []
+    pids = [p.id for p in products]
+    from gglads.services import tasks as tasks_svc
+    assignees_by_pid = tasks_svc.assignee_by_product(db, pids)
+    progress_by_pid = tasks_svc.progress_by_product(db, pids)
     for p in products:
         d = _product_to_dict(
             p,
@@ -1030,8 +1034,9 @@ def _render_products_list(
             channels_by_pid.get(p.id, []),
             stock_by_pid.get(p.id, (0, 0, 0)),
         )
-        # Surface the new is_ignored flag to the template.
         d["is_ignored"] = bool(getattr(p, "is_ignored", False))
+        d["assignee"] = assignees_by_pid.get(p.id)
+        d["task_progress"] = progress_by_pid.get(p.id, {"done": 0, "expected": 0, "is_complete": False})
         items.append(d)
     total_count = db.scalar(select(func.count(ShopifyProduct.id))) or 0
     drafts_hidden = db.scalar(
@@ -2094,6 +2099,7 @@ def product_tasks(product_id: int, request: Request, db: DbDep) -> Response:
             "task_progress": tasks_svc.progress_summary(db, "product", product_id),
             "workers": tasks_svc.list_active_users(db),
             "task_types": tasks_svc.PRODUCT_TASK_TYPES,
+            "assignee": tasks_svc.assignee_by_product(db, [product_id]).get(product_id),
             "flashes": _consume_flashes(request),
             **_chat_ctx(request, db, product_id),
         },
@@ -2172,6 +2178,30 @@ async def task_assign(
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse(
         request.headers.get("referer", "/"),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/products/{product_id}/assign")
+async def product_assign(
+    product_id: int, request: Request, db: DbDep,
+) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import tasks as tasks_svc
+    form = await request.form()
+    try:
+        assignee_id = int(form.get("assignee") or 0)
+    except (TypeError, ValueError):
+        assignee_id = 0
+    if not assignee_id:
+        ok, detail = tasks_svc.unassign_product(db, product_id)
+    else:
+        ok, detail = tasks_svc.assign_product(db, product_id, assignee_id, user.id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        request.headers.get("referer", f"/products/{product_id}/tasks"),
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

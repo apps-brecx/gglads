@@ -74,6 +74,18 @@ class ShopifyProduct(Base):
     is_ignored: Mapped[bool] = mapped_column(
         Boolean, server_default="false", nullable=False, index=True
     )
+    # Product-level worker assignment. When set, the assignee owns every
+    # task slug on this product; entity_tasks rows still track completion
+    # per task slug so we can report 'X of N done'.
+    assigned_to_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    assigned_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     shopify_admin_url: Mapped[str | None] = mapped_column(Text, nullable=True)

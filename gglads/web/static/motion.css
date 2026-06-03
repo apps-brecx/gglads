@@ -1194,6 +1194,37 @@ a.chip.chip-on {
 }
 .product-card-pick input { margin: 0; cursor: pointer; }
 
+/* Per-product ownership pills (visible on the All Products list) */
+.ownership-strip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.assign-pill, .progress-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.assign-on  { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft-border); }
+.assign-off { background: var(--bg-input);    color: var(--muted);  border-color: var(--border); }
+.progress-done { background: rgba(74, 222, 128, 0.14); color: var(--ok);   border-color: rgba(74, 222, 128, 0.3); }
+.progress-some { background: rgba(251, 191, 36, 0.14); color: var(--wait); border-color: rgba(251, 191, 36, 0.3); }
+.progress-none { background: var(--bg-input);          color: var(--muted); border-color: var(--border); }
+
+/* Per-product assignee row on the Tasks sub-tab */
+.assignee-row {
+  display: flex;
+  align-items: center;
+  margin: 14px 0 6px;
+}
+
 /* SEO/Ads worker task checklist */
 .task-panel .panel-head { align-items: center; }
 .task-progress { display: flex; align-items: center; gap: 10px; min-width: 180px; }

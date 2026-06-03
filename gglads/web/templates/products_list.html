@@ -221,10 +221,7 @@
 {% if user.role == 'admin' %}
 <form method="post" action="/tasks/bulk-assign" id="prod-bulk-assign-form" class="bulk-bar">
   <input type="hidden" name="entity_type" value="product" />
-  {# Always assign every task type — worker owns the whole product. #}
-  {% for slug, _label in product_task_types %}
-  <input type="hidden" name="task_slug" value="{{ slug }}" />
-  {% endfor %}
+  {# Product-level assignment — the worker owns every task on the product. #}
   <span class="bulk-bar-label">
     Bulk assign: <span id="prod-bulk-count">0</span> selected
     <button type="button" id="prod-bulk-select-all" class="bulk-action">select all on page ({{ items|length }})</button>
@@ -263,6 +260,20 @@
     {% endif %}
     <div class="product-body">
       <div class="product-title">{{ p.title }}</div>
+      <div class="ownership-strip">
+        {% if p.assignee %}
+        <span class="assign-pill assign-on">👤 {{ p.assignee.label }}</span>
+        {% else %}
+        <span class="assign-pill assign-off">Unassigned</span>
+        {% endif %}
+        {% if p.task_progress and p.task_progress.expected %}
+          {% if p.task_progress.is_complete %}
+          <span class="progress-pill progress-done">✓ all done</span>
+          {% else %}
+          <span class="progress-pill {{ 'progress-some' if p.task_progress.done else 'progress-none' }}">{{ p.task_progress.done }}/{{ p.task_progress.expected }}</span>
+          {% endif %}
+        {% endif %}
+      </div>
       <div class="product-meta-lines">
         {% if 'price' in cols %}<div><span class="meta-key">Price</span> {{ p.price_range }}</div>{% endif %}
         {% if 'sold' in cols %}<div><span class="meta-key">Sold</span> {{ p.units_sold_90d }}</div>{% endif %}
@@ -345,7 +356,27 @@
           </div>
         </td>
         {% endif %}
-        <td><a href="/products/{{ p.id }}" class="row-link">{{ p.title }}</a></td>
+        <td>
+          <a href="/products/{{ p.id }}" class="row-link">{{ p.title }}</a>
+          <div class="ownership-strip">
+            {% if p.assignee %}
+            <span class="assign-pill assign-on" title="Assigned {{ p.assignee.assigned_at.strftime('%Y-%m-%d') if p.assignee.assigned_at else '' }}">
+              👤 {{ p.assignee.label }}
+            </span>
+            {% else %}
+            <span class="assign-pill assign-off">Unassigned</span>
+            {% endif %}
+            {% if p.task_progress and p.task_progress.expected %}
+              {% if p.task_progress.is_complete %}
+              <span class="progress-pill progress-done">✓ all done ({{ p.task_progress.expected }}/{{ p.task_progress.expected }})</span>
+              {% else %}
+              <span class="progress-pill {{ 'progress-some' if p.task_progress.done else 'progress-none' }}">
+                {{ p.task_progress.done }}/{{ p.task_progress.expected }} tasks done
+              </span>
+              {% endif %}
+            {% endif %}
+          </div>
+        </td>
         {% if 'price' in cols %}<td class="num">{{ p.price_range }}</td>{% endif %}
         {% if 'sold' in cols %}<td class="num">{{ p.units_sold_90d }}</td>{% endif %}
         {% if 'customers' in cols %}<td class="num">{{ p.unique_customers_90d }}</td>{% endif %}

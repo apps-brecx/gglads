@@ -382,6 +382,7 @@ _INTEGRATION_ROUTE_TO_NAME = {
     "shopify": "shopify",
     "google-ads": "google_ads",
     "google-search-console": "google_search_console",
+    "smtp": "smtp",
 }
 
 
@@ -426,7 +427,10 @@ async def users_invite(request: Request, db: DbDep) -> Response:
     email = (form.get("email") or "").strip()
     role = (form.get("role") or "viewer").strip()
     name = (form.get("name") or "").strip() or None
-    ok, detail, _new = users_svc.invite_user(db, email, role, user.id, name=name)
+    ok, detail, _new = users_svc.invite_user(
+        db, email, role, user.id, name=name,
+        invite_base_url=str(request.base_url).rstrip("/"),
+    )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse("/users", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -463,7 +467,11 @@ def users_reissue_invite(user_id: int, request: Request, db: DbDep) -> Response:
     if deny is not None:
         return deny
     from gglads.services import users as users_svc
-    ok, detail, _token = users_svc.reissue_invite(db, user_id)
+    ok, detail, _token = users_svc.reissue_invite(
+        db, user_id,
+        invited_by_user_id=actor.id,
+        invite_base_url=str(request.base_url).rstrip("/"),
+    )
     _flash(request, detail, "ok" if ok else "error")
     return RedirectResponse("/users", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -532,7 +540,7 @@ def connections_page(request: Request, db: DbDep) -> Response:
         return deny
     integrations_state = {
         name: integrations_svc.summarize_for_form(db, name)
-        for name in ("anthropic", "shopify", "google_ads", "google_search_console")
+        for name in ("anthropic", "shopify", "google_ads", "google_search_console", "smtp")
     }
     return templates.TemplateResponse(
         request,

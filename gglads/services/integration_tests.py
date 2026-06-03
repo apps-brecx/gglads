@@ -135,9 +135,46 @@ def test_google_search_console(config: dict[str, Any]) -> tuple[bool, str]:
     return True, f"Reached Search Console. {len(sites)} verified sites.{warn}"
 
 
+def test_smtp(config: dict[str, Any]) -> tuple[bool, str]:
+    """Connect, EHLO, optionally STARTTLS + auth. Doesn't send a message."""
+    host = (config.get("host") or "").strip()
+    port_s = (config.get("port") or "").strip()
+    if not host or not port_s:
+        return False, "SMTP missing host or port."
+    try:
+        port = int(port_s)
+    except ValueError:
+        return False, f"SMTP port not a number: {port_s!r}"
+    use_tls = (config.get("use_tls") or "").strip().lower() in {"1", "yes", "true", "on", "y"}
+    username = (config.get("username") or "").strip()
+    password = (config.get("password") or "").strip()
+    try:
+        import smtplib
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=10) as s:
+                s.ehlo()
+                if username:
+                    s.login(username, password)
+                return True, f"Connected to {host}:{port} (SSL) and authenticated." if username else f"Connected to {host}:{port} (SSL)."
+        with smtplib.SMTP(host, port, timeout=10) as s:
+            s.ehlo()
+            if use_tls:
+                s.starttls()
+                s.ehlo()
+            if username:
+                s.login(username, password)
+        return True, (
+            f"Connected to {host}:{port} ({'TLS' if use_tls else 'plain'}) and authenticated."
+            if username else f"Connected to {host}:{port}."
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{type(exc).__name__}: {exc}"
+
+
 TESTERS = {
     "anthropic": test_anthropic,
     "shopify": test_shopify,
     "google_ads": test_google_ads,
     "google_search_console": test_google_search_console,
+    "smtp": test_smtp,
 }

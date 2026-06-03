@@ -615,6 +615,56 @@ def my_assigned_open(db: Session, user_id: int) -> list[dict]:
     return out
 
 
+def product_ids_unassigned(db: Session) -> list[int]:
+    """Product ids that have NO entity_tasks row with an assignee set.
+    'Unassigned' is interpreted at the product level — even if just one
+    task has been assigned, the product counts as assigned."""
+    rows = db.execute(
+        select(EntityTask.entity_id)
+        .where(EntityTask.entity_type == "product")
+        .where(EntityTask.assigned_to_user_id.is_not(None))
+        .distinct()
+    ).scalars().all()
+    if not rows:
+        # Nobody has been assigned anything — every product is unassigned.
+        all_ids = db.execute(select(ShopifyProduct.id)).scalars().all()
+        return list(all_ids)
+    assigned: set[int] = set(rows)
+    all_ids = db.execute(select(ShopifyProduct.id)).scalars().all()
+    return [pid for pid in all_ids if pid not in assigned]
+
+
+def product_ids_missing_task(db: Session, task_slug: str) -> list[int]:
+    """Product ids that don't have a completed entity_tasks row for this slug."""
+    if not _valid_slug("product", task_slug):
+        return []
+    done_ids = db.execute(
+        select(EntityTask.entity_id)
+        .where(EntityTask.entity_type == "product")
+        .where(EntityTask.task_slug == task_slug)
+        .where(EntityTask.completed_at.is_not(None))
+    ).scalars().all()
+    done: set[int] = set(done_ids)
+    all_ids = db.execute(select(ShopifyProduct.id)).scalars().all()
+    return [pid for pid in all_ids if pid not in done]
+
+
+def product_ids_has_open(db: Session) -> list[int]:
+    """Product ids that have at least one task not yet done. (Any product
+    that doesn't have ALL its task slugs completed.)"""
+    expected = len(PRODUCT_TASK_TYPES)
+    fully_done_rows = db.execute(
+        select(EntityTask.entity_id, func.count(EntityTask.id).label("n"))
+        .where(EntityTask.entity_type == "product")
+        .where(EntityTask.completed_at.is_not(None))
+        .group_by(EntityTask.entity_id)
+        .having(func.count(EntityTask.id) >= expected)
+    ).all()
+    fully_done: set[int] = {r.entity_id for r in fully_done_rows}
+    all_ids = db.execute(select(ShopifyProduct.id)).scalars().all()
+    return [pid for pid in all_ids if pid not in fully_done]
+
+
 def list_active_users(db: Session) -> list[dict]:
     """Workers available for assignment."""
     rows = db.execute(

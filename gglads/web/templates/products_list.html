@@ -116,6 +116,34 @@
     <input type="hidden" name="{{ key }}" value="{{ val }}" />
     {% endfor %}
   </form>
+  {% if user.role == 'admin' %}
+  <form method="get" class="chip-bar" style="margin-top:10px;align-items:center;">
+    {% if query %}<input type="hidden" name="q" value="{{ query }}" />{% endif %}
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}" />{% endif %}
+    {% if collection_filter %}<input type="hidden" name="collection" value="{{ collection_filter }}" />{% endif %}
+    {% if channel_filter %}<input type="hidden" name="channel" value="{{ channel_filter }}" />{% endif %}
+    {% if include_drafts %}<input type="hidden" name="include_drafts" value="1" />{% endif %}
+    {% if include_ignored %}<input type="hidden" name="include_ignored" value="1" />{% endif %}
+    <span class="conn-desc" style="margin-right:6px;">Tasks:</span>
+    <select name="task_filter" class="filter-select" style="font-size:12px;" onchange="this.form.submit()">
+      <option value=""           {{ 'selected' if not task_filter }}>Any state</option>
+      <option value="unassigned" {{ 'selected' if task_filter == 'unassigned' }}>No worker assigned</option>
+      <option value="open"       {{ 'selected' if task_filter == 'open' }}>Has at least one open task</option>
+    </select>
+    <select name="missing_task" class="filter-select" style="font-size:12px;" onchange="this.form.submit()">
+      <option value="">— specific task not done —</option>
+      {% for slug, label in product_task_types %}
+      <option value="{{ slug }}" {{ 'selected' if missing_task == slug }}>{{ label }} not done</option>
+      {% endfor %}
+    </select>
+    {% if task_filter or missing_task %}
+    <a class="muted-link" style="font-size:11px;margin-left:6px;"
+       href="?{% if query %}q={{ query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if collection_filter %}collection={{ collection_filter }}&{% endif %}{% if channel_filter %}channel={{ channel_filter }}&{% endif %}{% if include_drafts %}include_drafts=1&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}">
+      clear task filters
+    </a>
+    {% endif %}
+  </form>
+  {% endif %}
   <div class="chip-bar" style="margin-top:10px;">
     <a href="?{% if query %}q={{ query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if collection_filter %}collection={{ collection_filter }}&{% endif %}{% if channel_filter %}channel={{ channel_filter }}&{% endif %}{% if include_drafts %}{% else %}include_drafts=1&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}"
        class="chip {{ 'chip-on' if include_drafts }}"
@@ -193,6 +221,10 @@
 {% if user.role == 'admin' %}
 <form method="post" action="/tasks/bulk-assign" id="prod-bulk-assign-form" class="bulk-bar">
   <input type="hidden" name="entity_type" value="product" />
+  {# Always assign every task type — worker owns the whole product. #}
+  {% for slug, _label in product_task_types %}
+  <input type="hidden" name="task_slug" value="{{ slug }}" />
+  {% endfor %}
   <span class="bulk-bar-label">
     Bulk assign: <span id="prod-bulk-count">0</span> selected
     <button type="button" id="prod-bulk-select-all" class="muted-link" style="font-size:11px;margin-left:6px;">select all on page ({{ items|length }})</button>
@@ -202,10 +234,6 @@
     <select name="assignee" required class="filter-select" style="font-size:12px;">
       <option value="">— worker —</option>
       {% for w in workers %}<option value="{{ w.id }}">{{ w.label }}</option>{% endfor %}
-    </select>
-    <select name="task_slug" required class="filter-select" style="font-size:12px;" multiple size="3"
-            title="Hold Ctrl/Cmd to pick multiple task types">
-      {% for slug, label in product_task_types %}<option value="{{ slug }}">{{ label }}</option>{% endfor %}
     </select>
     <button type="submit" class="btn-primary">Assign to worker</button>
   </div>
@@ -407,13 +435,6 @@
       const assignee = form.querySelector('select[name=assignee]');
       if (!assignee || !assignee.value) {
         alert('Pick a worker.');
-        e.preventDefault();
-        return;
-      }
-      const slugSelect = form.querySelector('select[name=task_slug]');
-      const hasSlug = Array.from(slugSelect.options).some(o => o.selected);
-      if (!hasSlug) {
-        alert('Pick at least one task type.');
         e.preventDefault();
         return;
       }

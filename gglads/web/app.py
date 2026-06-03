@@ -3568,6 +3568,10 @@ def campaigns_list(request: Request, db: DbDep) -> Response:
         })
 
     summary = _dashboard_summary(db)
+    gads_connected = integrations_svc.is_configured(
+        integrations_svc.get_config(db, "google_ads"),
+        integrations_svc.required_keys("google_ads"),
+    )
 
     return templates.TemplateResponse(
         request,
@@ -3577,6 +3581,7 @@ def campaigns_list(request: Request, db: DbDep) -> Response:
             "user": user,
             "active": "campaigns",
             "summary": summary,
+            "gads_connected": gads_connected,
             "items": items,
             "filters": {
                 "q": request.query_params.get("q") or "",

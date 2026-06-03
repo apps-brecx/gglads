@@ -105,7 +105,7 @@
     {% endfor %}
     {% if selected_channels %}
     <a href="?{% if q %}q={{ q }}&{% endif %}{% if collection_handle %}collection={{ collection_handle }}&{% endif %}{% if since %}since={{ since }}&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}"
-       class="muted-link" style="font-size:11px;margin-left:6px;">clear channels</a>
+       class="bulk-action">clear channels</a>
     {% endif %}
   </div>
   <p class="conn-desc" style="margin:6px 0 0;font-size:11px;">
@@ -137,8 +137,8 @@
 <form method="post" action="/products/out-of-stock/bulk" id="oos-bulk-form" class="bulk-bar">
   <span class="bulk-bar-label">
     Bulk: <span id="bulk-count">0</span> selected
-    <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all in view ({{ rows|length }})</button>
-    <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+    <button type="button" id="bulk-select-page" class="bulk-action">select all in view ({{ rows|length }})</button>
+    <button type="button" id="bulk-clear" class="bulk-action">clear</button>
   </span>
   <div class="bulk-bar-controls">
     {% if include_ignored %}

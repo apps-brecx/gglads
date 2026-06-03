@@ -50,8 +50,8 @@
 <form method="post" action="/products/bulk-ignore" id="ignored-bulk-form" class="bulk-bar">
   <span class="bulk-bar-label">
     Bulk: <span id="bulk-count">0</span> selected
-    <button type="button" id="bulk-select-page" class="muted-link" style="font-size:11px;margin-left:6px;">select all in view ({{ items|length }})</button>
-    <button type="button" id="bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+    <button type="button" id="bulk-select-page" class="bulk-action">select all in view ({{ items|length }})</button>
+    <button type="button" id="bulk-clear" class="bulk-action">clear</button>
   </span>
   <div class="bulk-bar-controls">
     <button type="submit" name="action" value="unignore" class="btn-primary">Un-ignore selected</button>

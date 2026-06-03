@@ -1139,6 +1139,10 @@ textarea:focus {
   letter-spacing: -0.04em;
 }
 
+/* Used inside .product-thumb on grid-view product cards — floats in the
+ * top-right corner of the thumb image. In list view, the badge appears in
+ * a regular <td>; the .products-table td override below restores it to
+ * normal flow so it doesn't break out of its column. */
 .product-status {
   position: absolute;
   top: 8px;
@@ -1149,6 +1153,11 @@ textarea:focus {
   letter-spacing: 0.06em;
   padding: 3px 7px;
   border-radius: 4px;
+}
+
+.products-table td .product-status {
+  position: static;
+  display: inline-block;
 }
 
 .status-active {

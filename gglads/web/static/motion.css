@@ -1013,6 +1013,32 @@ a.chip.chip-on {
 }
 .channel-scope-pill:hover { transform: translateY(-1px); }
 
+/* Bulk-bar inline-action buttons (Select all / Clear). Were rendered with
+ * `muted-link` which made them look like 90s underlined text. Now styled
+ * as compact tonal buttons matching the rest of the design. */
+.bulk-bar .bulk-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  color: var(--text);
+  cursor: pointer;
+  margin-left: 6px;
+  transition: all var(--motion-fast) var(--easing);
+}
+.bulk-bar .bulk-action:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft-border);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.bulk-bar .bulk-action:active { transform: translateY(0); }
+
 /* Bulk-assign checkbox overlaid on a product card (grid view). */
 .product-card { position: relative; }
 .product-card-pick {

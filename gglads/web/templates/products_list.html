@@ -137,7 +137,7 @@
       {% endfor %}
     </select>
     {% if task_filter or missing_task %}
-    <a class="muted-link" style="font-size:11px;margin-left:6px;"
+    <a class="bulk-action"
        href="?{% if query %}q={{ query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if collection_filter %}collection={{ collection_filter }}&{% endif %}{% if channel_filter %}channel={{ channel_filter }}&{% endif %}{% if include_drafts %}include_drafts=1&{% endif %}{% if include_ignored %}include_ignored=1{% endif %}">
       clear task filters
     </a>
@@ -227,8 +227,8 @@
   {% endfor %}
   <span class="bulk-bar-label">
     Bulk assign: <span id="prod-bulk-count">0</span> selected
-    <button type="button" id="prod-bulk-select-all" class="muted-link" style="font-size:11px;margin-left:6px;">select all on page ({{ items|length }})</button>
-    <button type="button" id="prod-bulk-clear" class="muted-link" style="font-size:11px;margin-left:6px;">clear</button>
+    <button type="button" id="prod-bulk-select-all" class="bulk-action">select all on page ({{ items|length }})</button>
+    <button type="button" id="prod-bulk-clear" class="bulk-action">clear</button>
   </span>
   <div class="bulk-bar-controls">
     <select name="assignee" required class="filter-select" style="font-size:12px;">

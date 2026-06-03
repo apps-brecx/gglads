@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gglads.models.base import Base
@@ -21,3 +21,15 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # JSON-encoded per-user preferences (default columns, default sort, etc.)
     preferences: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Invitation flow. invite_token is set when an admin invites a new
+    # user and cleared once the user submits the accept-invite form.
+    invite_token: Mapped[str | None] = mapped_column(
+        String(128), unique=True, nullable=True
+    )
+    invite_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    invited_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

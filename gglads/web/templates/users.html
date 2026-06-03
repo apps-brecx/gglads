@@ -1,0 +1,127 @@
+{% extends "layout.html" %}
+
+{% block title %}Users — gglads{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Users</h1>
+    <p class="page-subtitle">
+      Invite teammates, change their role, or deactivate them.
+      Pending invites are listed below with a copyable link.
+    </p>
+  </div>
+</div>
+
+{% if flashes %}
+<div class="flash-stack">
+  {% for f in flashes %}<div class="flash flash-{{ f.level }}">{{ f.message }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Invite a new user</h2>
+    <span class="conn-desc">Generates a one-time link valid for 7 days.</span>
+  </div>
+  <form method="post" action="/users/invite" class="conn-form">
+    <div class="field-row-3">
+      <div class="field">
+        <label for="invite-email">Email</label>
+        <input type="email" id="invite-email" name="email" required placeholder="teammate@brand.com" />
+      </div>
+      <div class="field">
+        <label for="invite-name">Name <span class="muted">(optional)</span></label>
+        <input type="text" id="invite-name" name="name" placeholder="Jamie Doe" />
+      </div>
+      <div class="field">
+        <label for="invite-role">Role</label>
+        <select id="invite-role" name="role">
+          {% for slug, label in roles %}
+          <option value="{{ slug }}" {{ 'selected' if slug == 'worker' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Send invite</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel" style="padding:0;overflow:hidden;">
+  <div class="panel-head" style="padding:14px 16px;">
+    <h2>All users</h2>
+    <span class="conn-desc">{{ users|length }} total</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Email / Name</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th class="num">Assigned</th>
+        <th>Last login</th>
+        <th class="actions-col">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr class="{{ 'is-ignored' if not u.is_active }}">
+        <td>
+          <strong>{{ u.email }}</strong>
+          {% if u.name %}<div class="conn-desc">{{ u.name }}</div>{% endif %}
+          {% if u.invite_pending %}
+          <details style="margin-top:6px;">
+            <summary class="muted-link" style="font-size:11px;">Invite link (click to copy)</summary>
+            <code class="invite-url" data-url="{{ u.invite_url }}"
+                  onclick="navigator.clipboard.writeText(this.dataset.url); this.classList.add('copied');"
+                  >{{ u.invite_url }}</code>
+            <div class="conn-desc" style="font-size:11px;">
+              Expires {{ u.invite_expires_at.strftime('%Y-%m-%d %H:%M UTC') if u.invite_expires_at else '—' }}
+            </div>
+          </details>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/users/{{ u.id }}/role" class="inline-form">
+            <select name="role" onchange="this.form.submit()" class="filter-select" style="font-size:12px;">
+              {% for slug, label in roles %}
+              <option value="{{ slug }}" {{ 'selected' if u.role == slug }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+        <td>
+          {% if not u.is_active %}<span class="pill">Deactivated</span>
+          {% elif u.invite_pending %}<span class="pill pill-warn">Invite pending</span>
+          {% else %}<span class="pill pill-ok">Active</span>{% endif %}
+        </td>
+        <td class="num">{{ u.assigned_products }}</td>
+        <td>{% if u.last_login_at %}{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+        <td class="actions-col">
+          {% if u.invite_pending %}
+          <form method="post" action="/users/{{ u.id }}/reissue-invite" class="inline-form"
+                title="Generate a fresh 7-day token">
+            <button type="submit" class="btn-ghost" style="font-size:12px;">Re-issue</button>
+          </form>
+          {% endif %}
+          {% if u.is_active %}
+          <form method="post" action="/users/{{ u.id }}/active" class="inline-form"
+                onsubmit="return confirm('Deactivate {{ u.email }}? They won\'t be able to log in.');">
+            <input type="hidden" name="active" value="0" />
+            <button type="submit" class="btn-ghost btn-danger" style="font-size:12px;">Deactivate</button>
+          </form>
+          {% else %}
+          <form method="post" action="/users/{{ u.id }}/active" class="inline-form">
+            <input type="hidden" name="active" value="1" />
+            <button type="submit" class="btn-ghost" style="font-size:12px;">Reactivate</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

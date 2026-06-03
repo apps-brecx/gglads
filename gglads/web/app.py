@@ -87,7 +87,7 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path.startswith("/static/") or path in OPEN_PATHS:
+        if path.startswith("/static/") or path.startswith("/invite/") or path in OPEN_PATHS:
             return await call_next(request)
         if request.session.get("user_id"):
             return await call_next(request)
@@ -383,6 +383,146 @@ _INTEGRATION_ROUTE_TO_NAME = {
     "google-ads": "google_ads",
     "google-search-console": "google_search_console",
 }
+
+
+# ---------------------------------------------------------------------------
+# User management — list, invite, role, activate/deactivate, accept invite
+# ---------------------------------------------------------------------------
+
+@app.get("/users", response_class=HTMLResponse)
+def users_index(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import users as users_svc
+    rows = users_svc.list_users(db)
+    # Build full invite URLs so the admin can copy them straight from the page.
+    base = str(request.base_url).rstrip("/")
+    for r in rows:
+        r["invite_url"] = (
+            f"{base}/invite/{r['invite_token']}" if r["invite_pending"] else None
+        )
+    return templates.TemplateResponse(
+        request,
+        "users.html",
+        {
+            "version": __version__,
+            "user": user,
+            "active": "users",
+            "users": rows,
+            "roles": users_svc.ROLES,
+            "flashes": _consume_flashes(request),
+        },
+    )
+
+
+@app.post("/users/invite")
+async def users_invite(request: Request, db: DbDep) -> Response:
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import users as users_svc
+    form = await request.form()
+    email = (form.get("email") or "").strip()
+    role = (form.get("role") or "viewer").strip()
+    name = (form.get("name") or "").strip() or None
+    ok, detail, _new = users_svc.invite_user(db, email, role, user.id, name=name)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/users/{user_id}/role")
+async def users_change_role(user_id: int, request: Request, db: DbDep) -> Response:
+    actor, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import users as users_svc
+    form = await request.form()
+    role = (form.get("role") or "").strip()
+    ok, detail = users_svc.update_role(db, user_id, role)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/users/{user_id}/active")
+async def users_set_active(user_id: int, request: Request, db: DbDep) -> Response:
+    actor, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import users as users_svc
+    form = await request.form()
+    active = (form.get("active") or "").strip() == "1"
+    ok, detail = users_svc.set_active(db, user_id, active)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/users/{user_id}/reissue-invite")
+def users_reissue_invite(user_id: int, request: Request, db: DbDep) -> Response:
+    actor, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    from gglads.services import users as users_svc
+    ok, detail, _token = users_svc.reissue_invite(db, user_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse("/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/invite/{token}", response_class=HTMLResponse)
+def invite_accept_page(token: str, request: Request, db: DbDep) -> Response:
+    """Public — anyone with a valid token sees this form."""
+    from gglads.services import users as users_svc
+    target = users_svc.find_by_invite_token(db, token)
+    if target is None:
+        return templates.TemplateResponse(
+            request,
+            "accept_invite.html",
+            {
+                "version": __version__,
+                "token": token,
+                "invitee": None,
+                "expired": True,
+                "error": None,
+            },
+        )
+    return templates.TemplateResponse(
+        request,
+        "accept_invite.html",
+        {
+            "version": __version__,
+            "token": token,
+            "invitee": target,
+            "expired": False,
+            "error": None,
+        },
+    )
+
+
+@app.post("/invite/{token}", response_class=HTMLResponse)
+async def invite_accept_submit(
+    token: str, request: Request, db: DbDep,
+) -> Response:
+    from gglads.services import users as users_svc
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    password = form.get("password") or ""
+    ok, detail, new_user = users_svc.accept_invite(db, token, name, password)
+    if not ok:
+        target = users_svc.find_by_invite_token(db, token)
+        return templates.TemplateResponse(
+            request,
+            "accept_invite.html",
+            {
+                "version": __version__,
+                "token": token,
+                "invitee": target,
+                "expired": target is None,
+                "error": detail,
+            },
+        )
+    # Auto-login the user we just set up.
+    request.session["user_id"] = new_user.id
+    return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/connections", response_class=HTMLResponse)

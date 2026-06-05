@@ -40,6 +40,40 @@ class Settings(BaseSettings):
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
 
+    # ---- Helena module (Instagram/Meta + Email marketing agent) ----------
+    # Swappable execution backends. The chat agent and the rest of the app
+    # only ever talk to the MetaExecutionProvider / EmailDeliveryProvider
+    # interfaces; these flags pick the concrete implementation.
+    meta_execution_mode: str = "browser"  # "browser" | "api"
+    email_delivery_mode: str = "browser"  # "browser" | "api"
+
+    # Browser-agent connection (Claude-driven Chrome automation). Until we
+    # have official push access, every Meta/Instagram/Shopify-Email write and
+    # read-back is performed through this agent.
+    browser_agent_url: str = ""
+    browser_agent_token: str = ""
+
+    # Google Flow (Imagen / Veo) image generation.
+    google_flow_api_key: str = ""
+    google_flow_project_id: str = ""
+    google_flow_base_url: str = "https://aisandbox-pa.googleapis.com"
+    google_flow_image_model: str = "imagen-3.0-generate-002"
+
+    # S3-compatible storage for generated images + email assets.
+    s3_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_public_base_url: str = ""  # CDN / public host for stored objects
+
+    # Future MetaApiProvider — left as empty placeholders until we have
+    # approved Meta Marketing API / Instagram Graph API access.
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    instagram_app_id: str = ""
+    instagram_app_secret: str = ""
+
     @field_validator("database_url")
     @classmethod
     def normalize_db_url(cls, v: str) -> str:

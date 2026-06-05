@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block title %}Content calendar — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Content calendar</h1>
+  <p class="page-subtitle">Upcoming and published Instagram posts. Create posts by chatting with Helena.</p>
+</div>
+
+<div class="integ-grid">
+  {% for p in posts %}
+    <div class="integ-card">
+      {% if p.image_url %}<img src="{{ p.image_url }}" alt="post" style="width:100%;border-radius:8px;border:1px solid var(--border);"/>{% endif %}
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="pill {{ p.status }}">{{ p.status }}</span>
+        {% if p.scheduled_at %}<span class="conn-desc">{{ p.scheduled_at.strftime('%b %d, %H:%M') }}</span>{% endif %}
+      </div>
+      <div style="font-size:13px;">{{ p.caption[:140] }}</div>
+      {% if p.hashtags %}<div class="conn-desc">{{ p.hashtags }}</div>{% endif %}
+      {% if p.permalink %}<a href="{{ p.permalink }}" target="_blank" class="conn-desc">View ↗</a>{% endif %}
+    </div>
+  {% else %}
+    <div class="conn-desc">No posts yet. Ask Helena: "Create an Instagram post for our bestseller."</div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% block title %}Brand & assets — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Brand &amp; assets</h1>
+  <p class="page-subtitle">Helena injects this brand knowledge into every image and copy generation.</p>
+</div>
+
+<form method="post" action="/helena/brand" style="max-width:720px;">
+  <div class="form-row"><label>Brand name</label><input name="name" value="{{ brand.name or '' }}" /></div>
+  <div class="form-row"><label>Tone of voice</label><textarea name="tone" rows="2">{{ brand.tone or '' }}</textarea></div>
+  <div class="form-row"><label>Visual style</label><textarea name="visual_style" rows="2">{{ brand.visual_style or '' }}</textarea></div>
+  <div class="form-row"><label>Mood</label><textarea name="mood" rows="2">{{ brand.mood or '' }}</textarea></div>
+  <div class="form-row"><label>Audience</label><textarea name="audience" rows="2">{{ brand.audience or '' }}</textarea></div>
+  <div class="form-row"><label>Content themes</label><textarea name="content_themes" rows="2">{{ brand.content_themes or '' }}</textarea></div>
+  <div class="form-row"><label>Palette (hex colors, space or comma separated)</label><input name="palette" value="{{ palette | join(' ') }}" /></div>
+  <div class="form-row"><label>Guidelines (banned words, claims to avoid)</label><textarea name="guidelines" rows="3">{{ brand.guidelines or '' }}</textarea></div>
+  <div class="form-actions"><button class="btn-primary" type="submit">Save brand</button></div>
+</form>
+
+<h2 style="font-size:18px;margin-top:28px;">Brand assets</h2>
+<div class="integ-grid">
+  {% for a in assets %}
+    <div class="integ-card">
+      <img src="{{ a.url }}" alt="{{ a.title or 'asset' }}" style="width:100%;border-radius:8px;border:1px solid var(--border);"/>
+      <div class="conn-desc">{{ a.kind }}{% if a.prompt %} · {{ a.prompt[:60] }}{% endif %}</div>
+    </div>
+  {% else %}
+    <div class="conn-desc">No saved assets yet. Ask Helena to generate an image and save the one you like.</div>
+  {% endfor %}
+</div>
+{% endblock %}

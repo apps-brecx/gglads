@@ -1,0 +1,161 @@
+{% extends "layout.html" %}
+{% block title %}Helena — Chat{% endblock %}
+
+{% block content %}
+{% if flashes %}
+  {% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}
+{% endif %}
+
+<div class="helena-chat">
+  {# ---- LEFT: channels + history ---- #}
+  <div class="helena-col">
+    <div class="helena-col-head">
+      <span>Chats</span>
+      <form method="post" action="/helena/chat/new"><button class="btn-primary" style="padding:4px 10px;font-size:12px;">+ New</button></form>
+    </div>
+    <div class="helena-col-body">
+      <div class="nav-heading" style="padding:4px 6px;">Channels</div>
+      <a class="helena-session" href="/helena/calendar">📅 Content calendar</a>
+      <a class="helena-session" href="/helena/analytics">📊 Analytics</a>
+      <a class="helena-session" href="/helena/integrations">🔌 Integrations</a>
+      <div class="nav-heading" style="padding:10px 6px 4px;">History</div>
+      {% for s in sessions %}
+        <a class="helena-session {% if active_session and s.id == active_session.id %}is-active{% endif %}"
+           href="/helena/chat?session={{ s.id }}">{{ s.title }}</a>
+      {% else %}
+        <div class="conn-desc" style="padding:8px 6px;">No chats yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---- CENTER: thread ---- #}
+  <div class="helena-col">
+    <div class="helena-col-head">
+      <span>{{ active_session.title if active_session else "Helena" }}</span>
+      <span class="conn-desc">AI marketing agent</span>
+    </div>
+    {% if active_session %}
+    <div class="helena-thread" id="thread">
+      {% for m in messages %}
+        {% if m.role == 'user' %}
+          <div class="helena-msg helena-msg-user"><div class="helena-bubble">{{ m.content }}</div></div>
+        {% elif m.role == 'assistant' and m.content %}
+          <div class="helena-msg helena-msg-assistant"><div class="helena-bubble">{{ m.content }}</div></div>
+        {% elif m.role == 'tool' %}
+          <div class="helena-msg helena-msg-tool"><div class="helena-tool-chip">🛠 {{ m.tool_name }}</div></div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <form class="helena-composer" id="composer" data-session="{{ active_session.id }}">
+      <textarea id="msg" rows="2" placeholder="Ask Helena to plan content, generate an image, launch a campaign, or design an email…"></textarea>
+      <button class="btn-primary" type="submit">Send</button>
+    </form>
+    {% else %}
+    <div class="helena-thread"><div class="conn-desc">Start a new chat to talk to Helena.</div></div>
+    {% endif %}
+  </div>
+
+  {# ---- RIGHT: metrics + tasks + brand ---- #}
+  <div class="helena-col">
+    <div class="helena-col-head"><span>Overview</span></div>
+    <div class="helena-col-body">
+      <div class="helena-cards">
+        <div class="helena-card"><div class="label">Ad spend (30d)</div><div class="value">${{ '%.0f'|format(topline.meta.spend) }}</div><div class="sub">ROAS {{ topline.meta.roas }}x</div></div>
+        <div class="helena-card"><div class="label">IG reach</div><div class="value">{{ '%.0f'|format(topline.instagram.reach) }}</div><div class="sub">{{ topline.instagram.engagement_rate }}% eng</div></div>
+        <div class="helena-card"><div class="label">Email CTR</div><div class="value">{{ topline.email.ctr }}%</div></div>
+      </div>
+
+      <div class="nav-heading" style="padding:14px 2px 6px;">Upcoming tasks
+        {% if approvals_count %}<a href="/helena/approvals" class="pill needs_review">{{ approvals_count }} need approval</a>{% endif %}
+      </div>
+      {% for t in upcoming %}
+        <div class="rec">
+          <div style="display:flex;justify-content:space-between;gap:8px;">
+            <span style="font-size:13px;">{{ t.title }}</span>
+            <span class="pill {{ t.status }}">{{ t.status.replace('_',' ') }}</span>
+          </div>
+          {% if t.run_after %}<div class="conn-desc">{{ t.run_after.strftime('%b %d, %H:%M') }}</div>{% endif %}
+        </div>
+      {% else %}
+        <div class="conn-desc" style="padding:4px 2px;">Nothing scheduled.</div>
+      {% endfor %}
+
+      <div class="nav-heading" style="padding:14px 2px 6px;">Brand</div>
+      <div class="conn-desc" style="padding:0 2px 8px;">{{ brand.name }} · <a href="/helena/brand">edit</a></div>
+      {% if assets %}
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+        {% for a in assets %}<img src="{{ a.url }}" alt="{{ a.title or 'asset' }}" style="width:100%;border-radius:6px;border:1px solid var(--border);"/>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const composer = document.getElementById('composer');
+  if (!composer) return;
+  const thread = document.getElementById('thread');
+  const input = document.getElementById('msg');
+  const sessionId = composer.dataset.session;
+
+  function el(cls, html) {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.innerHTML = html;
+    thread.appendChild(d);
+    thread.scrollTop = thread.scrollHeight;
+    return d;
+  }
+  function escapeHtml(s) {
+    return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  composer.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    el('helena-msg helena-msg-user', '<div class="helena-bubble">' + escapeHtml(text) + '</div>');
+
+    const assistantWrap = el('helena-msg helena-msg-assistant', '<div class="helena-bubble"></div>');
+    const bubble = assistantWrap.querySelector('.helena-bubble');
+    bubble.textContent = '…';
+
+    const fd = new FormData();
+    fd.append('message', text);
+    let acc = '';
+    try {
+      const resp = await fetch('/helena/chat/' + sessionId + '/stream', { method: 'POST', body: fd });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const line = part.replace(/^data: /, '').trim();
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line); } catch (_) { continue; }
+          if (ev.type === 'text') { acc += ev.text; bubble.textContent = acc; }
+          else if (ev.type === 'tool') {
+            el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + '</div>');
+          }
+          else if (ev.type === 'error') { bubble.textContent = '⚠ ' + ev.error; }
+          thread.scrollTop = thread.scrollHeight;
+        }
+      }
+      if (!acc.trim()) bubble.textContent = '(done)';
+    } catch (err) {
+      bubble.textContent = '⚠ ' + err;
+    }
+  });
+
+  if (thread) thread.scrollTop = thread.scrollHeight;
+})();
+</script>
+{% endblock %}

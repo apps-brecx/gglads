@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block title %}Approvals — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Approvals</h1>
+  <p class="page-subtitle">Any action that spends money or publishes/sends publicly waits here for your explicit approval before the agent executes it.</p>
+</div>
+
+<h2 style="font-size:18px;">Needs approval</h2>
+<table class="helena-table">
+  <thead><tr><th>Task</th><th>Type</th><th>When</th><th></th></tr></thead>
+  <tbody>
+  {% for t in pending %}
+    <tr>
+      <td>{{ t.title }}</td>
+      <td><span class="pill">{{ t.kind }}</span></td>
+      <td class="conn-desc">{{ t.run_after.strftime('%b %d, %H:%M') if t.run_after else 'ASAP' }}</td>
+      <td style="display:flex;gap:8px;">
+        <form method="post" action="/helena/tasks/{{ t.id }}/approve"><button class="btn-primary" style="padding:4px 12px;font-size:12px;">Approve</button></form>
+        <form method="post" action="/helena/tasks/{{ t.id }}/cancel"><button class="btn-secondary" style="padding:4px 12px;font-size:12px;">Cancel</button></form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="conn-desc">Nothing waiting for approval.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 style="font-size:18px;margin-top:24px;">Queue</h2>
+<table class="helena-table">
+  <thead><tr><th>Task</th><th>Status</th><th>When</th><th>Attempts</th><th>Last error</th></tr></thead>
+  <tbody>
+  {% for t in upcoming %}
+    <tr>
+      <td>{{ t.title }}</td>
+      <td><span class="pill {{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
+      <td class="conn-desc">{{ t.run_after.strftime('%b %d, %H:%M') if t.run_after else '—' }}</td>
+      <td>{{ t.attempts }}/{{ t.max_attempts }}</td>
+      <td class="conn-desc">{{ (t.last_error or '')[:80] }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="conn-desc">Queue is empty.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

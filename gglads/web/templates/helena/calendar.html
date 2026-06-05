@@ -1,26 +1,102 @@
 {% extends "layout.html" %}
 {% block title %}Content calendar — Helena{% endblock %}
+
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
-<div class="page-head">
-  <h1 class="page-title">Content calendar</h1>
-  <p class="page-subtitle">Upcoming and published Instagram posts. Create posts by chatting with Helena.</p>
+
+<div class="cal-head">
+  <div class="cal-title">{{ cal.label }}</div>
+  <div class="cal-controls">
+    <a class="cal-nav-btn" href="/helena/calendar?view={{ cal.view }}&date={{ cal.prev_ref }}" title="Previous (←)">‹</a>
+    <a class="cal-nav-btn" href="/helena/calendar?view={{ cal.view }}&date={{ cal.next_ref }}" title="Next (→)">›</a>
+    <a class="cal-nav-btn" href="/helena/calendar?view={{ cal.view }}&date={{ cal.today }}" title="Today (T)">Today</a>
+    <div class="seg-toggle">
+      <a href="/helena/calendar?view=month&date={{ cal.ref }}"><button class="{% if cal.view == 'month' %}is-active{% endif %}">Month</button></a>
+      <a href="/helena/calendar?view=week&date={{ cal.ref }}"><button class="{% if cal.view == 'week' %}is-active{% endif %}">Week</button></a>
+    </div>
+  </div>
 </div>
 
-<div class="integ-grid">
-  {% for p in posts %}
-    <div class="integ-card">
-      {% if p.image_url %}<img src="{{ p.image_url }}" alt="post" style="width:100%;border-radius:8px;border:1px solid var(--border);"/>{% endif %}
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span class="pill {{ p.status }}">{{ p.status }}</span>
-        {% if p.scheduled_at %}<span class="conn-desc">{{ p.scheduled_at.strftime('%b %d, %H:%M') }}</span>{% endif %}
+<p class="conn-desc" style="margin:-6px 0 12px;">
+  Click any empty channel slot to schedule content for that channel and day. Keys: ← / → navigate · T today · V toggle view.
+</p>
+
+<div class="cal-grid {{ cal.view }}">
+  {% for wd in cal.weekday_names %}<div class="cal-weekday">{{ wd }}</div>{% endfor %}
+  {% for week in cal.weeks %}
+    {% for day in week %}
+      <div class="cal-cell {% if not day.in_month %}out-month{% endif %} {% if day.is_weekend %}weekend{% endif %} {% if day.is_today %}today{% endif %}">
+        <div class="cal-daynum">{{ day.day }}</div>
+        {% for slot in day.slots %}
+          <div class="cal-slot" data-channel="{{ slot.channel }}" data-date="{{ day.date }}" data-name="{{ slot.name }}"
+               onclick="Cal.openAdd(this)" title="{{ slot.name }}">
+            <span class="cal-slot-icon">{{ slot.icon }}</span>
+            <span class="cal-slot-items">
+              {% for item in slot['items'] %}
+                <span class="cal-chip {{ item.status }}" title="{{ item.title }} ({{ item.status }})">{{ item.title }}</span>
+              {% endfor %}
+              {% if not slot['items'] %}<span class="cal-empty-hint">+ {{ slot.name }}</span>{% endif %}
+            </span>
+          </div>
+        {% endfor %}
       </div>
-      <div style="font-size:13px;">{{ p.caption[:140] }}</div>
-      {% if p.hashtags %}<div class="conn-desc">{{ p.hashtags }}</div>{% endif %}
-      {% if p.permalink %}<a href="{{ p.permalink }}" target="_blank" class="conn-desc">View ↗</a>{% endif %}
-    </div>
-  {% else %}
-    <div class="conn-desc">No posts yet. Ask Helena: "Create an Instagram post for our bestseller."</div>
+    {% endfor %}
   {% endfor %}
 </div>
+
+{# ---- Add-content modal ---- #}
+<div class="modal-backdrop" id="add-modal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-head"><h3 id="add-title">Schedule content</h3>
+      <button class="modal-close" type="button" onclick="document.getElementById('add-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <form method="post" action="/helena/calendar/add">
+        <input type="hidden" name="channel" id="add-channel"/>
+        <input type="hidden" name="date" id="add-date"/>
+        <input type="hidden" name="view" value="{{ cal.view }}"/>
+        <div class="form-row"><label>Caption / title</label>
+          <textarea name="caption" rows="3" placeholder="What's this post about? (Helena can flesh it out in chat)"></textarea></div>
+        <div class="form-actions"><button class="btn-primary" type="submit">Add draft</button></div>
+        <p class="conn-desc">Creates a draft on the calendar. Publishing/sending stays gated by approval.</p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const Cal = (function () {
+  const modal = document.getElementById('add-modal');
+  let selectedEl = null;
+  function openAdd(slot) {
+    // Only empty slots open the add flow; slots with items are display rows.
+    document.querySelectorAll('.cal-slot.selected').forEach(s => s.classList.remove('selected'));
+    slot.classList.add('selected');
+    selectedEl = slot;
+    document.getElementById('add-channel').value = slot.dataset.channel;
+    document.getElementById('add-date').value = slot.dataset.date;
+    document.getElementById('add-title').textContent = 'Schedule ' + slot.dataset.name + ' — ' + slot.dataset.date;
+    modal.classList.add('open');
+    setTimeout(() => { const t = modal.querySelector('textarea'); if (t) t.focus(); }, 30);
+  }
+  modal.addEventListener('click', e => { if (e.target === modal) { modal.classList.remove('open'); if (selectedEl) selectedEl.classList.remove('selected'); } });
+
+  // ---- Keyboard shortcuts ----
+  const view = "{{ cal.view }}";
+  const urls = {
+    prev: "/helena/calendar?view={{ cal.view }}&date={{ cal.prev_ref }}",
+    next: "/helena/calendar?view={{ cal.view }}&date={{ cal.next_ref }}",
+    today: "/helena/calendar?view={{ cal.view }}&date={{ cal.today }}",
+    toggle: "/helena/calendar?view=" + (view === 'month' ? 'week' : 'month') + "&date={{ cal.ref }}",
+  };
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft') location.href = urls.prev;
+    else if (e.key === 'ArrowRight') location.href = urls.next;
+    else if (e.key === 't' || e.key === 'T') location.href = urls.today;
+    else if (e.key === 'v' || e.key === 'V') location.href = urls.toggle;
+    else if (e.key === 'Escape') { modal.classList.remove('open'); }
+  });
+  return { openAdd };
+})();
+</script>
 {% endblock %}

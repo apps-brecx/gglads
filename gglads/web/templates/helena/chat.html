@@ -40,9 +40,18 @@
         {% if m.role == 'user' %}
           <div class="helena-msg helena-msg-user"><div class="helena-bubble">{{ m.content }}</div></div>
         {% elif m.role == 'assistant' and m.content %}
-          <div class="helena-msg helena-msg-assistant"><div class="helena-bubble">{{ m.content }}</div></div>
+          <div class="helena-msg helena-msg-assistant"><div class="helena-bubble md">{{ m.content }}</div></div>
         {% elif m.role == 'tool' %}
-          <div class="helena-msg helena-msg-tool"><div class="helena-tool-chip">🛠 {{ m.tool_name }}</div></div>
+          {% set payload = (m.tool_payload_json | fromjson) if m.tool_payload_json else {} %}
+          {% set result = payload.get('result', {}) if payload else {} %}
+          {% if m.tool_name == 'generate_image' and result.get('images') %}
+            <div class="helena-msg helena-msg-assistant">
+              <div class="img-card" data-images='{{ (result.images | map(attribute="url") | list) | tojson }}'
+                   {% if result.get('note') %}data-note="{{ result.note }}"{% endif %}></div>
+            </div>
+          {% else %}
+            <div class="helena-msg helena-msg-tool"><div class="helena-tool-chip">🛠 {{ m.tool_name }}</div></div>
+          {% endif %}
         {% endif %}
       {% endfor %}
     </div>
@@ -93,9 +102,96 @@
 
 <script>
 (function () {
-  const composer = document.getElementById('composer');
-  if (!composer) return;
   const thread = document.getElementById('thread');
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  // ---- Minimal, safe Markdown -> HTML (bold, italics, code, lists,
+  //      blockquotes, links, paragraph/line breaks). Escapes first. ----
+  function renderMarkdown(src) {
+    const lines = String(src).replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let listType = null, para = [];
+    const inline = t => escapeHtml(t)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br/>') + '</p>'); para = []; } };
+    const flushList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
+    for (let raw of lines) {
+      const line = raw.trimEnd();
+      let m;
+      if (!line.trim()) { flushPara(); flushList(); continue; }
+      if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { flushPara(); flushList(); out.push('<h' + (m[1].length + 2) + '>' + inline(m[2]) + '</h' + (m[1].length + 2) + '>'); continue; }
+      if ((m = line.match(/^>\s?(.*)$/))) { flushPara(); flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); continue; }
+      if ((m = line.match(/^[-*]\s+(.*)$/))) { flushPara(); if (listType !== 'ul') { flushList(); out.push('<ul>'); listType = 'ul'; } out.push('<li>' + inline(m[1]) + '</li>'); continue; }
+      if ((m = line.match(/^\d+\.\s+(.*)$/))) { flushPara(); if (listType !== 'ol') { flushList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inline(m[1]) + '</li>'); continue; }
+      flushList(); para.push(line);
+    }
+    flushPara(); flushList();
+    return out.join('');
+  }
+
+  // ---- Image card (1/N counter + click-to-expand lightbox) ----
+  function mountImageCard(card, images, note) {
+    if (!images || !images.length) return;
+    let idx = 0;
+    card.innerHTML =
+      '<div class="img-card-main"><img alt="generated image"/></div>' +
+      '<div class="img-card-bar">' +
+        '<button class="img-nav prev" title="Previous">‹</button>' +
+        '<span class="img-counter"></span>' +
+        '<button class="img-nav next" title="Next">›</button>' +
+        '<button class="img-expand" title="Expand">⤢</button>' +
+      '</div>' +
+      (note ? '<div class="img-note"></div>' : '');
+    const img = card.querySelector('img');
+    const counter = card.querySelector('.img-counter');
+    if (note) card.querySelector('.img-note').textContent = note;
+    const single = images.length < 2;
+    card.querySelectorAll('.img-nav').forEach(b => b.style.display = single ? 'none' : '');
+    function show() { img.src = images[idx]; counter.textContent = (idx + 1) + '/' + images.length; }
+    card.querySelector('.prev')?.addEventListener('click', () => { idx = (idx - 1 + images.length) % images.length; show(); });
+    card.querySelector('.next')?.addEventListener('click', () => { idx = (idx + 1) % images.length; show(); });
+    const expand = () => openLightbox(images[idx]);
+    img.addEventListener('click', expand);
+    card.querySelector('.img-expand').addEventListener('click', expand);
+    show();
+  }
+  function openLightbox(url) {
+    let lb = document.getElementById('img-lightbox');
+    if (!lb) {
+      lb = document.createElement('div');
+      lb.id = 'img-lightbox';
+      lb.className = 'img-lightbox';
+      lb.innerHTML = '<img alt="expanded"/>';
+      lb.addEventListener('click', () => lb.classList.remove('open'));
+      document.body.appendChild(lb);
+    }
+    lb.querySelector('img').src = url;
+    lb.classList.add('open');
+  }
+
+  // ---- Hydrate server-rendered markdown + image cards on load ----
+  function hydrate(root) {
+    (root || document).querySelectorAll('.helena-bubble.md:not([data-md])').forEach(b => {
+      b.setAttribute('data-md', '1');
+      b.innerHTML = renderMarkdown(b.textContent);
+    });
+    (root || document).querySelectorAll('.img-card:not([data-mounted])').forEach(c => {
+      c.setAttribute('data-mounted', '1');
+      let imgs = [];
+      try { imgs = JSON.parse(c.dataset.images || '[]'); } catch (_) {}
+      mountImageCard(c, imgs, c.dataset.note || '');
+    });
+  }
+  hydrate(document);
+
+  // ---- Composer + streaming ----
+  const composer = document.getElementById('composer');
+  if (!composer) { if (thread) thread.scrollTop = thread.scrollHeight; return; }
   const input = document.getElementById('msg');
   const sessionId = composer.dataset.session;
 
@@ -107,9 +203,6 @@
     thread.scrollTop = thread.scrollHeight;
     return d;
   }
-  function escapeHtml(s) {
-    return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  }
 
   composer.addEventListener('submit', async function (e) {
     e.preventDefault();
@@ -118,7 +211,7 @@
     input.value = '';
     el('helena-msg helena-msg-user', '<div class="helena-bubble">' + escapeHtml(text) + '</div>');
 
-    const assistantWrap = el('helena-msg helena-msg-assistant', '<div class="helena-bubble"></div>');
+    const assistantWrap = el('helena-msg helena-msg-assistant', '<div class="helena-bubble md"></div>');
     const bubble = assistantWrap.querySelector('.helena-bubble');
     bubble.textContent = '…';
 
@@ -141,21 +234,27 @@
           if (!line) continue;
           let ev;
           try { ev = JSON.parse(line); } catch (_) { continue; }
-          if (ev.type === 'text') { acc += ev.text; bubble.textContent = acc; }
+          if (ev.type === 'text') { acc += ev.text; bubble.innerHTML = renderMarkdown(acc); }
           else if (ev.type === 'tool') {
-            el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + '</div>');
+            if (ev.name === 'generate_image' && ev.result && ev.result.images && ev.result.images.length) {
+              const wrap = el('helena-msg helena-msg-assistant', '<div class="img-card"></div>');
+              mountImageCard(wrap.querySelector('.img-card'),
+                             ev.result.images.map(i => i.url), ev.result.note || '');
+            } else {
+              el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + '</div>');
+            }
           }
           else if (ev.type === 'error') { bubble.textContent = '⚠ ' + ev.error; }
           thread.scrollTop = thread.scrollHeight;
         }
       }
-      if (!acc.trim()) bubble.textContent = '(done)';
+      if (!acc.trim() && bubble.textContent === '…') bubble.textContent = '(done)';
     } catch (err) {
       bubble.textContent = '⚠ ' + err;
     }
   });
 
-  if (thread) thread.scrollTop = thread.scrollHeight;
+  thread.scrollTop = thread.scrollHeight;
 })();
 </script>
 {% endblock %}

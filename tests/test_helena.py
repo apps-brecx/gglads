@@ -232,3 +232,20 @@ def test_calendar_add_item_appears_inline(db):
                 li = next(s for s in cell["slots"] if s["channel"] == "linkedin")
                 found = any(it["title"] == "Launch" for it in li["items"])
     assert found
+
+
+# ---- Review fixes: generate_image product fallback ----------------------
+
+def test_generate_image_falls_back_to_product_image(db):
+    from gglads.models.shopify_product import ShopifyProduct
+    from gglads.services.helena import skills
+    db.add(ShopifyProduct(id=55, handle="pink", title="Pink Splash",
+                          status="active", image_url="https://cdn/pink.jpg"))
+    db.commit()
+    # Google Flow is unconfigured in tests -> must fall back to product image.
+    res = skills.run_skill(db, "generate_image",
+                           {"concept": "hero", "product_id": 55},
+                           user_id=None, session_id=None)
+    assert res["ok"] is True
+    assert res["fallback"] is True
+    assert res["images"][0]["url"] == "https://cdn/pink.jpg"

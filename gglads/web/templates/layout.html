@@ -21,6 +21,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
   <link rel="stylesheet" href="/static/motion.css" />
+  <link rel="stylesheet" href="/static/helena.css" />
 </head>
 <body class="app-body">
   <header class="app-header">
@@ -61,8 +62,40 @@
             <symbol id="ic-connections" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
             <symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
             <symbol id="ic-status" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+            <symbol id="ic-helena" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+            <symbol id="ic-analytics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></symbol>
+            <symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></symbol>
+            <symbol id="ic-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></symbol>
           </defs>
         </svg>
+
+        <div class="nav-section">
+          <div class="nav-heading">Helena</div>
+          <a href="/helena/chat" class="nav-item {% if active == 'helena_chat' %}is-active{% endif %}">
+            <svg class="nav-icon" aria-hidden="true"><use href="#ic-helena"/></svg>
+            <span>Chat</span>
+          </a>
+          <a href="/helena/calendar" class="nav-item {% if active == 'helena_calendar' %}is-active{% endif %}">
+            <svg class="nav-icon" aria-hidden="true"><use href="#ic-calendar"/></svg>
+            <span>Content calendar</span>
+          </a>
+          <a href="/helena/analytics" class="nav-item {% if active == 'helena_analytics' %}is-active{% endif %}">
+            <svg class="nav-icon" aria-hidden="true"><use href="#ic-analytics"/></svg>
+            <span>Analytics</span>
+          </a>
+          <a href="/helena/approvals" class="nav-item {% if active == 'helena_approvals' %}is-active{% endif %}">
+            <svg class="nav-icon" aria-hidden="true"><use href="#ic-approvals"/></svg>
+            <span>Approvals</span>
+          </a>
+          <a href="/helena/brand" class="nav-item {% if active == 'helena_brand' %}is-active{% endif %}">
+            <svg class="nav-icon" aria-hidden="true"><use href="#ic-image"/></svg>
+            <span>Brand &amp; assets</span>
+          </a>
+          <a href="/helena/integrations" class="nav-item {% if active == 'helena_integrations' %}is-active{% endif %}">
+            <svg class="nav-icon" aria-hidden="true"><use href="#ic-connections"/></svg>
+            <span>Integrations</span>
+          </a>
+        </div>
 
         <div class="nav-section">
           <a href="/" class="nav-item {% if active == 'dashboard' %}is-active{% endif %}">

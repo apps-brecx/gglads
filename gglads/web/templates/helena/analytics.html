@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+{% block title %}Analytics — Helena{% endblock %}
+
+{% macro spark(series, color) %}
+  {% if series %}
+    {% set vals = series | map(attribute='value') | list %}
+    {% set mx = vals | max %}
+    {% set mx = mx if mx > 0 else 1 %}
+    <svg viewBox="0 0 {{ (series|length) * 10 }} 40" preserveAspectRatio="none" style="width:100%;height:48px;">
+      <polyline fill="none" stroke="{{ color }}" stroke-width="1.5"
+        points="{% for p in series %}{{ loop.index0 * 10 }},{{ 40 - (p.value / mx * 36) }} {% endfor %}"/>
+    </svg>
+  {% else %}<div class="conn-desc">No data yet.</div>{% endif %}
+{% endmacro %}
+
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:center;">
+  <div>
+    <h1 class="page-title">Analytics</h1>
+    <p class="page-subtitle">Last {{ days }} days · Instagram, Meta Ads, and Email.</p>
+  </div>
+  <form method="post" action="/helena/analytics/refresh"><button class="btn-secondary">Refresh metrics</button></form>
+</div>
+
+<div class="helena-cards" style="margin-bottom:24px;">
+  <div class="helena-card"><div class="label">Spend</div><div class="value">${{ '%.0f'|format(topline.meta.spend) }}</div></div>
+  <div class="helena-card"><div class="label">Impressions</div><div class="value">{{ '%.0f'|format(topline.meta.impressions) }}</div></div>
+  <div class="helena-card"><div class="label">Clicks</div><div class="value">{{ '%.0f'|format(topline.meta.clicks) }}</div><div class="sub">CPC ${{ topline.meta.cpc }}</div></div>
+  <div class="helena-card"><div class="label">ROAS</div><div class="value">{{ topline.meta.roas }}x</div><div class="sub">{{ '%.0f'|format(topline.meta.conversions) }} conv</div></div>
+  <div class="helena-card"><div class="label">IG reach</div><div class="value">{{ '%.0f'|format(topline.instagram.reach) }}</div><div class="sub">{{ topline.instagram.engagement_rate }}% eng</div></div>
+  <div class="helena-card"><div class="label">Email CTR</div><div class="value">{{ topline.email.ctr }}%</div><div class="sub">{{ '%.0f'|format(topline.email.opens) }} opens</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+  <div class="helena-card"><div class="label">Ad spend over time</div>{{ spark(spend_series, 'var(--accent)') }}</div>
+  <div class="helena-card"><div class="label">Instagram reach over time</div>{{ spark(reach_series, 'var(--ok)') }}</div>
+</div>
+
+<h2 style="font-size:18px;">Spend recommendations</h2>
+{% for r in recommendations %}
+  <div class="rec {{ r.severity }}">
+    <strong>{{ r.headline }}</strong>
+    <div class="conn-desc">Spend ${{ r.metrics.spend }} · ROAS {{ r.metrics.roas }}x · {{ r.metrics.clicks }} clicks</div>
+  </div>
+{% else %}
+  <div class="conn-desc">No recommendations yet — refresh metrics once campaigns have data.</div>
+{% endfor %}
+
+<h2 style="font-size:18px;margin-top:24px;">Campaigns</h2>
+<table class="helena-table">
+  <thead><tr><th>Campaign</th><th>Spend</th><th>Clicks</th><th>Conv</th><th>Revenue</th><th>CPC</th><th>ROAS</th></tr></thead>
+  <tbody>
+  {% for c in per_campaign %}
+    <tr><td>#{{ c.campaign_id }}</td><td>${{ c.spend }}</td><td>{{ c.clicks }}</td><td>{{ c.conversions }}</td><td>${{ c.revenue }}</td><td>${{ c.cpc }}</td><td>{{ c.roas }}x</td></tr>
+  {% else %}
+    <tr><td colspan="7" class="conn-desc">No campaign metrics yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -70,6 +70,11 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 DbDep = Annotated[Session, Depends(get_db)]
 
+# Helena module (Instagram/Meta + Email marketing agent) routes.
+from gglads.web import helena_routes  # noqa: E402
+
+app.include_router(helena_routes.build_router(templates))
+
 
 def _user_count(db: Session) -> int:
     return db.scalar(select(func.count(User.id))) or 0

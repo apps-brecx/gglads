@@ -85,6 +85,12 @@ class Post(Base):
     caption: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     hashtags: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Publishing channel for the content calendar. One of the calendar
+    # channels: blog | linkedin | x | instagram | pinterest | youtube |
+    # tiktok | facebook | email. Defaults to instagram (the launch channel).
+    channel: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="instagram", index=True
+    )
     brand_asset_id: Mapped[int | None] = mapped_column(
         ForeignKey("brand_assets.id", ondelete="SET NULL"), nullable=True
     )

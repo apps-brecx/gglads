@@ -13,20 +13,22 @@ from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("APP_SECRET", "test-secret-for-helena")
 
-from gglads.models import (  # noqa: E402
+from gglads.models import (
     Base,
     Integration,
     MetaAdCampaign,
     Post,
     ScheduledTask,
 )
-from gglads.services.helena import analytics as analytics_svc  # noqa: E402
-from gglads.services.helena import brand as brand_svc  # noqa: E402
-from gglads.services.helena import execution as exec_svc  # noqa: E402
-from gglads.services.helena import optimization as opt_svc  # noqa: E402
-from gglads.services.helena.email.renderer import EmailTemplateRenderer  # noqa: E402
-from gglads.services.helena.meta.factory import get_meta_provider  # noqa: E402
-from gglads.services.helena.specs import CampaignSpec, InstagramPostSpec  # noqa: E402
+from gglads.models.user import User
+from gglads.services.helena import analytics as analytics_svc
+from gglads.services.helena import calendar as calendar_svc
+from gglads.services.helena import dashboard as dashboard_svc
+from gglads.services.helena import execution as exec_svc
+from gglads.services.helena import optimization as opt_svc
+from gglads.services.helena.email.renderer import EmailTemplateRenderer
+from gglads.services.helena.meta.factory import get_meta_provider
+from gglads.services.helena.specs import CampaignSpec, InstagramPostSpec
 
 
 @pytest.fixture
@@ -147,3 +149,86 @@ def test_analytics_and_optimization(db):
     db.commit()
     recs = opt_svc.recommendations(db, days=3650)
     assert any(r["action"] == "scale" and r["campaign_id"] == 7 for r in recs)
+
+
+# ---- PERF-DETAIL: customizable dashboard --------------------------------
+
+def test_dashboard_default_and_toggle(db):
+    user = User(email="u@x.com", role="admin", is_active=True)
+    db.add(user)
+    db.commit()
+    assert "profit" in dashboard_svc.get_selected(user)
+
+    # toggle a GA4 metric on, then off; persisted to user.preferences
+    sel = dashboard_svc.toggle_metric(db, user, "ga4_conversions")
+    assert "ga4_conversions" in sel
+    sel = dashboard_svc.toggle_metric(db, user, "ga4_conversions")
+    assert "ga4_conversions" not in sel
+
+
+def test_dashboard_cards_compute_profit(db):
+    user = User(email="u2@x.com", role="admin", is_active=True)
+    db.add(user)
+    db.commit()
+    analytics_svc.ingest_metrics(db, [
+        {"platform": "meta_ads", "entity_type": "account", "metric": "revenue",
+         "value": 1000, "captured_for": analytics_svc._now().isoformat()},
+        {"platform": "meta_ads", "entity_type": "account", "metric": "spend",
+         "value": 300, "captured_for": analytics_svc._now().isoformat()},
+    ])
+    dashboard_svc.set_selected(db, user, ["profit", "ad_spend"])
+    cards = {c["key"]: c for c in dashboard_svc.cards(db, user, days=30)}
+    assert cards["ad_spend"]["value"] == 300
+    assert cards["profit"]["value"] == 700
+
+
+def test_chart_series_dual_axis(db):
+    user = User(email="u3@x.com", role="admin", is_active=True)
+    db.add(user)
+    db.commit()
+    dashboard_svc.set_selected(db, user, ["profit", "ga4_sessions"])
+    chart = dashboard_svc.chart_series(db, user, days=7)
+    axes = {s["axis"] for s in chart["series"]}
+    assert axes == {"left", "right"}  # currency on left, count on right
+    assert all(len(s["points"]) == 7 for s in chart["series"])
+
+
+def test_data_tables_structure(db):
+    tables = {t["key"]: t for t in dashboard_svc.all_tables(db, days=30)}
+    assert set(tables) == {"source_medium", "landing_pages", "google_campaigns", "meta_campaigns"}
+    for t in tables.values():
+        assert "rows" in t and "page_size" in t
+
+
+# ---- CAL-DETAIL: week/month grid + channel slots ------------------------
+
+def test_calendar_month_grid_has_channel_slots(db):
+    from datetime import date
+    data = calendar_svc.view_data(db, "month", date(2026, 6, 15))
+    assert data["view"] == "month"
+    # every day cell carries one slot per channel
+    cell = data["weeks"][0][0]
+    assert len(cell["slots"]) == len(calendar_svc.CHANNELS)
+    assert {s["channel"] for s in cell["slots"]} == calendar_svc.CHANNEL_KEYS
+
+
+def test_calendar_week_has_seven_days_and_today_weekend(db):
+    from datetime import date
+    data = calendar_svc.view_data(db, "week", date(2026, 6, 3))  # a Wednesday
+    assert len(data["weeks"]) == 1 and len(data["weeks"][0]) == 7
+    flags = [(d["is_weekend"], d["date"]) for d in data["weeks"][0]]
+    assert sum(1 for w, _ in flags if w) == 2  # Sat + Sun tinted
+
+
+def test_calendar_add_item_appears_inline(db):
+    from datetime import date
+    calendar_svc.add_slot_item(db, channel="linkedin", day=date(2026, 6, 10),
+                               caption="Launch", user_id=None)
+    data = calendar_svc.view_data(db, "month", date(2026, 6, 10))
+    found = False
+    for week in data["weeks"]:
+        for cell in week:
+            if cell["date"] == "2026-06-10":
+                li = next(s for s in cell["slots"] if s["channel"] == "linkedin")
+                found = any(it["title"] == "Launch" for it in li["items"])
+    assert found

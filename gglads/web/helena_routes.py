@@ -26,12 +26,13 @@ from sqlalchemy.orm import Session
 from gglads import __version__
 from gglads.db.session import get_db
 from gglads.models.email_campaign import EmailCampaign
-from gglads.models.helena import Post
 from gglads.models.integration import Integration, IntegrationAccount
 from gglads.models.user import User
 from gglads.services.helena import agent as agent_svc
 from gglads.services.helena import analytics as analytics_svc
 from gglads.services.helena import brand as brand_svc
+from gglads.services.helena import calendar as calendar_svc
+from gglads.services.helena import dashboard as dashboard_svc
 from gglads.services.helena import execution as exec_svc
 from gglads.services.helena import integrations_catalog as catalog
 from gglads.services.helena import optimization as opt_svc
@@ -247,12 +248,29 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             request, "helena/analytics.html",
             ctx(request, user, "helena_analytics",
                 days=days,
-                topline=analytics_svc.topline(db, days=days),
-                per_campaign=analytics_svc.per_campaign(db, days=days),
-                recommendations=opt_svc.recommendations(db, days=days),
-                spend_series=analytics_svc.timeseries(db, "meta_ads", "spend", days),
-                reach_series=analytics_svc.timeseries(db, "instagram", "reach", days)),
+                cards=dashboard_svc.cards(db, user, days),
+                selected=dashboard_svc.get_selected(user),
+                catalog=dashboard_svc.catalog(),
+                chart=dashboard_svc.chart_series(db, user, days),
+                tables=dashboard_svc.all_tables(db, days),
+                recommendations=opt_svc.recommendations(db, days=days)),
         )
+
+    @router.post("/helena/analytics/metrics/toggle")
+    async def analytics_toggle_metric(request: Request, db: DbDep) -> Response:
+        """Add/remove a metric from the user's dashboard. Returns JSON for the
+        modal's live check toggles, or redirects for the no-JS path."""
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        key = str(form.get("key", ""))
+        selected = dashboard_svc.toggle_metric(db, user, key)
+        if request.headers.get("accept", "").startswith("application/json"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"selected": selected})
+        return RedirectResponse(f"/helena/analytics?days={form.get('days', 30)}",
+                                status_code=status.HTTP_303_SEE_OTHER)
 
     @router.post("/helena/analytics/refresh")
     def analytics_refresh(request: Request, db: DbDep) -> Response:
@@ -273,12 +291,30 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         user, deny = require_user(request, db)
         if deny:
             return deny
-        posts = db.scalars(
-            select(Post).order_by(Post.scheduled_at.is_(None), Post.scheduled_at.desc())
-        ).all()
+        view = request.query_params.get("view", "month")
+        ref = calendar_svc.parse_ref(request.query_params.get("date"))
+        data = calendar_svc.view_data(db, view, ref)
         return templates.TemplateResponse(
             request, "helena/calendar.html",
-            ctx(request, user, "helena_calendar", posts=list(posts)),
+            ctx(request, user, "helena_calendar", cal=data),
+        )
+
+    @router.post("/helena/calendar/add")
+    async def calendar_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        channel = str(form.get("channel", "instagram"))
+        day = calendar_svc.parse_ref(str(form.get("date", "")))
+        caption = str(form.get("caption", "")).strip()
+        calendar_svc.add_slot_item(db, channel=channel, day=day,
+                                   caption=caption, user_id=user.id)
+        flash(request, f"Added a {channel} draft for {day.isoformat()}.")
+        view = form.get("view", "month")
+        return RedirectResponse(
+            f"/helena/calendar?view={view}&date={day.isoformat()}",
+            status_code=status.HTTP_303_SEE_OTHER,
         )
 
     # ===================================================================

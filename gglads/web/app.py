@@ -1,7 +1,7 @@
 import json
 import logging
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -27,7 +27,7 @@ from gglads.auth.password import hash_password, verify_password
 from gglads.config import get_settings
 from gglads.db.session import get_db
 from gglads.db.session import ping as db_ping
-from gglads.models.campaign import AdCampaign, AdCampaignKeyword, AdGroup
+from gglads.models.campaign import AdCampaign, AdCampaignKeyword
 from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
 from gglads.models.shopify_product import (
     ProductSeoDraft,
@@ -41,12 +41,12 @@ from gglads.models.shopify_product import (
     ShopifyVariant,
 )
 from gglads.models.user import User
-from gglads.services import integration_tests, integrations as integrations_svc
-from gglads.services import keyword_research as kw_research_svc
-from gglads.services import search_console as sc_svc
 from gglads.services import ad_copy_generation as ad_copy_svc
 from gglads.services import campaigns as campaigns_svc
+from gglads.services import integration_tests
+from gglads.services import integrations as integrations_svc
 from gglads.services import keyword_placement as kw_place_svc
+from gglads.services import keyword_research as kw_research_svc
 from gglads.services import seo_chat as seo_chat_svc
 from gglads.services import seo_generation as seo_svc
 from gglads.services import shopify as shopify_svc
@@ -66,6 +66,19 @@ settings = get_settings()
 app = FastAPI(title="gglads", version=__version__)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def _fromjson(value: str | None):
+    """Parse a JSON string in a template; returns {} on empty/invalid."""
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return {}
+
+
+templates.env.filters["fromjson"] = _fromjson
 
 
 DbDep = Annotated[Session, Depends(get_db)]
@@ -222,7 +235,7 @@ def login_submit(
             {"version": __version__, "error": "Invalid email or password."},
         )
 
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(UTC)
     db.commit()
     request.session["user_id"] = user.id
     return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
@@ -927,7 +940,7 @@ def _stock_history(
     """Return {product_id: (in_stock_days, out_of_stock_days, total_days)} for last 30 days."""
     if not product_ids:
         return {}
-    cutoff = datetime.now(timezone.utc).date() - timedelta(days=30)
+    cutoff = datetime.now(UTC).date() - timedelta(days=30)
     rows = db.execute(
         select(
             ShopifyInventorySnapshot.product_id,
@@ -940,7 +953,7 @@ def _stock_history(
         .where(ShopifyInventorySnapshot.snapshot_date >= cutoff)
         .group_by(ShopifyInventorySnapshot.product_id)
     ).all()
-    out: dict[int, tuple[int, int, int]] = {pid: (0, 0, 0) for pid in product_ids}
+    out: dict[int, tuple[int, int, int]] = dict.fromkeys(product_ids, (0, 0, 0))
     for pid, in_days, total in rows:
         in_days = int(in_days or 0)
         total = int(total or 0)
@@ -1068,8 +1081,8 @@ def collections_index(request: Request, db: DbDep) -> Response:
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
 
-    from gglads.services import collections as collections_svc
     from gglads.services import collection_suggestions as cs_svc
+    from gglads.services import collections as collections_svc
 
     q = (request.query_params.get("q") or "").strip().lower()
     cols = collections_svc.list_collections(db)
@@ -1689,10 +1702,11 @@ def products_export(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    from gglads.services import analytics as analytics_svc
     import csv
     import io
     from datetime import datetime
+
+    from gglads.services import analytics as analytics_svc
 
     q = (request.query_params.get("q") or "").strip()
     status_filter = request.query_params.get("status") or ""
@@ -1796,10 +1810,11 @@ def products_oos_export(request: Request, db: DbDep) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    from gglads.services import oos as oos_svc
     import csv
     import io
     from datetime import datetime
+
+    from gglads.services import oos as oos_svc
 
     include_ignored = request.query_params.get("include_ignored") in ("1", "true", "on")
     collection_handle = request.query_params.get("collection") or None
@@ -2428,7 +2443,7 @@ def tasks_report(request: Request, db: DbDep) -> Response:
         days = max(1, min(int(days_param), 365))
     except ValueError:
         days = 30
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
 
     user_id_filter = request.query_params.get("worker") or ""
     user_id_int: int | None = None
@@ -2491,7 +2506,7 @@ def tasks_report(request: Request, db: DbDep) -> Response:
 def _latest_pending_drafts(
     db: Session, product_id: int, fields: list[str]
 ) -> dict[str, ProductSeoDraft | None]:
-    result: dict[str, ProductSeoDraft | None] = {f: None for f in fields}
+    result: dict[str, ProductSeoDraft | None] = dict.fromkeys(fields)
     rows = db.execute(
         select(ProductSeoDraft)
         .where(ProductSeoDraft.product_id == product_id)
@@ -3248,7 +3263,7 @@ async def product_keyword_bucket(
     if kw is None or kw.product_id != product_id:
         raise HTTPException(status_code=404)
     kw.bucket = new_bucket
-    kw.updated_at = datetime.now(timezone.utc)
+    kw.updated_at = datetime.now(UTC)
     db.commit()
     return RedirectResponse(
         f"/products/{product_id}/ads", status_code=status.HTTP_303_SEE_OTHER
@@ -3269,7 +3284,7 @@ def product_analytics(product_id: int, request: Request, db: DbDep) -> Response:
     range_days = max(1, min(range_days, 365))
 
     # Real inventory chart from snapshots
-    cutoff = datetime.now(timezone.utc).date() - timedelta(days=range_days)
+    cutoff = datetime.now(UTC).date() - timedelta(days=range_days)
     snap_rows = db.execute(
         select(ShopifyInventorySnapshot.snapshot_date, ShopifyInventorySnapshot.inventory)
         .where(ShopifyInventorySnapshot.product_id == product_id)

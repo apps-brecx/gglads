@@ -286,3 +286,56 @@
 .cal-chip.failed { background: var(--fail); }
 .cal-empty-hint { color: var(--muted); font-size: 10px; opacity: 0; }
 .cal-slot:hover .cal-empty-hint { opacity: .6; }
+
+/* ---- Form rows (label above field, clean vertical stack) ---------- */
+.form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.form-row label { font-size: 13px; font-weight: 500; color: var(--text); }
+.form-row input, .form-row textarea, .form-row select {
+  width: 100%; box-sizing: border-box; background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font-size: 14px; font-family: inherit; resize: vertical;
+}
+.form-row input:focus, .form-row textarea:focus, .form-row select:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---- Markdown in assistant bubbles -------------------------------- */
+.helena-bubble.md { white-space: normal; }
+.helena-bubble.md p { margin: 0 0 8px; }
+.helena-bubble.md p:last-child { margin-bottom: 0; }
+.helena-bubble.md ul, .helena-bubble.md ol { margin: 6px 0 8px; padding-left: 20px; }
+.helena-bubble.md li { margin: 2px 0; }
+.helena-bubble.md h3, .helena-bubble.md h4, .helena-bubble.md h5, .helena-bubble.md h6 { margin: 8px 0 4px; font-size: 14px; }
+.helena-bubble.md code {
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; font-family: ui-monospace, monospace; font-size: 12px;
+}
+.helena-bubble.md blockquote {
+  margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--accent-soft-border);
+  color: var(--muted-strong); background: var(--accent-soft); border-radius: 0 6px 6px 0;
+}
+.helena-bubble.md a { color: var(--accent); }
+.helena-bubble.md strong { font-weight: 700; color: var(--text-strong); }
+
+/* ---- Inline generated-image card + lightbox ----------------------- */
+.img-card {
+  background: var(--panel-elevated); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden; max-width: 320px;
+}
+.img-card-main img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.img-card-bar {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-top: 1px solid var(--border); font-size: 12px; color: var(--muted);
+}
+.img-card-bar .img-counter { flex: 1; }
+.img-nav, .img-expand {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; cursor: pointer; padding: 2px 8px; font-size: 13px;
+}
+.img-note { padding: 6px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+.img-lightbox {
+  position: fixed; inset: 0; background: rgba(0,0,0,.8); z-index: 60;
+  display: none; align-items: center; justify-content: center; cursor: zoom-out;
+}
+.img-lightbox.open { display: flex; }
+.img-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: var(--shadow-lg); }

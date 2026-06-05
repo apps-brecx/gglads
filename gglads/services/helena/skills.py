@@ -265,9 +265,33 @@ def _generate_image(db, args, user_id, session_id):
             product_id=args.get("product_id"), user_id=user_id,
         )
         saved.append({"asset_id": asset.id, "url": img.url})
-    if not saved and err:
-        return {"ok": False, "error": err}
-    return {"ok": True, "images": saved, "note": err}
+
+    # Fallback: when Google Flow isn't configured (or returned nothing) but a
+    # product was referenced, use that product's existing Shopify image so the
+    # chat still shows a usable on-brand visual.
+    fallback = False
+    if not saved and args.get("product_id"):
+        pid = int(args["product_id"])
+        urls = [i["url"] for i in products.get_product_images(pid) if i.get("url")]
+        if not urls:
+            prod = products.get_product(pid)
+            if prod and prod.get("image_url"):
+                urls = [prod["image_url"]]
+        for url in urls[:1]:
+            asset = brand_svc.save_asset(
+                db, url=url, kind="product", title="Product image (fallback)",
+                prompt=args["concept"], product_id=pid, user_id=user_id,
+            )
+            saved.append({"asset_id": asset.id, "url": url, "fallback": True})
+            fallback = True
+
+    if not saved:
+        return {"ok": False, "error": err or "No image could be generated."}
+    note = err
+    if fallback:
+        note = ("Google Flow isn't configured — showing the product's existing "
+                "Shopify image instead.")
+    return {"ok": True, "images": saved, "fallback": fallback, "note": note}
 
 
 def _create_post(db, args, user_id, session_id):

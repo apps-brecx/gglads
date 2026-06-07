@@ -635,3 +635,53 @@ def test_find_product_image_skill(db, monkeypatch):
     miss = skills.run_skill(db, "find_product_image", {"flavor": "Nonexistent"},
                             user_id=None, session_id=None)
     assert miss["ok"] is False
+
+
+# ---- Official Meta API: OAuth URL + provider behavior -------------------
+
+def test_meta_authorize_url(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena.meta import oauth
+    monkeypatch.setenv("META_APP_ID", "appid123")
+    monkeypatch.setenv("META_APP_SECRET", "secret")
+    monkeypatch.setenv("META_OAUTH_REDIRECT_URI", "https://h/helena/integrations/meta/callback")
+    monkeypatch.setenv("META_GRAPH_VERSION", "v21.0")
+    cfg.get_settings.cache_clear()
+    try:
+        assert oauth.is_api_configured() is True
+        u = oauth.authorize_url("ST")
+        assert u.startswith("https://www.facebook.com/v21.0/dialog/oauth")
+        for scope in ("instagram_content_publish", "ads_management", "instagram_manage_insights"):
+            assert scope in u
+        assert "state=ST" in u and "appid123" in u
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_meta_api_provider_reports_not_connected(db, monkeypatch):
+    import gglads.config as cfg
+    monkeypatch.setenv("META_EXECUTION_MODE", "api")
+    cfg.get_settings.cache_clear()
+    try:
+        from gglads.services.helena.meta.meta_api import MetaApiProvider
+        from gglads.services.helena.specs import CampaignSpec, InstagramPostSpec
+        p = MetaApiProvider(db)  # no stored 'meta' connection
+        r1 = p.create_campaign(CampaignSpec(name="x", budget_cents=1000))
+        r2 = p.publish_instagram_post(InstagramPostSpec(caption="hi", image_url="https://i/x.png"))
+        assert r1.success is False and "not connected" in r1.message.lower()
+        assert r2.success is False and "not connected" in r2.message.lower()
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_meta_objective_mapping():
+    from gglads.services.helena.meta.meta_api import _OBJECTIVE
+    assert _OBJECTIVE["traffic"] == "OUTCOME_TRAFFIC"
+    assert _OBJECTIVE["sales"] == "OUTCOME_SALES"
+
+
+def test_meta_metric_normalizes_spend_cents():
+    from gglads.services.helena.meta.meta_api import _metric
+    from datetime import UTC, datetime
+    m = _metric("meta_ads", "spend", "12345", datetime(2026, 6, 7, tzinfo=UTC))
+    assert m["value"] == 123.45 and m["platform"] == "meta_ads"

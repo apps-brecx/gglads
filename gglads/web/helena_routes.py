@@ -180,6 +180,17 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         form = await request.form()
         handle = str(form.get("handle", "")).strip()
 
+        # Official Meta API path: send the user through Facebook Login so we can
+        # really post, read insights, and manage ads. One OAuth covers all three
+        # Meta cards (instagram / facebook_pages / meta_ads).
+        from gglads.services.helena.meta import oauth as meta_oauth
+        if key in meta_oauth.META_PLATFORMS and meta_oauth.is_api_configured():
+            import secrets
+            state = secrets.token_urlsafe(16)
+            request.session["meta_oauth_state"] = state
+            return RedirectResponse(meta_oauth.authorize_url(state),
+                                    status_code=status.HTTP_303_SEE_OTHER)
+
         # Google Flow connects only if a real auth test against Vertex AI /
         # the Generative Language API succeeds — no cosmetic "Connected".
         if key == "google_flow":
@@ -249,6 +260,26 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             flash(request, f"{card['name']} connected.")
         return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
 
+    @router.get("/helena/integrations/meta/callback")
+    def meta_oauth_callback(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena.meta import oauth as meta_oauth
+        params = request.query_params
+        if params.get("error"):
+            flash(request, f"Meta connection cancelled: {params.get('error_description', params['error'])}", "error")
+            return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
+        state = params.get("state")
+        if not state or state != request.session.pop("meta_oauth_state", None):
+            flash(request, "Meta connection failed: invalid state. Please retry.", "error")
+            return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
+        code = params.get("code", "")
+        ok, detail = meta_oauth.complete_oauth(db, code, user.id)
+        flash(request, f"Meta connected — {detail}" if ok else f"Meta connection failed: {detail}",
+              "ok" if ok else "error")
+        return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
+
     @router.post("/helena/integrations/{key}/access-mode")
     async def integ_access_mode(key: str, request: Request,
                                 db: DbDep) -> Response:
@@ -271,6 +302,12 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         user, deny = require_user(request, db)
         if deny:
             return deny
+        from gglads.services.helena.meta import oauth as meta_oauth
+        if key in meta_oauth.META_PLATFORMS and db.get(Integration, "meta") is not None:
+            # One OAuth connection backs all three Meta cards — drop it wholesale.
+            meta_oauth.disconnect(db)
+            flash(request, "Meta (Instagram + Pages + Ads) disconnected.")
+            return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
         row = db.get(Integration, key)
         if row is not None:
             row.status = "not_connected"

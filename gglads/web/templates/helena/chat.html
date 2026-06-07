@@ -199,6 +199,11 @@
       '<span class="img-counter"></span><button class="img-nav next">›</button>' +
       '<button class="img-expand">⤢</button></div>' + (note ? '<div class="img-note"></div>' : '');
     const img = card.querySelector('img'); const counter = card.querySelector('.img-counter');
+    // Belt-and-suspenders: if an image still fails to load, show a note instead
+    // of a broken-image icon (the server already verifies reachability).
+    img.addEventListener('error', () => {
+      card.innerHTML = '<div class="img-note">⚠ This image couldn’t be loaded.</div>';
+    });
     if (note) card.querySelector('.img-note').textContent = note;
     const single = images.length < 2;
     card.querySelectorAll('.img-nav').forEach(b => b.style.display = single ? 'none' : '');
@@ -252,7 +257,7 @@
     thread.appendChild(d); thread.scrollTop = thread.scrollHeight; return d;
   }
   function setWorking(on) {
-    working.hidden = !on; stopBtn.hidden = !on;
+    working.classList.toggle('is-on', on); stopBtn.hidden = !on;
     sendBtn.textContent = on ? 'Working…' : 'Send';
     if (!on) workingSteps.innerHTML = '';
   }

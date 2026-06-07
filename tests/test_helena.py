@@ -236,9 +236,11 @@ def test_calendar_add_item_appears_inline(db):
 
 # ---- Review fixes: generate_image product fallback ----------------------
 
-def test_generate_image_falls_back_to_product_image(db):
+def test_generate_image_falls_back_to_product_image(db, monkeypatch):
     from gglads.models.shopify_product import ShopifyProduct
-    from gglads.services.helena import skills
+    from gglads.services.helena import skills, storage
+    # The fallback only uses a product image we can confirm is reachable.
+    monkeypatch.setattr(storage, "verify_url", lambda url, **k: (True, "ok"))
     db.add(ShopifyProduct(id=55, handle="pink", title="Pink Splash",
                           status="active", image_url="https://cdn/pink.jpg"))
     db.commit()
@@ -249,6 +251,14 @@ def test_generate_image_falls_back_to_product_image(db):
     assert res["ok"] is True
     assert res["fallback"] is True
     assert res["images"][0]["url"] == "https://cdn/pink.jpg"
+
+
+def test_generate_image_reports_failure_not_dead_link(db):
+    """No reachable image -> ok False with a clear message, never a dead link."""
+    from gglads.services.helena import skills
+    res = skills.run_skill(db, "generate_image", {"concept": "hero"},
+                           user_id=None, session_id=None)
+    assert res["ok"] is False and "images" not in res
 
 
 # ---- Fixes: email preview link, Shopify-only email, Google Flow auth -----

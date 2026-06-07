@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     google_flow_video_model: str = ""  # preferred Veo model; auto-discovered if blank
     google_flow_api_version: str = "v1beta"  # Generative Language API version
     google_flow_video_timeout_seconds: int = 180  # max wait for a Veo render
+    google_flow_video_retries: int = 3  # auto-retries on transient (code 13) Veo errors
     # Vertex AI auth (service-account path). Provide the SA key JSON inline.
     google_vertex_location: str = "us-central1"
     google_application_credentials_json: str = ""

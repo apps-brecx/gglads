@@ -444,10 +444,55 @@ def test_veo_start_surfaces_full_error_body(monkeypatch):
     monkeypatch.setattr(veo.httpx, "post", lambda *a, **k: FakeResp())
     try:
         svc = veo.VeoVideoService()
-        op, err = svc._start("models/veo-3.0-generate-preview", "a cat", "16:9")
+        op, err, transient = svc._start("models/veo-3.0-generate-preview", "a cat", "16:9")
         assert op is None
         # full body present, not truncated to status only
         assert "INVALID_ARGUMENT" in err
         assert "Video generation is not allowed" in err
+        assert transient is False  # 400 INVALID_ARGUMENT is not retryable
     finally:
         cfg.get_settings.cache_clear()
+
+
+# ---- Veo code-13 (INTERNAL) transient detection + retry/backoff ---------
+
+def test_veo_code13_is_transient_and_retried(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena.images import veo
+    monkeypatch.setenv("GOOGLE_FLOW_API_KEY", "AIzaTEST")
+    monkeypatch.setenv("GOOGLE_FLOW_VIDEO_RETRIES", "2")
+    monkeypatch.setenv("S3_BUCKET", "b")
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "k")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "s")
+    cfg.get_settings.cache_clear()
+
+    # No real sleeping or model discovery.
+    monkeypatch.setattr(veo.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(veo, "discover_video_model",
+                        lambda key, pref="": ("models/veo-3.0-generate-preview", None))
+
+    calls = {"n": 0}
+
+    def fake_attempt(self, model, prompt, ar):
+        calls["n"] += 1
+        return {"ok": False, "status": "error",
+                "error": "Veo temporary server error (gRPC code 13, INTERNAL).",
+                "transient": True}
+
+    monkeypatch.setattr(veo.VeoVideoService, "_attempt", fake_attempt)
+    try:
+        res = veo.VeoVideoService().generate("a cat playing", "16:9")
+        assert res["ok"] is False
+        assert calls["n"] == 3  # 1 initial + 2 retries
+        assert "temporary" in res["error"].lower()
+        assert "code 13" in res["error"]
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_veo_is_transient_error_classification():
+    from gglads.services.helena.images import veo
+    assert veo._is_transient_error({"code": 13, "status": "INTERNAL"}) is True
+    assert veo._is_transient_error({"status": "INTERNAL"}) is True
+    assert veo._is_transient_error({"code": 400, "status": "INVALID_ARGUMENT"}) is False
+    assert veo._is_transient_error(None) is False

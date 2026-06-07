@@ -121,9 +121,14 @@ def _apply_bidding_strategy(client, campaign, bid_strategy: str, target_cpa_cent
 
 
 def _field_mask(client, paths: list[str]):
-    fm = client.get_type("FieldMask")
-    fm.paths.extend(paths)
-    return fm
+    """Build a google.protobuf.FieldMask for update mutations.
+
+    FieldMask is a standard protobuf type, NOT a Google Ads message type —
+    so client.get_type("FieldMask") fails with "Specified type 'FieldMask'
+    does not exist in Google Ads API vXX". Import the stdlib type instead.
+    """
+    from google.protobuf.field_mask_pb2 import FieldMask
+    return FieldMask(paths=paths)
 
 
 def _push_budget(client, customer_id: str, db: Session, c: AdCampaign) -> str:

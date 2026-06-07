@@ -95,11 +95,11 @@ class AccessModeGuard(MetaExecutionProvider):
         return self._inner.fetch_instagram_insights(date_range) if ok else _denied("Instagram", why)
 
 
-def _base_provider() -> MetaExecutionProvider:
+def _base_provider(db: Session) -> MetaExecutionProvider:
     mode = (get_settings().meta_execution_mode or "browser").strip().lower()
-    return MetaApiProvider() if mode == "api" else BrowserAgentMetaProvider()
+    return MetaApiProvider(db) if mode == "api" else BrowserAgentMetaProvider()
 
 
 def get_meta_provider(db: Session) -> MetaExecutionProvider:
     """The active, access-mode-guarded Meta provider."""
-    return AccessModeGuard(_base_provider(), db)
+    return AccessModeGuard(_base_provider(db), db)

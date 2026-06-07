@@ -81,12 +81,16 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     aws_region: str = ""
 
-    # Future MetaApiProvider — left as empty placeholders until we have
-    # approved Meta Marketing API / Instagram Graph API access.
+    # Official Meta API (Instagram Graph + Marketing API). Set these + a Meta
+    # Developer app to enable real posting / insights / ad management.
     meta_app_id: str = ""
     meta_app_secret: str = ""
     instagram_app_id: str = ""
     instagram_app_secret: str = ""
+    meta_graph_version: str = "v21.0"
+    # OAuth redirect — must match the app's Valid OAuth Redirect URIs, e.g.
+    # https://gglads.onrender.com/helena/integrations/meta/callback
+    meta_oauth_redirect_uri: str = ""
 
     @field_validator("database_url")
     @classmethod

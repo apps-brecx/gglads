@@ -363,3 +363,39 @@ def test_discover_video_model_picks_veo(monkeypatch):
     ], None))
     name, err = veo.discover_video_model("KEY")
     assert err is None and "veo" in name
+
+
+# ---- BrandAsset.product_id BIGINT + skill rollback safety ---------------
+
+def test_brand_asset_product_id_is_bigint():
+    from sqlalchemy import BigInteger
+    col = Base.metadata.tables["brand_assets"].columns["product_id"]
+    assert isinstance(col.type, BigInteger)
+
+
+def test_save_asset_accepts_shopify_bigint_id(db):
+    from gglads.services.helena import brand as brand_svc
+    big = 7895432109123  # > int32 max; a real Shopify product id
+    asset = brand_svc.save_asset(db, url="https://r2/x.png", kind="generated",
+                                 product_id=big, user_id=None)
+    assert asset.product_id == big
+
+
+def test_run_skill_rolls_back_and_session_stays_usable(db):
+    from gglads.models.brand import BrandAsset
+    from gglads.models.helena import ChatSession
+    from gglads.services.helena import skills
+
+    def boom(_db, _args, _uid, _sid):
+        _db.add(BrandAsset(brand_id=1, kind="generated", url="x"))  # pending write
+        raise RuntimeError("simulated failure")
+
+    skills._HANDLERS["_boom_test"] = boom
+    try:
+        res = skills.run_skill(db, "_boom_test", {}, user_id=None, session_id=None)
+        assert res["ok"] is False
+        # No PendingRollbackError: the session is clean and committable.
+        db.add(ChatSession(title="after"))
+        db.commit()
+    finally:
+        skills._HANDLERS.pop("_boom_test", None)

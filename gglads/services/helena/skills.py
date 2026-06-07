@@ -252,6 +252,13 @@ def run_skill(
         return handler(db, args, user_id, session_id)
     except Exception as exc:
         logger.exception("skill %s failed", name)
+        # Roll back so a failed write (e.g. a DB error) doesn't leave the
+        # session in a broken state and cascade into PendingRollbackError when
+        # the agent next uses it (to persist the tool/assistant message).
+        try:
+            db.rollback()
+        except Exception:
+            pass
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 

@@ -12,7 +12,7 @@ supports more so a future multi-brand setup is a non-breaking change.
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gglads.models.base import Base
@@ -63,8 +63,9 @@ class BrandAsset(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     # When kind='generated', the prompt/concept that produced it (for re-gen).
     prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Optional link back to the originating Shopify product.
-    product_id: Mapped[int | None] = mapped_column(nullable=True)
+    # Optional link back to the originating Shopify product. Shopify product
+    # IDs are BIGINT, so this must be BigInteger (a plain Integer overflows).
+    product_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

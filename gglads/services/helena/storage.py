@@ -90,3 +90,39 @@ def put_bytes(
     if c["endpoint"]:
         return f"{c['endpoint'].rstrip('/')}/{c['bucket']}/{key}", None
     return f"https://{c['bucket']}.s3.{c['region']}.amazonaws.com/{key}", None
+
+
+def key_from_url(url: str) -> str | None:
+    """Best-effort: recover the object key from a public/endpoint URL so we can
+    delete it. Keys are 'helena/<prefix>/<id>.<ext>'."""
+    if not url:
+        return None
+    marker = "helena/"
+    idx = url.find(marker)
+    return url[idx:] if idx != -1 else None
+
+
+def delete_url(url: str) -> tuple[bool, str | None]:
+    """Delete the stored object behind a public URL. Returns (ok, error).
+    A missing key or unconfigured storage is treated as a no-op success so the
+    DB record can still be removed."""
+    key = key_from_url(url)
+    if not key or not is_configured():
+        return True, None
+    try:
+        import boto3  # type: ignore
+    except ImportError:
+        return True, None
+    c = _resolve()
+    try:
+        client = boto3.client(
+            "s3",
+            endpoint_url=c["endpoint"] or None,
+            region_name=c["region"] or None,
+            aws_access_key_id=c["access_key"],
+            aws_secret_access_key=c["secret_key"],
+        )
+        client.delete_object(Bucket=c["bucket"], Key=key)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Object-storage delete failed: {type(exc).__name__}: {exc}"
+    return True, None

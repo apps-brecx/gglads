@@ -496,3 +496,82 @@ def test_veo_is_transient_error_classification():
     assert veo._is_transient_error({"status": "INTERNAL"}) is True
     assert veo._is_transient_error({"code": 400, "status": "INVALID_ARGUMENT"}) is False
     assert veo._is_transient_error(None) is False
+
+
+# ---- Feature gaps: scheduling, history, files, brand docs, recurrence ----
+
+def test_compute_next_run_time_of_day():
+    from datetime import UTC, datetime
+    from gglads.services.helena import execution as ex
+    base = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)  # a Sunday
+    assert ex.compute_next_run("daily@15:00", base).hour == 15
+    assert ex.compute_next_run("daily@08:00", base).day == 8  # already past -> tomorrow
+    assert ex.compute_next_run("hourly", base).hour == 11
+    assert ex.compute_next_run("weekly:mon@09:00", base).weekday() == 0
+    assert ex.compute_next_run("once", base) is None
+
+
+def test_schedule_recurring_task_skill_creates_agent_prompt(db):
+    from gglads.services.helena import skills
+    res = skills.run_skill(db, "schedule_recurring_task",
+                           {"instruction": "prep an IG post for tomorrow",
+                            "recurrence": "daily", "at_time": "15:00", "title": "Daily IG"},
+                           user_id=None, session_id=None)
+    assert res["ok"] and res["recurrence"] == "daily@15:00"
+    from gglads.models.helena import ScheduledTask
+    task = db.get(ScheduledTask, res["task_id"])
+    assert task.kind == "agent_prompt" and task.recurrence == "daily@15:00"
+    # scheduling itself is not approval-gated; the scheduled run's publish/spend is
+    assert task.requires_approval is False
+
+
+def test_task_pause_resume_delete(db):
+    from gglads.services.helena import execution as ex
+    from gglads.models.helena import ScheduledTask
+    t = ex.enqueue(db, title="x", kind="agent_prompt", spec={"prompt": "hi"}, user_id=None)
+    ex.pause(db, t.id)
+    assert db.get(ScheduledTask, t.id).status == "paused"
+    # paused tasks are not drained by the worker
+    assert ex.run_due_tasks(db)["ran"] == 0
+    ex.resume(db, t.id)
+    assert db.get(ScheduledTask, t.id).status == "pending"
+    ex.delete(db, t.id)
+    assert db.get(ScheduledTask, t.id) is None
+
+
+def test_session_rename_and_delete(db):
+    from gglads.services.helena import agent as agent_svc
+    s = agent_svc.create_session(db, title="New chat", user_id=None)
+    agent_svc.rename_session(db, s.id, "Renamed")
+    assert agent_svc.get_session(db, s.id).title == "Renamed"
+    assert agent_svc.search_sessions(db, "rena")
+    agent_svc.delete_session(db, s.id)
+    assert agent_svc.get_session(db, s.id) is None
+
+
+def test_brand_documents_inject_into_context(db):
+    from gglads.services.helena import brand as bsvc
+    bsvc.add_document(db, title="Style guide", content="Always lowercase.", user_id=None)
+    assert "Style guide" in bsvc.brand_context_text(db)
+    docs = bsvc.list_documents(db)
+    assert len(docs) == 1
+    bsvc.delete_document(db, docs[0].id)
+    assert bsvc.list_documents(db) == []
+
+
+def test_files_list_and_delete(db):
+    from gglads.services.helena import brand as bsvc
+    from gglads.services.helena import files as fsvc
+    bsvc.save_asset(db, url="https://pub/helena/flow/a.png", kind="generated", title="Img", user_id=None)
+    bsvc.save_asset(db, url="https://pub/helena/veo/b.mp4", kind="generated", title="Vid", user_id=None)
+    files = fsvc.list_files(db)
+    assert {f["media"] for f in files} == {"image", "video"}
+    ok, _ = fsvc.delete_file(db, files[0]["ref"])
+    assert ok and len(fsvc.list_files(db)) == 1
+
+
+def test_explore_catalog_has_image_and_video():
+    from gglads.services.helena import explore
+    medias = {w["media"] for w in explore.all_workflows()}
+    assert medias == {"image", "video"}
+    assert explore.get("product_hero_image")["media"] == "image"

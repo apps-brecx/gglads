@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block title %}Chat history — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Chat history</h1>
+  <p class="page-subtitle">Search, rename, and delete conversations. Scheduled tasks live on their own page.</p>
+</div>
+
+<form method="get" action="/helena/history" style="margin-bottom:16px;display:flex;gap:8px;max-width:420px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search conversations…"
+         style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);"/>
+  <button class="btn-secondary" type="submit">Search</button>
+</form>
+
+<h2 style="font-size:16px;">Conversations</h2>
+<table class="helena-table">
+  <thead><tr><th>Title</th><th>Updated</th><th></th></tr></thead>
+  <tbody>
+  {% for s in sessions %}
+    <tr>
+      <td><a href="/helena/chat?session={{ s.id }}">{{ s.title }}</a></td>
+      <td class="conn-desc">{{ s.updated_at.strftime('%b %d, %H:%M') if s.updated_at else '' }}</td>
+      <td style="display:flex;gap:8px;align-items:center;">
+        <form method="post" action="/helena/chat/{{ s.id }}/rename" style="display:flex;gap:6px;">
+          <input type="hidden" name="redirect" value="/helena/history"/>
+          <input type="text" name="title" placeholder="Rename…" style="padding:4px 8px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);"/>
+          <button class="btn-secondary" style="padding:4px 10px;font-size:12px;">Rename</button>
+        </form>
+        <form method="post" action="/helena/chat/{{ s.id }}/delete"
+              onsubmit="return confirm('Delete this conversation? This cannot be undone.');">
+          <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="conn-desc">No conversations{% if q %} match “{{ q }}”{% endif %}.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 style="font-size:16px;margin-top:24px;">Scheduled tasks <a href="/helena/tasks" class="tool-link">manage →</a></h2>
+<table class="helena-table">
+  <thead><tr><th>Task</th><th>Schedule</th><th>Status</th><th>Next run</th></tr></thead>
+  <tbody>
+  {% for t in scheduled %}
+    <tr>
+      <td>{{ t.title }}</td>
+      <td class="conn-desc">{{ t.recurrence or 'one-off' }}</td>
+      <td><span class="pill {{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
+      <td class="conn-desc">{{ t.run_after.strftime('%b %d, %H:%M') if t.run_after else '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="conn-desc">No scheduled tasks.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

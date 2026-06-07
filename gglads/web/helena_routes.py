@@ -34,6 +34,8 @@ from gglads.services.helena import brand as brand_svc
 from gglads.services.helena import calendar as calendar_svc
 from gglads.services.helena import dashboard as dashboard_svc
 from gglads.services.helena import execution as exec_svc
+from gglads.services.helena import explore as explore_svc
+from gglads.services.helena import files as files_svc
 from gglads.services.helena import integrations_catalog as catalog
 from gglads.services.helena import optimization as opt_svc
 
@@ -113,7 +115,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             request, "helena/chat.html",
             ctx(request, user, "helena_chat",
                 sessions=sessions, active_session=active_session,
-                messages=messages, **sidebar_data(db)),
+                messages=messages, prefill=request.query_params.get("prefill", ""),
+                **sidebar_data(db)),
         )
 
     @router.post("/helena/chat/new")
@@ -393,7 +396,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         return templates.TemplateResponse(
             request, "helena/brand.html",
             ctx(request, user, "helena_brand", brand=brand,
-                palette=palette, assets=brand_svc.list_assets(db)),
+                palette=palette, assets=brand_svc.list_assets(db),
+                documents=brand_svc.list_documents(db)),
         )
 
     @router.post("/helena/brand")
@@ -452,5 +456,185 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         flash(request, "Email HTML saved.")
         return RedirectResponse(f"/helena/email/{campaign_id}/preview",
                                 status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Chat history management (rename / delete / search)
+    # ===================================================================
+    @router.get("/helena/history", response_class=HTMLResponse)
+    def history_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        q = request.query_params.get("q", "")
+        return templates.TemplateResponse(
+            request, "helena/history.html",
+            ctx(request, user, "helena_history",
+                q=q, sessions=agent_svc.search_sessions(db, q),
+                scheduled=exec_svc.list_tasks(db)),
+        )
+
+    @router.post("/helena/chat/{session_id}/rename")
+    async def chat_rename(session_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        agent_svc.rename_session(db, session_id, str(form.get("title", "")))
+        nxt = str(form.get("redirect", "/helena/history"))
+        return RedirectResponse(nxt, status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/chat/{session_id}/delete")
+    async def chat_delete(session_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        agent_svc.delete_session(db, session_id)
+        flash(request, "Conversation deleted.")
+        return RedirectResponse("/helena/history", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Tasks (recurring + one-off scheduled jobs)
+    # ===================================================================
+    @router.get("/helena/tasks", response_class=HTMLResponse)
+    def tasks_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        return templates.TemplateResponse(
+            request, "helena/tasks.html",
+            ctx(request, user, "helena_tasks",
+                tasks=exec_svc.list_tasks(db),
+                pending=exec_svc.pending_approvals(db)),
+        )
+
+    @router.post("/helena/tasks/{task_id}/pause")
+    def task_pause(task_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        exec_svc.pause(db, task_id)
+        flash(request, "Task paused.")
+        return RedirectResponse("/helena/tasks", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/tasks/{task_id}/resume")
+    def task_resume(task_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        exec_svc.resume(db, task_id)
+        flash(request, "Task resumed.")
+        return RedirectResponse("/helena/tasks", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/tasks/{task_id}/delete")
+    def task_delete(task_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        exec_svc.delete(db, task_id)
+        flash(request, "Task deleted.")
+        return RedirectResponse("/helena/tasks", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/tasks/{task_id}/edit")
+    async def task_edit(task_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        run_after = None
+        when = str(form.get("run_after", "")).strip()
+        if when:
+            try:
+                run_after = datetime.fromisoformat(when)
+                if run_after.tzinfo is None:
+                    run_after = run_after.replace(tzinfo=UTC)
+            except ValueError:
+                run_after = None
+        exec_svc.update_task(
+            db, task_id, title=str(form.get("title", "")) or None,
+            recurrence=str(form.get("recurrence", "")), run_after=run_after,
+        )
+        flash(request, "Task updated.")
+        return RedirectResponse("/helena/tasks", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Explore / Content Inspo
+    # ===================================================================
+    @router.get("/helena/explore", response_class=HTMLResponse)
+    def explore_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        return templates.TemplateResponse(
+            request, "helena/explore.html",
+            ctx(request, user, "helena_explore",
+                workflows=explore_svc.all_workflows(), types=explore_svc.TYPES),
+        )
+
+    @router.post("/helena/explore/launch")
+    async def explore_launch(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        wf = explore_svc.get(str(form.get("workflow", "")))
+        if wf is None:
+            return PlainTextResponse("Unknown workflow", status_code=404)
+        s = agent_svc.create_session(db, title=wf["title"], user_id=user.id)
+        from urllib.parse import quote
+        return RedirectResponse(
+            f"/helena/chat?session={s.id}&prefill={quote(wf['prompt'])}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    # ===================================================================
+    # Workspace files
+    # ===================================================================
+    @router.get("/helena/files", response_class=HTMLResponse)
+    def files_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        return templates.TemplateResponse(
+            request, "helena/files.html",
+            ctx(request, user, "helena_files", files=files_svc.list_files(db)),
+        )
+
+    @router.post("/helena/files/delete")
+    async def files_delete(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        ok, err = files_svc.delete_file(db, str(form.get("ref", "")))
+        flash(request, "File deleted." if ok else f"Couldn't delete: {err}",
+              "info" if ok else "error")
+        return RedirectResponse("/helena/files", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Brand knowledge documents
+    # ===================================================================
+    @router.post("/helena/brand/docs")
+    async def brand_doc_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        title = str(form.get("title", "")).strip()
+        if title:
+            brand_svc.add_document(
+                db, title=title, content=str(form.get("content", "")),
+                url=str(form.get("url", "")), user_id=user.id,
+            )
+            flash(request, "Document added to the brand knowledge base.")
+        return RedirectResponse("/helena/brand", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/brand/docs/{doc_id}/delete")
+    def brand_doc_delete(doc_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        brand_svc.delete_document(db, doc_id)
+        flash(request, "Document removed.")
+        return RedirectResponse("/helena/brand", status_code=status.HTTP_303_SEE_OTHER)
 
     return router

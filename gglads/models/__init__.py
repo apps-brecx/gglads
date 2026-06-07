@@ -1,5 +1,5 @@
 from gglads.models.base import Base
-from gglads.models.brand import Brand, BrandAsset
+from gglads.models.brand import Brand, BrandAsset, BrandDocument
 from gglads.models.campaign import AdCampaign, AdCampaignKeyword, AdGroup
 from gglads.models.email_campaign import EmailAsset, EmailCampaign, EmailTemplate
 from gglads.models.entity_task import EntityTask
@@ -37,6 +37,7 @@ __all__ = [
     "AdGroup",
     "Brand",
     "BrandAsset",
+    "BrandDocument",
     "ChatSession",
     "EmailAsset",
     "EmailCampaign",

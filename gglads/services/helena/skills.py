@@ -63,6 +63,30 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "schedule_recurring_task",
+        "description": "Schedule a natural-language instruction to run automatically on a "
+                       "recurring or one-off schedule (e.g. 'every day at 3pm prepare an "
+                       "Instagram post for tomorrow'). When it runs, you'll execute the "
+                       "instruction; anything that publishes or spends still requires the "
+                       "user's approval. Use this whenever the user asks for something on a "
+                       "schedule.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string",
+                                "description": "What to do each time it runs, in plain language."},
+                "title": {"type": "string", "description": "Short name for the task."},
+                "recurrence": {"type": "string",
+                               "description": "One of: once, hourly, daily, weekly. May add a "
+                                              "time as daily@HH:MM (24h) or a weekday as "
+                                              "weekly:mon@HH:MM.",
+                               "default": "daily"},
+                "at_time": {"type": "string", "description": "Optional HH:MM (24h) time of day."},
+            },
+            "required": ["instruction"],
+        },
+    },
+    {
         "name": "create_post",
         "description": "Create an Instagram post DRAFT (image + caption + hashtags).",
         "input_schema": {
@@ -341,6 +365,30 @@ def _generate_video(db, args, user_id, session_id):
             "model": res.get("model")}
 
 
+def _schedule_recurring_task(db, args, user_id, session_id):
+    instruction = (args.get("instruction") or "").strip()
+    if not instruction:
+        return {"ok": False, "error": "No instruction to schedule."}
+    recurrence = (args.get("recurrence") or "daily").strip().lower()
+    at_time = (args.get("at_time") or "").strip()
+    if at_time and "@" not in recurrence and recurrence in ("daily", "weekly"):
+        recurrence = f"{recurrence}@{at_time}"
+    title = (args.get("title") or instruction)[:80]
+
+    run_after = exec_svc.compute_next_run(recurrence, None)
+    rec_store = None if recurrence in ("once", "") else recurrence
+    task = exec_svc.enqueue(
+        db, title=title, kind="agent_prompt",
+        spec={"prompt": instruction, "title": title, "user_id": user_id},
+        run_after=run_after, recurrence=rec_store, user_id=user_id,
+    )
+    when = run_after.isoformat() if run_after else "as soon as possible"
+    return {"ok": True, "task_id": task.id, "recurrence": rec_store or "once",
+            "next_run": when, "tasks_url": "/helena/tasks",
+            "note": f"Scheduled '{title}' ({rec_store or 'once'}). First run: {when}. "
+                    "Manage it on the Tasks page. Publishing/spending still needs approval."}
+
+
 def _create_post(db, args, user_id, session_id):
     post = Post(
         caption=args.get("caption", ""),
@@ -577,6 +625,7 @@ def _get_email_analytics(db, args, user_id, session_id):
 _HANDLERS = {
     "generate_image": _generate_image,
     "generate_video": _generate_video,
+    "schedule_recurring_task": _schedule_recurring_task,
     "create_post": _create_post,
     "schedule_post": _schedule_post,
     "publish_post": _publish_post,

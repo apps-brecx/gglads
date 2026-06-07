@@ -81,6 +81,44 @@ def get_session(db: Session, session_id: int) -> ChatSession | None:
     return db.get(ChatSession, session_id)
 
 
+def search_sessions(db: Session, query: str, limit: int = 100) -> list[ChatSession]:
+    q = select(ChatSession).order_by(ChatSession.updated_at.desc()).limit(limit)
+    term = (query or "").strip()
+    if term:
+        q = q.where(ChatSession.title.ilike(f"%{term}%"))
+    return list(db.scalars(q).all())
+
+
+def rename_session(db: Session, session_id: int, title: str) -> ChatSession | None:
+    s = db.get(ChatSession, session_id)
+    if s is not None:
+        s.title = (title or "").strip()[:255] or s.title
+        s.updated_at = _now()
+        db.commit()
+        db.refresh(s)
+    return s
+
+
+def delete_session(db: Session, session_id: int) -> None:
+    s = db.get(ChatSession, session_id)
+    if s is not None:
+        db.delete(s)  # messages cascade via FK ondelete=CASCADE
+        db.commit()
+
+
+def run_prompt(
+    db: Session, prompt: str, *, user_id: int | None = None,
+    title: str = "Scheduled task", channel: str = "general",
+) -> int:
+    """Create a session and run one full agent turn (non-streaming) for a
+    stored instruction. Used by scheduled 'agent_prompt' tasks. Returns the
+    session id. Publish/spend still routes through the approval queue."""
+    sess = create_session(db, title=title, channel=channel, user_id=user_id)
+    for _ in stream_turn(db, sess.id, prompt, user_id):
+        pass  # drain the generator; side effects (messages, tasks) persist
+    return sess.id
+
+
 def get_messages(db: Session, session_id: int) -> list[Message]:
     return list(
         db.scalars(
@@ -138,6 +176,7 @@ def stream_turn(
     Persists the user message and the final assistant message.
     """
     append_user_message(db, session_id, user_text, user_id)
+    yield {"type": "start"}  # UI shows the "working" state
 
     client, model, err = claude_svc.get_client_and_model(db)
     if err:
@@ -182,6 +221,9 @@ def stream_turn(
 
             tool_results = []
             for tu in tool_uses:
+                # Announce the step before running it, so the UI shows each
+                # action live as it happens.
+                yield {"type": "step", "name": tu.name, "args": tu.input}
                 result = skills_svc.run_skill(
                     db, tu.name, tu.input or {}, user_id=user_id, session_id=session_id
                 )

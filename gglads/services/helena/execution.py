@@ -39,13 +39,16 @@ from gglads.services.helena.specs import (
 
 logger = logging.getLogger("gglads.helena.execution")
 
-# Actions that spend money or publish/send publicly — always need approval.
+# Actions that spend money or publish/send publicly, or write into Shopify —
+# always need approval. Creating a Shopify Email draft is gated too (it writes
+# a campaign into the Shopify account); it still never auto-sends.
 APPROVAL_REQUIRED_KINDS = {
     "publish_post",
     "schedule_post",
     "create_ad_campaign",
     "update_budget",
     "resume_campaign",
+    "create_email_draft",
     "send_email",
     "schedule_email",
 }

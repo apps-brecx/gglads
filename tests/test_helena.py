@@ -249,3 +249,38 @@ def test_generate_image_falls_back_to_product_image(db):
     assert res["ok"] is True
     assert res["fallback"] is True
     assert res["images"][0]["url"] == "https://cdn/pink.jpg"
+
+
+# ---- Fixes: email preview link, Shopify-only email, Google Flow auth -----
+
+def test_email_skills_return_preview_url(db):
+    from gglads.models.email_campaign import EmailCampaign
+    from gglads.services.helena import skills
+    db.add(EmailCampaign(id=9, name="Launch", subject="Hi", html="<p>x</p>", status="draft"))
+    db.commit()
+    r = skills.run_skill(db, "create_email_draft", {"campaign_id": 9}, user_id=None, session_id=None)
+    assert r["preview_url"] == "/helena/email/9/preview"
+    assert r["status"] == "needs_review"
+
+
+def test_create_email_draft_is_approval_gated(db):
+    task = exec_svc.enqueue(db, title="Draft", kind="create_email_draft",
+                            spec={"campaign_id": 1}, user_id=None)
+    assert task.requires_approval is True
+    assert task.status == "needs_review"
+
+
+def test_third_party_email_providers_removed():
+    from gglads.services.helena.integrations_catalog import all_cards
+    cards = set(all_cards())
+    assert {"klaviyo", "mailchimp", "instantly", "brevo", "beehiiv"}.isdisjoint(cards)
+    assert "shopify" in cards  # Shopify Email path stays
+
+
+def test_google_flow_unconfigured_reports_clearly():
+    from gglads.services.helena.images.google_flow import GoogleFlowImageService
+    svc = GoogleFlowImageService()
+    assert svc.auth_mode() is None
+    ok, detail = svc.test_connection()
+    assert ok is False
+    assert "GOOGLE_APPLICATION_CREDENTIALS_JSON" in detail or "GOOGLE_FLOW_API_KEY" in detail

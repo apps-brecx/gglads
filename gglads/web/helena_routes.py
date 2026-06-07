@@ -175,6 +175,34 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         form = await request.form()
         handle = str(form.get("handle", "")).strip()
 
+        # Google Flow connects only if a real auth test against Vertex AI /
+        # the Generative Language API succeeds — no cosmetic "Connected".
+        if key == "google_flow":
+            from gglads.services.helena.images.google_flow import GoogleFlowImageService
+            ok, detail = GoogleFlowImageService().test_connection()
+            row = db.get(Integration, key)
+            if row is None:
+                from gglads.services.crypto import encrypt_json
+                row = Integration(name=key, config_encrypted=encrypt_json({}))
+                db.add(row)
+            row.auth_type = "oauth"
+            row.updated_by_user_id = user.id
+            row.updated_at = _now()
+            if ok:
+                row.status = "connected"
+                row.access_mode = "read_write"
+                row.last_test_ok = True
+                row.last_test_detail = detail
+                db.commit()
+                flash(request, f"Google Flow connected — {detail}", "ok")
+            else:
+                row.status = "not_connected"
+                row.last_test_ok = False
+                row.last_test_detail = detail
+                db.commit()
+                flash(request, f"Google Flow not connected: {detail}", "error")
+            return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
+
         row = db.get(Integration, key)
         if row is None:
             from gglads.services.crypto import encrypt_json

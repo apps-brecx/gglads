@@ -50,7 +50,13 @@
                    {% if result.get('note') %}data-note="{{ result.note }}"{% endif %}></div>
             </div>
           {% else %}
-            <div class="helena-msg helena-msg-tool"><div class="helena-tool-chip">🛠 {{ m.tool_name }}</div></div>
+            <div class="helena-msg helena-msg-tool">
+              <div class="helena-tool-chip">🛠 {{ m.tool_name }}
+                {% if result.get('preview_url') %}
+                  <a class="tool-link" href="{{ result.preview_url }}" target="_blank">Preview email ↗</a>
+                {% endif %}
+              </div>
+            </div>
           {% endif %}
         {% endif %}
       {% endfor %}
@@ -241,7 +247,11 @@
               mountImageCard(wrap.querySelector('.img-card'),
                              ev.result.images.map(i => i.url), ev.result.note || '');
             } else {
-              el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + '</div>');
+              const preview = ev.result && ev.result.preview_url;
+              const link = preview
+                ? ' <a class="tool-link" href="' + escapeHtml(preview) + '" target="_blank">Preview email ↗</a>'
+                : '';
+              el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + link + '</div>');
             }
           }
           else if (ev.type === 'error') { bubble.textContent = '⚠ ' + ev.error; }

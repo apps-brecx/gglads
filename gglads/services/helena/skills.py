@@ -423,7 +423,8 @@ def _plan_email_campaign(db, args, user_id, session_id):
     db.add(camp)
     db.commit()
     db.refresh(camp)
-    return {"ok": err is None, "campaign_id": camp.id, "plan": data, "error": err}
+    return {"ok": err is None, "campaign_id": camp.id, "plan": data, "error": err,
+            "preview_url": f"/helena/email/{camp.id}/preview"}
 
 
 def _generate_email_copy(db, args, user_id, session_id):
@@ -442,7 +443,8 @@ def _generate_email_copy(db, args, user_id, session_id):
     camp.subject = data.get("subject_variants", [camp.subject])[0]
     camp.preheader = data.get("preheader_variants", [camp.preheader])[0]
     db.commit()
-    return {"ok": True, "copy": data}
+    return {"ok": True, "copy": data, "campaign_id": camp.id,
+            "preview_url": f"/helena/email/{camp.id}/preview"}
 
 
 def _render_email_html(db, args, user_id, session_id):
@@ -499,7 +501,9 @@ def _create_email_draft(db, args, user_id, session_id):
         kind="create_email_draft", spec={"campaign_id": int(args["campaign_id"])},
         user_id=user_id,
     )
-    return {"ok": True, "task_id": task.id, "status": "needs_review",
+    cid = int(args["campaign_id"])
+    return {"ok": True, "task_id": task.id, "status": "needs_review", "campaign_id": cid,
+            "preview_url": f"/helena/email/{cid}/preview",
             "note": "Draft push queued — requires approval. Never auto-sends."}
 
 
@@ -511,7 +515,9 @@ def _schedule_email(db, args, user_id, session_id):
         spec={"campaign_id": int(args["campaign_id"]), "when": when.isoformat()},
         run_after=when, user_id=user_id,
     )
-    return {"ok": True, "task_id": task.id, "status": "needs_review",
+    cid = int(args["campaign_id"])
+    return {"ok": True, "task_id": task.id, "status": "needs_review", "campaign_id": cid,
+            "preview_url": f"/helena/email/{cid}/preview",
             "note": "Scheduled — requires approval before any send."}
 
 

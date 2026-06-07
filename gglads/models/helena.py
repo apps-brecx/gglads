@@ -21,7 +21,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from gglads.models.base import Base
 
-
 # ---------------------------------------------------------------------------
 # Chat
 # ---------------------------------------------------------------------------
@@ -279,3 +278,56 @@ class ExecutionRun(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Persistent learning memory + product image library
+# ---------------------------------------------------------------------------
+
+class MemoryItem(Base):
+    """A durable fact / preference / decision Helena learned, drawn upon in
+    every future chat and task. Editable on the Workspace/Memory page."""
+
+    __tablename__ = "helena_memory_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Loose grouping: 'preference' | 'fact' | 'decision' | 'general'
+    category: Mapped[str] = mapped_column(String(20), nullable=False, server_default="general")
+    # 'chat' (learned automatically) | 'manual' (added on the page)
+    source: Mapped[str] = mapped_column(String(10), nullable=False, server_default="chat")
+    is_active: Mapped[bool] = mapped_column(nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ProductImage(Base):
+    """A high-quality product (bottle) image or reference file in the library.
+    Product images are labeled with flavor + variant so Helena can pull the
+    correct one when generating content."""
+
+    __tablename__ = "helena_product_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # 'product' (a labeled bottle) | 'reference' (any other reference file)
+    kind: Mapped[str] = mapped_column(String(12), nullable=False, server_default="product")
+    flavor: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # 'regular' | 'sugar_free' (None for reference files)
+    variant: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    alt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

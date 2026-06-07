@@ -1,0 +1,84 @@
+{% extends "layout.html" %}
+{% block title %}Product images — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Product images</h1>
+  <p class="page-subtitle">Upload high-quality bottle photos labeled by flavor and Regular / Sugar-Free. Helena pulls the right one when generating content. You can also drop in other reference files.</p>
+</div>
+
+<form id="upload-form" method="post" action="/helena/library/upload" enctype="multipart/form-data"
+      class="dropzone" id="dropzone">
+  <div class="dz-inner">
+    <div class="dz-hint">Drag &amp; drop an image here, or <label class="dz-browse">browse<input id="file-input" type="file" name="file" accept="image/*" hidden/></label></div>
+    <div id="dz-filename" class="conn-desc"></div>
+    <div class="dz-fields">
+      <select name="kind" id="dz-kind">
+        <option value="product">Product bottle</option>
+        <option value="reference">Reference file</option>
+      </select>
+      <input type="text" name="flavor" placeholder="Flavor (e.g. Pink Splash)"/>
+      <select name="variant">
+        <option value="regular">Regular</option>
+        <option value="sugar_free">Sugar-Free</option>
+      </select>
+      <input type="text" name="label" placeholder="Optional label"/>
+      <button class="btn-primary" type="submit">Upload</button>
+    </div>
+  </div>
+</form>
+
+<h2 style="font-size:18px;margin-top:24px;">Product bottles</h2>
+<div class="files-grid">
+  {% for p in products %}
+  <div class="file-card">
+    <a href="{{ p.url }}" target="_blank"><img src="{{ p.url }}" alt="{{ p.alt_text or p.label }}" class="file-thumb"/></a>
+    <div class="file-meta">
+      <div class="file-title">{{ p.flavor or 'Unlabeled' }}</div>
+      <div class="conn-desc">{% if p.variant == 'sugar_free' %}Sugar-Free{% elif p.variant == 'regular' %}Regular{% else %}—{% endif %}</div>
+    </div>
+    <div class="file-actions">
+      <form method="post" action="/helena/library/{{ p.id }}/delete" onsubmit="return confirm('Remove this image?');">
+        <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <div class="conn-desc">No product images yet.</div>
+  {% endfor %}
+</div>
+
+{% if references %}
+<h2 style="font-size:18px;margin-top:24px;">Reference files</h2>
+<div class="files-grid">
+  {% for r in references %}
+  <div class="file-card">
+    <a href="{{ r.url }}" target="_blank"><img src="{{ r.url }}" alt="{{ r.alt_text or r.label }}" class="file-thumb"/></a>
+    <div class="file-meta"><div class="file-title">{{ r.label or 'Reference' }}</div></div>
+    <div class="file-actions">
+      <form method="post" action="/helena/library/{{ r.id }}/delete" onsubmit="return confirm('Remove this file?');">
+        <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+(function () {
+  const dz = document.getElementById('dropzone');
+  const input = document.getElementById('file-input');
+  const nameEl = document.getElementById('dz-filename');
+  const kind = document.getElementById('dz-kind');
+  function setFile(f) { if (f) { nameEl.textContent = 'Selected: ' + f.name; } }
+  input.addEventListener('change', () => setFile(input.files[0]));
+  ['dragover', 'dragenter'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('is-drag'); }));
+  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('is-drag'); }));
+  dz.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) { const dt = new DataTransfer(); dt.items.add(f); input.files = dt.files; setFile(f); }
+  });
+})();
+</script>
+{% endblock %}

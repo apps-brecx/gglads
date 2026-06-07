@@ -575,3 +575,63 @@ def test_explore_catalog_has_image_and_video():
     medias = {w["media"] for w in explore.all_workflows()}
     assert medias == {"image", "video"}
     assert explore.get("product_hero_image")["media"] == "image"
+
+
+# ---- Persistent memory, chat-trainable brand, product library -----------
+
+def test_memory_remember_inject_edit_delete(db):
+    from gglads.services.helena import memory as mem
+    it = mem.add_item(db, content="never discount below 20% margin", category="decision", source="chat")
+    assert it is not None
+    assert "never discount" in mem.memory_context_text(db)
+    # de-dupe: same content doesn't create a second active item
+    mem.add_item(db, content="never discount below 20% margin")
+    assert len(mem.list_items(db)) == 1
+    mem.update_item(db, it.id, is_active=False)
+    assert "never discount" not in mem.memory_context_text(db)  # inactive excluded
+    mem.delete_item(db, it.id)
+    assert mem.list_items(db) == []
+
+
+def test_remember_skill_writes_memory(db):
+    from gglads.services.helena import memory as mem, skills
+    r = skills.run_skill(db, "remember", {"content": "audience is 18-34", "category": "fact"},
+                         user_id=None, session_id=None)
+    assert r["ok"] and r["memory_url"] == "/helena/memory"
+    assert any("18-34" in i.content for i in mem.list_items(db))
+
+
+def test_update_brand_knowledge_skill(db):
+    from gglads.services.helena import brand as bsvc, skills
+    r = skills.run_skill(db, "update_brand_knowledge",
+                         {"tone": "playful and bold", "document_title": "Voice guide",
+                          "document_content": "lowercase only"}, user_id=None, session_id=None)
+    assert r["ok"] and "tone" in r["updated_fields"] and r["document_id"]
+    ctx = bsvc.brand_context_text(db)
+    assert "playful and bold" in ctx and "Voice guide" in ctx
+
+
+def test_product_library_add_find_context(db, monkeypatch):
+    from gglads.services.helena import product_library as lib
+    from gglads.services.helena import storage
+    monkeypatch.setattr(storage, "put_bytes",
+                        lambda data, **k: ("https://pub.r2.dev/helena/library/x.png", None))
+    row, err = lib.add_image(db, data=b"PNG", content_type="image/png",
+                             flavor="Pink Splash", variant="sugar-free", kind="product")
+    assert err is None and row.variant == "sugar_free"  # normalized
+    assert lib.find_image(db, "pink", "sugar_free") is not None
+    assert lib.find_image(db, "pink", "regular").variant == "sugar_free"  # falls back to any flavor match
+    assert "Pink Splash" in lib.library_context_text(db)
+
+
+def test_find_product_image_skill(db, monkeypatch):
+    from gglads.services.helena import product_library as lib, skills
+    from gglads.services.helena import storage
+    monkeypatch.setattr(storage, "put_bytes", lambda data, **k: ("https://pub.r2.dev/a.png", None))
+    lib.add_image(db, data=b"PNG", content_type="image/png", flavor="Mango", variant="regular")
+    r = skills.run_skill(db, "find_product_image", {"flavor": "Mango", "variant": "regular"},
+                         user_id=None, session_id=None)
+    assert r["ok"] and r["url"] == "https://pub.r2.dev/a.png"
+    miss = skills.run_skill(db, "find_product_image", {"flavor": "Nonexistent"},
+                            user_id=None, session_id=None)
+    assert miss["ok"] is False

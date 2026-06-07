@@ -45,10 +45,20 @@ create_email_draft, schedule_email) is queued for the user's explicit approval; 
 tell the user clearly that it's awaiting approval. Never claim something went \
 live if it is only queued.
 - Email campaigns are always created as drafts — never auto-send.
+- Whenever the user states a durable fact, preference, or decision (how they \
+like things done, audience, do's/don'ts, recurring choices), call the \
+`remember` skill so you never have to be told again. If they share company / \
+brand info, call `update_brand_knowledge`.
+- When generating content for a specific flavor, call `find_product_image` to \
+fetch the exact bottle image from the product library and use it.
 - Be concise and concrete. Confirm what you did and the resulting IDs.
 
 Brand context:
 {brand_context}
+
+{memory}
+
+{library}
 """
 
 
@@ -183,7 +193,13 @@ def stream_turn(
         yield {"type": "error", "error": err}
         return
 
-    system = SYSTEM_TEMPLATE.format(brand_context=brand_svc.brand_context_text(db) or "(none)")
+    from gglads.services.helena import memory as memory_svc
+    from gglads.services.helena import product_library as library_svc
+    system = SYSTEM_TEMPLATE.format(
+        brand_context=brand_svc.brand_context_text(db) or "(none)",
+        memory=memory_svc.memory_context_text(db) or "",
+        library=library_svc.library_context_text(db) or "",
+    )
     messages = _history_for_api(db, session_id)
 
     final_text = ""

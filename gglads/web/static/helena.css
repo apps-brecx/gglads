@@ -420,3 +420,18 @@
   background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
   padding: 6px 8px; color: var(--text); font-size: 13px;
 }
+
+/* ---- Product library dropzone ------------------------------------ */
+.dropzone {
+  border: 2px dashed var(--border-strong); border-radius: 12px; background: var(--panel);
+  padding: 20px; transition: border-color .12s, background .12s;
+}
+.dropzone.is-drag { border-color: var(--accent); background: var(--accent-soft); }
+.dz-inner { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.dz-hint { font-size: 14px; color: var(--muted-strong); }
+.dz-browse { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.dz-fields { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.dz-fields input, .dz-fields select {
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 10px; color: var(--text); font-size: 13px;
+}

@@ -87,6 +87,52 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "remember",
+        "description": "Save a durable fact, preference, or decision to persistent memory so "
+                       "you apply it in all future chats and tasks without being re-told. "
+                       "Call this whenever the user shares something worth remembering.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The thing to remember, concise."},
+                "category": {"type": "string", "enum": ["preference", "fact", "decision", "general"],
+                             "default": "general"},
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "update_brand_knowledge",
+        "description": "Update the brand knowledge base from chat. Set any brand fields "
+                       "(name, tone, visual_style, mood, audience, content_themes, guidelines) "
+                       "and/or add a titled knowledge document. Available to every future task.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}, "tone": {"type": "string"},
+                "visual_style": {"type": "string"}, "mood": {"type": "string"},
+                "audience": {"type": "string"}, "content_themes": {"type": "string"},
+                "guidelines": {"type": "string"},
+                "document_title": {"type": "string", "description": "Title for a new knowledge doc."},
+                "document_content": {"type": "string", "description": "Body of the knowledge doc."},
+            },
+        },
+    },
+    {
+        "name": "find_product_image",
+        "description": "Fetch the exact product (bottle) image URL from the product library for "
+                       "a flavor and variant, to use when generating or composing content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "flavor": {"type": "string"},
+                "variant": {"type": "string", "enum": ["regular", "sugar_free"],
+                            "description": "Regular or Sugar-Free."},
+            },
+            "required": ["flavor"],
+        },
+    },
+    {
         "name": "create_post",
         "description": "Create an Instagram post DRAFT (image + caption + hashtags).",
         "input_schema": {
@@ -389,6 +435,49 @@ def _schedule_recurring_task(db, args, user_id, session_id):
                     "Manage it on the Tasks page. Publishing/spending still needs approval."}
 
 
+def _remember(db, args, user_id, session_id):
+    from gglads.services.helena import memory as memory_svc
+    item = memory_svc.add_item(
+        db, content=args.get("content", ""), category=args.get("category", "general"),
+        source="chat", user_id=user_id,
+    )
+    if item is None:
+        return {"ok": False, "error": "Nothing to remember."}
+    return {"ok": True, "memory_id": item.id, "memory_url": "/helena/memory",
+            "note": "Saved to memory — I'll apply this going forward."}
+
+
+def _update_brand_knowledge(db, args, user_id, session_id):
+    fields = {k: v for k, v in args.items()
+              if k in ("name", "tone", "visual_style", "mood", "audience",
+                       "content_themes", "guidelines") and v}
+    updated = []
+    if fields:
+        brand_svc.update_brand(db, fields, user_id)
+        updated = list(fields.keys())
+    doc = None
+    if args.get("document_title"):
+        doc = brand_svc.add_document(
+            db, title=args["document_title"], content=args.get("document_content", ""),
+            user_id=user_id,
+        )
+    if not updated and doc is None:
+        return {"ok": False, "error": "Nothing to update."}
+    return {"ok": True, "updated_fields": updated,
+            "document_id": (doc.id if doc else None), "brand_url": "/helena/brand",
+            "note": "Brand knowledge updated — available for every task now."}
+
+
+def _find_product_image(db, args, user_id, session_id):
+    from gglads.services.helena import product_library as library_svc
+    img = library_svc.find_image(db, args.get("flavor", ""), args.get("variant"))
+    if img is None:
+        return {"ok": False, "error": "No matching product image in the library. "
+                "Upload one on the Product images page."}
+    return {"ok": True, "url": img.url, "flavor": img.flavor,
+            "variant": img.variant, "label": img.label}
+
+
 def _create_post(db, args, user_id, session_id):
     post = Post(
         caption=args.get("caption", ""),
@@ -626,6 +715,9 @@ _HANDLERS = {
     "generate_image": _generate_image,
     "generate_video": _generate_video,
     "schedule_recurring_task": _schedule_recurring_task,
+    "remember": _remember,
+    "update_brand_knowledge": _update_brand_knowledge,
+    "find_product_image": _find_product_image,
     "create_post": _create_post,
     "schedule_post": _schedule_post,
     "publish_post": _publish_post,

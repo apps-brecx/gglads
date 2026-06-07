@@ -29,7 +29,9 @@
       <a href="/helena/calendar">Calendar</a>
       <a href="/helena/analytics">Analytics</a>
       <a href="/helena/files">Files</a>
+      <a href="/helena/library">Product images</a>
       <a href="/helena/brand">Brand</a>
+      <a href="/helena/memory">Memory</a>
       <a href="/helena/approvals">Approvals</a>
       <a href="/helena/integrations">Integrations</a>
     </nav>
@@ -98,6 +100,12 @@
                   {% endif %}
                   {% if result.get('tasks_url') %}
                     <a class="tool-link" href="{{ result.tasks_url }}">View task ↗</a>
+                  {% endif %}
+                  {% if result.get('memory_url') %}
+                    <a class="tool-link" href="{{ result.memory_url }}">View memory ↗</a>
+                  {% endif %}
+                  {% if result.get('brand_url') %}
+                    <a class="tool-link" href="{{ result.brand_url }}">View brand ↗</a>
                   {% endif %}
                 </div>
               </div>
@@ -287,6 +295,8 @@
               let link = '';
               if (r.preview_url) link += ' <a class="tool-link" href="' + escapeHtml(r.preview_url) + '" target="_blank">Preview email ↗</a>';
               if (r.tasks_url) link += ' <a class="tool-link" href="' + escapeHtml(r.tasks_url) + '">View task ↗</a>';
+              if (r.memory_url) link += ' <a class="tool-link" href="' + escapeHtml(r.memory_url) + '">View memory ↗</a>';
+              if (r.brand_url) link += ' <a class="tool-link" href="' + escapeHtml(r.brand_url) + '">View brand ↗</a>';
               el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + link + '</div>');
             }
           }

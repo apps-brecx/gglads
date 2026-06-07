@@ -11,7 +11,7 @@ import json
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, File, Request, UploadFile, status
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -37,7 +37,9 @@ from gglads.services.helena import execution as exec_svc
 from gglads.services.helena import explore as explore_svc
 from gglads.services.helena import files as files_svc
 from gglads.services.helena import integrations_catalog as catalog
+from gglads.services.helena import memory as memory_svc
 from gglads.services.helena import optimization as opt_svc
+from gglads.services.helena import product_library as library_svc
 
 
 def _now() -> datetime:
@@ -636,5 +638,105 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         brand_svc.delete_document(db, doc_id)
         flash(request, "Document removed.")
         return RedirectResponse("/helena/brand", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Workspace memory (persistent learning)
+    # ===================================================================
+    @router.get("/helena/memory", response_class=HTMLResponse)
+    def memory_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        return templates.TemplateResponse(
+            request, "helena/memory.html",
+            ctx(request, user, "helena_memory",
+                items=memory_svc.list_items(db), categories=memory_svc.VALID_CATEGORIES),
+        )
+
+    @router.post("/helena/memory/add")
+    async def memory_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        memory_svc.add_item(db, content=str(form.get("content", "")),
+                            category=str(form.get("category", "general")),
+                            source="manual", user_id=user.id)
+        flash(request, "Saved to memory.")
+        return RedirectResponse("/helena/memory", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/memory/{item_id}/edit")
+    async def memory_edit(item_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        memory_svc.update_item(db, item_id, content=str(form.get("content", "")),
+                               category=str(form.get("category", "")) or None)
+        flash(request, "Memory updated.")
+        return RedirectResponse("/helena/memory", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/memory/{item_id}/delete")
+    def memory_delete(item_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        memory_svc.delete_item(db, item_id)
+        flash(request, "Memory removed.")
+        return RedirectResponse("/helena/memory", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Product image library
+    # ===================================================================
+    @router.get("/helena/library", response_class=HTMLResponse)
+    def library_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        return templates.TemplateResponse(
+            request, "helena/library.html",
+            ctx(request, user, "helena_library",
+                products=library_svc.list_images(db, kind="product"),
+                references=library_svc.list_images(db, kind="reference")),
+        )
+
+    @router.post("/helena/library/upload")
+    async def library_upload(request: Request, db: DbDep,
+                             file: UploadFile = File(...)) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        data = await file.read()
+        if not data:
+            flash(request, "No file received.", "error")
+            return RedirectResponse("/helena/library", status_code=status.HTTP_303_SEE_OTHER)
+        kind = str(form.get("kind", "product"))
+        row, err = library_svc.add_image(
+            db, data=data, content_type=file.content_type or "image/png",
+            flavor=str(form.get("flavor", "")), variant=str(form.get("variant", "")),
+            label=str(form.get("label", "")), kind=kind, user_id=user.id,
+        )
+        wants_json = request.headers.get("accept", "").startswith("application/json")
+        if err:
+            if wants_json:
+                from fastapi.responses import JSONResponse
+                return JSONResponse({"ok": False, "error": err}, status_code=400)
+            flash(request, f"Upload failed: {err}", "error")
+        elif wants_json:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"ok": True, "id": row.id, "url": row.url, "label": row.label})
+        else:
+            flash(request, f"Added “{row.label}” to the library.")
+        return RedirectResponse("/helena/library", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/library/{image_id}/delete")
+    def library_delete(image_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        library_svc.delete_image(db, image_id)
+        flash(request, "Image removed from the library.")
+        return RedirectResponse("/helena/library", status_code=status.HTTP_303_SEE_OTHER)
 
     return router

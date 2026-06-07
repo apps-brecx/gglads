@@ -48,6 +48,21 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "generate_video",
+        "description": "Generate a short on-brand marketing video via Veo (Google Flow). "
+                       "Returns a video URL. Optionally tie to a Shopify product. "
+                       "Rendering can take up to a few minutes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "concept": {"type": "string", "description": "Creative concept / scene for the video."},
+                "product_id": {"type": "integer", "description": "Optional Shopify product id to feature."},
+                "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"], "default": "16:9"},
+            },
+            "required": ["concept"],
+        },
+    },
+    {
         "name": "create_post",
         "description": "Create an Instagram post DRAFT (image + caption + hashtags).",
         "input_schema": {
@@ -294,6 +309,31 @@ def _generate_image(db, args, user_id, session_id):
     return {"ok": True, "images": saved, "fallback": fallback, "note": note}
 
 
+def _generate_video(db, args, user_id, session_id):
+    from gglads.services.helena.images.veo import VeoVideoService
+
+    products = brand_svc.ShopifyProductProvider(db)
+    concept = args["concept"]
+    if args.get("product_id"):
+        ctx = products.product_context_text(int(args["product_id"]))
+        if ctx:
+            concept = f"{concept}\n\n{ctx}"
+    concept = f"{concept}\n\nBrand guidelines:\n{brand_svc.brand_context_text(db)}"
+
+    res = VeoVideoService().generate(concept, aspect_ratio=args.get("aspect_ratio", "16:9"))
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error", "Video generation failed.")}
+    if res.get("status") == "processing":
+        return {"ok": True, "status": "processing", "operation": res.get("operation"),
+                "note": res.get("note")}
+    asset = brand_svc.save_asset(
+        db, url=res["url"], kind="generated", title="Generated video",
+        prompt=args["concept"], product_id=args.get("product_id"), user_id=user_id,
+    )
+    return {"ok": True, "videos": [{"asset_id": asset.id, "url": res["url"]}],
+            "model": res.get("model")}
+
+
 def _create_post(db, args, user_id, session_id):
     post = Post(
         caption=args.get("caption", ""),
@@ -529,6 +569,7 @@ def _get_email_analytics(db, args, user_id, session_id):
 
 _HANDLERS = {
     "generate_image": _generate_image,
+    "generate_video": _generate_video,
     "create_post": _create_post,
     "schedule_post": _schedule_post,
     "publish_post": _publish_post,

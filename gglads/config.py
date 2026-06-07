@@ -57,7 +57,10 @@ class Settings(BaseSettings):
     google_flow_api_key: str = ""
     google_flow_project_id: str = ""
     google_flow_base_url: str = "https://aisandbox-pa.googleapis.com"
-    google_flow_image_model: str = "imagen-3.0-generate-002"
+    google_flow_image_model: str = ""  # preferred image model; auto-discovered if blank
+    google_flow_video_model: str = ""  # preferred Veo model; auto-discovered if blank
+    google_flow_api_version: str = "v1beta"  # Generative Language API version
+    google_flow_video_timeout_seconds: int = 180  # max wait for a Veo render
     # Vertex AI auth (service-account path). Provide the SA key JSON inline.
     google_vertex_location: str = "us-central1"
     google_application_credentials_json: str = ""

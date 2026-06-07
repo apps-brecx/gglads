@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% block title %}Email preview — {{ camp.name }}{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">{{ camp.name }}</h1>
+  <p class="page-subtitle">
+    <span class="pill {{ camp.status }}">{{ camp.status }}</span>
+    Subject: <strong>{{ camp.subject or '—' }}</strong> · Preheader: {{ camp.preheader or '—' }}
+  </p>
+</div>
+
+<div class="preview-frames">
+  <div class="preview-desktop">
+    <div class="nav-heading">Desktop</div>
+    <iframe src="/helena/email/{{ camp.id }}/raw" title="desktop preview"></iframe>
+  </div>
+  <div class="preview-mobile">
+    <div class="nav-heading">Mobile</div>
+    <iframe src="/helena/email/{{ camp.id }}/raw" title="mobile preview"></iframe>
+  </div>
+</div>
+
+<h2 style="font-size:18px;margin-top:24px;">Edit HTML</h2>
+<form method="post" action="/helena/email/{{ camp.id }}/html">
+  <textarea name="html" rows="16" style="width:100%;font-family:ui-monospace,monospace;font-size:12px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;">{{ camp.html or '' }}</textarea>
+  <div class="form-actions" style="margin-top:10px;"><button class="btn-primary" type="submit">Save HTML</button></div>
+</form>
+
+<p class="conn-desc" style="margin-top:16px;">
+  Pushing to Shopify Email and any send are gated by approval — Helena always creates a draft for your review first.
+</p>
+{% endblock %}

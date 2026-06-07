@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +39,58 @@ class Settings(BaseSettings):
 
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
+
+    # ---- Helena module (Instagram/Meta + Email marketing agent) ----------
+    # Swappable execution backends. The chat agent and the rest of the app
+    # only ever talk to the MetaExecutionProvider / EmailDeliveryProvider
+    # interfaces; these flags pick the concrete implementation.
+    meta_execution_mode: str = "browser"  # "browser" | "api"
+    email_delivery_mode: str = "browser"  # "browser" | "api"
+
+    # Browser-agent connection (Claude-driven Chrome automation). Until we
+    # have official push access, every Meta/Instagram/Shopify-Email write and
+    # read-back is performed through this agent.
+    browser_agent_url: str = ""
+    browser_agent_token: str = ""
+
+    # Google Flow (Imagen / Veo) image generation.
+    google_flow_api_key: str = ""
+    google_flow_project_id: str = ""
+    google_flow_base_url: str = "https://aisandbox-pa.googleapis.com"
+    google_flow_image_model: str = ""  # preferred image model; auto-discovered if blank
+    google_flow_video_model: str = ""  # preferred Veo model; auto-discovered if blank
+    google_flow_api_version: str = "v1beta"  # Generative Language API version
+    google_flow_video_timeout_seconds: int = 180  # max wait for a Veo render
+    google_flow_video_retries: int = 3  # auto-retries on transient (code 13) Veo errors
+    # Vertex AI auth (service-account path). Provide the SA key JSON inline.
+    google_vertex_location: str = "us-central1"
+    google_application_credentials_json: str = ""
+
+    # S3-compatible storage for generated images + email assets.
+    s3_endpoint_url: str = ""
+    s3_region: str = ""  # falls back to AWS_REGION, then us-east-1 (see storage)
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    # Public base URL for serving stored objects (e.g. an R2 public dev URL or
+    # a CDN host). S3_PUBLIC_URL is accepted as an alias for S3_PUBLIC_BASE_URL.
+    s3_public_base_url: str = ""
+    s3_public_url: str = ""
+    # Conventional AWS names, accepted as fallbacks so either naming works.
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = ""
+
+    # Official Meta API (Instagram Graph + Marketing API). Set these + a Meta
+    # Developer app to enable real posting / insights / ad management.
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    instagram_app_id: str = ""
+    instagram_app_secret: str = ""
+    meta_graph_version: str = "v21.0"
+    # OAuth redirect — must match the app's Valid OAuth Redirect URIs, e.g.
+    # https://gglads.onrender.com/helena/integrations/meta/callback
+    meta_oauth_redirect_uri: str = ""
 
     @field_validator("database_url")
     @classmethod

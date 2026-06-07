@@ -71,7 +71,10 @@ class Settings(BaseSettings):
     s3_bucket: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
-    s3_public_base_url: str = ""  # CDN / public host for stored objects
+    # Public base URL for serving stored objects (e.g. an R2 public dev URL or
+    # a CDN host). S3_PUBLIC_URL is accepted as an alias for S3_PUBLIC_BASE_URL.
+    s3_public_base_url: str = ""
+    s3_public_url: str = ""
     # Conventional AWS names, accepted as fallbacks so either naming works.
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""

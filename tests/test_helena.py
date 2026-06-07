@@ -399,3 +399,26 @@ def test_run_skill_rolls_back_and_session_stays_usable(db):
         db.commit()
     finally:
         skills._HANDLERS.pop("_boom_test", None)
+
+
+# ---- Public object URL (R2 public dev URL / CDN) ------------------------
+
+def test_storage_public_url_used_when_set(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena import storage
+    for k in ("S3_PUBLIC_BASE_URL", "S3_PUBLIC_URL", "S3_ENDPOINT_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("S3_BUCKET", "helena-assets")
+    monkeypatch.setenv("S3_ENDPOINT_URL", "https://acct.r2.cloudflarestorage.com")
+    # alias S3_PUBLIC_URL, with a trailing slash to confirm it's stripped
+    monkeypatch.setenv("S3_PUBLIC_URL", "https://pub-xxxx.r2.dev/")
+    cfg.get_settings.cache_clear()
+    try:
+        assert storage._resolve()["public_base"] == "https://pub-xxxx.r2.dev/"
+        # public base wins over the private endpoint
+        c = storage._resolve()
+        key = "helena/flow/abc.png"
+        assert f"{c['public_base'].rstrip('/')}/{key}" == \
+            "https://pub-xxxx.r2.dev/helena/flow/abc.png"
+    finally:
+        cfg.get_settings.cache_clear()

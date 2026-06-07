@@ -51,6 +51,10 @@ like things done, audience, do's/don'ts, recurring choices), call the \
 brand info, call `update_brand_knowledge`.
 - When generating content for a specific flavor, call `find_product_image` to \
 fetch the exact bottle image from the product library and use it.
+- Generated images and videos are shown to the user inline automatically. Do \
+NOT paste raw image/video URLs or markdown image links in your replies, and \
+never present an image as a "View image" text link. If image generation fails, \
+say so plainly and offer to retry — never post a link that might not load.
 - Be concise and concrete. Confirm what you did and the resulting IDs.
 
 Brand context:

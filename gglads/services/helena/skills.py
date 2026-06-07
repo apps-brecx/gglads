@@ -349,7 +349,12 @@ def _generate_image(db, args, user_id, session_id):
         aspect_ratio=args.get("aspect_ratio", "1:1"),
         n=min(4, max(1, int(args.get("n", 1)))),
     )
+    # storage.put_bytes (inside generate) only returns publicly-reachable URLs,
+    # so anything we get back is safe to show inline. Retry once before giving
+    # up, so a transient save/reachability failure doesn't post a dead link.
     images, err = svc.generate(prompt)
+    if not images and err:
+        images, err = svc.generate(prompt)
     saved = []
     for img in images:
         asset = brand_svc.save_asset(
@@ -360,9 +365,10 @@ def _generate_image(db, args, user_id, session_id):
 
     # Fallback: when Google Flow isn't configured (or returned nothing) but a
     # product was referenced, use that product's existing Shopify image so the
-    # chat still shows a usable on-brand visual.
+    # chat still shows a usable on-brand visual — but only if it's reachable.
     fallback = False
     if not saved and args.get("product_id"):
+        from gglads.services.helena import storage
         pid = int(args["product_id"])
         urls = [i["url"] for i in products.get_product_images(pid) if i.get("url")]
         if not urls:
@@ -370,6 +376,9 @@ def _generate_image(db, args, user_id, session_id):
             if prod and prod.get("image_url"):
                 urls = [prod["image_url"]]
         for url in urls[:1]:
+            ok, _ = storage.verify_url(url)
+            if not ok:
+                continue
             asset = brand_svc.save_asset(
                 db, url=url, kind="product", title="Product image (fallback)",
                 prompt=args["concept"], product_id=pid, user_id=user_id,
@@ -378,7 +387,10 @@ def _generate_image(db, args, user_id, session_id):
             fallback = True
 
     if not saved:
-        return {"ok": False, "error": err or "No image could be generated."}
+        # Don't post a dead link — say what went wrong so the user can retry.
+        return {"ok": False, "error": err or "Couldn't produce a usable image. "
+                "The image either failed to generate or wasn't publicly reachable "
+                "after saving — please try again."}
     note = err
     if fallback:
         note = ("Google Flow isn't configured — showing the product's existing "

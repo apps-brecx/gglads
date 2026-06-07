@@ -122,28 +122,32 @@ def _budget_micros(daily_budget_cents: int) -> int:
 def _apply_bidding_strategy(client, campaign, bid_strategy: str, target_cpa_cents: int | None) -> None:
     """Set the right bidding-strategy oneof on a Campaign create mutation.
 
-    Uses client.copy_from to explicitly initialize the oneof branch — the
-    proto3-plus wrapper around the SDK won't always select the branch
-    correctly with bare `_pb.SetInParent()`, which leads to the SDK
-    rejecting the create with 'The required field was not present.'
+    Notes on the SDK quirks:
+      - client.get_type("X") returns an INSTANCE of X, not its class.
+        Trailing () would try to call the instance and TypeErrors out
+        with "'X' object is not callable".
+      - Setting any concrete sub-field (manual_cpc.enhanced_cpc_enabled,
+        target_cpa.target_cpa_micros) auto-selects the oneof.
+      - For strategies with no required sub-field (TargetSpend,
+        MaximizeConversions, empty TargetCpa) we use copy_from with an
+        empty message instance to explicitly select the oneof branch.
     """
     if bid_strategy == "manual_cpc":
-        manual = client.get_type("ManualCpc")()
-        manual.enhanced_cpc_enabled = False
-        client.copy_from(campaign.manual_cpc, manual)
+        # Setting any field on the inner message auto-selects the oneof.
+        campaign.manual_cpc.enhanced_cpc_enabled = False
     elif bid_strategy == "maximize_clicks":
         # 'TargetSpend' is the standard portfolio for Maximize Clicks.
-        client.copy_from(campaign.target_spend, client.get_type("TargetSpend")())
+        client.copy_from(campaign.target_spend, client.get_type("TargetSpend"))
     elif bid_strategy == "target_cpa":
-        tc = client.get_type("TargetCpa")()
         if target_cpa_cents and target_cpa_cents > 0:
-            tc.target_cpa_micros = int(target_cpa_cents) * 10_000
-        client.copy_from(campaign.target_cpa, tc)
+            campaign.target_cpa.target_cpa_micros = int(target_cpa_cents) * 10_000
+        else:
+            client.copy_from(campaign.target_cpa, client.get_type("TargetCpa"))
     else:
         # Default: MAXIMIZE_CONVERSIONS.
         client.copy_from(
             campaign.maximize_conversions,
-            client.get_type("MaximizeConversions")(),
+            client.get_type("MaximizeConversions"),
         )
 
 
@@ -360,11 +364,48 @@ def push_campaign(db: Session, campaign_id: int) -> tuple[bool, str]:
     c = db.get(AdCampaign, campaign_id)
     if c is None:
         return False, "Campaign not found."
+    if not (c.name or "").strip():
+        return False, "Campaign needs a name before pushing."
     if not (c.landing_page_url or "").strip():
         return False, "Set a landing page URL on the campaign before pushing."
+    if int(c.daily_budget_cents or 0) <= 0:
+        return False, "Daily budget must be greater than 0 before pushing."
     ad_groups = campaigns_svc.ad_groups_for_campaign(db, campaign_id)
     if not ad_groups:
         return False, "Campaign has no ad groups."
+
+    # Up-front validation per ad group — surface a precise message instead
+    # of letting Google Ads reject with a generic 'required field' error.
+    problems: list[str] = []
+    for ag in ad_groups:
+        if not (ag.name or "").strip():
+            problems.append(f'ad group {ag.id} has no name')
+            continue
+        if ag.match_type not in _MATCH_TYPE_ENUM:
+            problems.append(f'"{ag.name}" has unknown match type {ag.match_type!r}')
+        pos, neg = campaigns_svc.keywords_for_ad_group(db, ag.id)
+        if not pos:
+            problems.append(f'"{ag.name}" has no positive keywords')
+        # Only validate RSA copy when one will actually be pushed (no live ad id yet).
+        if not ag.google_ads_ad_id:
+            headlines = campaigns_svc.parse_list(ag.headlines_json)
+            descriptions = campaigns_svc.parse_list(ag.descriptions_json)
+            if len(headlines) < 3:
+                problems.append(
+                    f'"{ag.name}" needs ≥3 headlines for an RSA — has {len(headlines)}'
+                )
+            if len(descriptions) < 2:
+                problems.append(
+                    f'"{ag.name}" needs ≥2 descriptions for an RSA — has {len(descriptions)}'
+                )
+    if problems:
+        msg = "Can't push yet — " + "; ".join(problems[:4])
+        if len(problems) > 4:
+            msg += f" (+{len(problems) - 4} more)"
+        c.last_push_error = msg
+        db.commit()
+        return False, msg
+
     client, customer_id, err = _build_client(db)
     if err:
         c.last_push_error = err

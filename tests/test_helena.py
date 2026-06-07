@@ -422,3 +422,32 @@ def test_storage_public_url_used_when_set(monkeypatch):
             "https://pub-xxxx.r2.dev/helena/flow/abc.png"
     finally:
         cfg.get_settings.cache_clear()
+
+
+# ---- Veo surfaces the full error body -----------------------------------
+
+def test_veo_start_surfaces_full_error_body(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena.images import veo
+    monkeypatch.setenv("GOOGLE_FLOW_API_KEY", "AIzaTEST")
+    cfg.get_settings.cache_clear()
+
+    class FakeResp:
+        status_code = 400
+        text = ('{"error":{"code":400,"message":"Video generation is not '
+                'allowed for this model/key","status":"INVALID_ARGUMENT"}}')
+
+        def json(self):
+            import json as _j
+            return _j.loads(self.text)
+
+    monkeypatch.setattr(veo.httpx, "post", lambda *a, **k: FakeResp())
+    try:
+        svc = veo.VeoVideoService()
+        op, err = svc._start("models/veo-3.0-generate-preview", "a cat", "16:9")
+        assert op is None
+        # full body present, not truncated to status only
+        assert "INVALID_ARGUMENT" in err
+        assert "Video generation is not allowed" in err
+    finally:
+        cfg.get_settings.cache_clear()

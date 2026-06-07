@@ -119,6 +119,32 @@ def _budget_micros(daily_budget_cents: int) -> int:
     return max(10_000, int(daily_budget_cents) * 10_000)
 
 
+def _set_eu_political_no(client, message) -> None:
+    """Mark a Campaign / Ad as not containing EU political advertising.
+
+    Required on Campaign + Ad create operations since the Google Ads API
+    added EU Digital Services Act compliance fields (≈ v17+). The SDK
+    exposes the enum on client.enums.EuPoliticalAdvertisingStatusEnum;
+    we set it to DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING.
+
+    No-op if the SDK version doesn't surface the enum yet — older
+    accounts won't have the requirement either.
+    """
+    try:
+        enum = getattr(client.enums, "EuPoliticalAdvertisingStatusEnum", None)
+        if enum is None:
+            return
+        value = getattr(enum, "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING", None)
+        if value is None:
+            return
+        # Setting an unknown attribute on a proto-plus wrapper raises
+        # AttributeError, which lets us silently skip the field on older
+        # API versions where it doesn't exist.
+        message.contains_eu_political_advertising = value
+    except (AttributeError, ValueError, TypeError):
+        pass
+
+
 def _apply_bidding_strategy(client, campaign, bid_strategy: str, target_cpa_cents: int | None) -> None:
     """Set the right bidding-strategy oneof on a Campaign create mutation.
 
@@ -223,6 +249,8 @@ def _push_campaign(
         campaign.network_settings.target_search_network = True
         campaign.network_settings.target_content_network = False
         campaign.network_settings.target_partner_search_network = False
+        # EU DSA compliance: declare 'does not contain EU political advertising'.
+        _set_eu_political_no(client, campaign)
         _apply_bidding_strategy(client, campaign, c.bid_strategy, c.target_cpa_cents)
     resp = campaign_service.mutate_campaigns(
         customer_id=customer_id, operations=[op]
@@ -325,6 +353,8 @@ def _push_rsa(
     ad_group_ad.status = client.enums.AdGroupAdStatusEnum.PAUSED
     ad = ad_group_ad.ad
     ad.final_urls.append(landing_url)
+    # EU DSA compliance: declare 'does not contain EU political advertising'.
+    _set_eu_political_no(client, ad)
     for h in headlines:
         asset = client.get_type("AdTextAsset")
         asset.text = h

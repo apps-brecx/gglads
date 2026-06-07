@@ -26,7 +26,7 @@ def _resolve() -> dict[str, str]:
         "region": (s.s3_region or s.aws_region or "us-east-1").strip(),
         "access_key": (s.s3_access_key_id or s.aws_access_key_id or "").strip(),
         "secret_key": (s.s3_secret_access_key or s.aws_secret_access_key or "").strip(),
-        "public_base": (s.s3_public_base_url or "").strip(),
+        "public_base": (s.s3_public_base_url or s.s3_public_url or "").strip(),
     }
 
 

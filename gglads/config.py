@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -64,11 +64,15 @@ class Settings(BaseSettings):
 
     # S3-compatible storage for generated images + email assets.
     s3_endpoint_url: str = ""
-    s3_region: str = "us-east-1"
+    s3_region: str = ""  # falls back to AWS_REGION, then us-east-1 (see storage)
     s3_bucket: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_public_base_url: str = ""  # CDN / public host for stored objects
+    # Conventional AWS names, accepted as fallbacks so either naming works.
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = ""
 
     # Future MetaApiProvider — left as empty placeholders until we have
     # approved Meta Marketing API / Instagram Graph API access.

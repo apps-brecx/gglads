@@ -284,3 +284,56 @@ def test_google_flow_unconfigured_reports_clearly():
     ok, detail = svc.test_connection()
     assert ok is False
     assert "GOOGLE_APPLICATION_CREDENTIALS_JSON" in detail or "GOOGLE_FLOW_API_KEY" in detail
+
+
+# ---- Storage credentials (S3_* or AWS_*) + Flow connect parity ----------
+
+def test_storage_accepts_aws_or_s3_names(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena import storage
+    for k in ("S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_REGION",
+              "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("S3_BUCKET", "helena-assets")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+    cfg.get_settings.cache_clear()
+    try:
+        assert storage.is_configured() is True
+        assert storage.config_error() is None
+        assert storage._resolve()["region"] == "us-west-2"
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_storage_config_error_names_missing_vars(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena import storage
+    for k in ("S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY",
+              "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    cfg.get_settings.cache_clear()
+    try:
+        err = storage.config_error()
+        assert err and "S3_BUCKET" in err
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_flow_test_connection_uses_generation_path(monkeypatch):
+    import gglads.config as cfg
+    from gglads.services.helena.images.google_flow import GoogleFlowImageService
+    monkeypatch.setenv("GOOGLE_FLOW_API_KEY", "AIzaTEST")
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", raising=False)
+    cfg.get_settings.cache_clear()
+    try:
+        svc = GoogleFlowImageService()
+        # Stub the real predict so the test exercises the SAME path (no GET
+        # metadata endpoint that 404s for Imagen).
+        monkeypatch.setattr(svc, "_predict", lambda text, ar: (b"PNGBYTES", None))
+        ok, detail = svc.test_connection()
+        assert ok is True
+        assert svc._model in detail
+    finally:
+        cfg.get_settings.cache_clear()

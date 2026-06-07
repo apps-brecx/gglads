@@ -10,10 +10,10 @@ Two real auth paths (pick whichever you configure on Render):
   2. API key (Generative Language API) — set GOOGLE_FLOW_API_KEY. Calls the
      generativelanguage.googleapis.com Imagen `:predict` endpoint.
 
-`test_connection()` performs a real, cheap auth check (token mint + model GET,
-or model GET with the key) so the Integrations page only shows "Connected"
-when credentials actually work. `generate()` produces images and stores them
-to S3.
+`test_connection()` exercises the exact same model + `:predict` endpoint the
+generator uses (it generates one throwaway image), so the Integrations page
+only shows "Connected" when real image generation actually works. `generate()`
+produces images and stores them via the storage module.
 """
 
 from __future__ import annotations
@@ -113,37 +113,23 @@ class GoogleFlowImageService:
 
     # ---- connection test (used by the Integrations Connect flow) ------
     def test_connection(self) -> tuple[bool, str]:
+        """Validate by exercising the EXACT generation path the agent uses
+        (same model + `:predict` endpoint), so "Connected" means real image
+        generation works. Avoids false 404s from model-metadata endpoints that
+        don't list Imagen `:predict` models."""
         mode = self.auth_mode()
         if mode is None:
             return False, (
                 "Not configured. Set GOOGLE_APPLICATION_CREDENTIALS_JSON + "
                 "GOOGLE_FLOW_PROJECT_ID (service account) or GOOGLE_FLOW_API_KEY."
             )
-        if mode == "vertex":
-            token, err = self._vertex_token()
-            if err:
-                return False, err
-            url = (
-                f"https://{self._location}-aiplatform.googleapis.com/v1/projects/"
-                f"{self._project}/locations/{self._location}/publishers/google/"
-                f"models/{self._model}"
-            )
-            try:
-                r = httpx.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15.0)
-            except httpx.HTTPError as exc:
-                return False, f"Vertex AI request failed: {type(exc).__name__}: {exc}"
-            if r.status_code == 200:
-                return True, f"Vertex AI reachable (project {self._project}, model {self._model})."
-            return False, f"Vertex AI HTTP {r.status_code}: {r.text[:200]}"
-        # apikey
-        try:
-            r = httpx.get(f"{_GL_BASE}/models/{self._model}",
-                          params={"key": self._api_key}, timeout=15.0)
-        except httpx.HTTPError as exc:
-            return False, f"Generative Language API request failed: {type(exc).__name__}: {exc}"
-        if r.status_code == 200:
-            return True, f"Google API key valid (model {self._model})."
-        return False, f"Generative Language API HTTP {r.status_code}: {r.text[:200]}"
+        raw, err = self._predict("A plain solid light-grey square. Connection test.", "1:1")
+        if err:
+            return False, err
+        if not raw:
+            return False, "No image returned by the model."
+        label = "Vertex AI" if mode == "vertex" else "Google API key"
+        return True, f"{label} works — generated a test image with {self._model}."
 
     # ---- generation ---------------------------------------------------
     def generate(self, prompt: ImagePrompt) -> tuple[list[GeneratedImage], str | None]:
@@ -153,8 +139,9 @@ class GoogleFlowImageService:
                 "Google Flow is not configured. Set GOOGLE_APPLICATION_CREDENTIALS_JSON "
                 "+ GOOGLE_FLOW_PROJECT_ID (service account) or GOOGLE_FLOW_API_KEY."
             )
-        if not storage.is_configured():
-            return [], "S3 storage is not configured; cannot persist generated images."
+        storage_err = storage.config_error()
+        if storage_err:
+            return [], storage_err
 
         text = prompt.to_text()
         images: list[GeneratedImage] = []

@@ -339,3 +339,10 @@
 }
 .img-lightbox.open { display: flex; }
 .img-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: var(--shadow-lg); }
+
+/* ---- Inline preview / action links in chips and rows -------------- */
+.tool-link {
+  color: var(--accent); font-size: 12px; margin-left: 8px; text-decoration: none;
+  white-space: nowrap;
+}
+.tool-link:hover { color: var(--accent-hover); text-decoration: underline; }

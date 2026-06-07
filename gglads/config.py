@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     google_flow_project_id: str = ""
     google_flow_base_url: str = "https://aisandbox-pa.googleapis.com"
     google_flow_image_model: str = "imagen-3.0-generate-002"
+    # Vertex AI auth (service-account path). Provide the SA key JSON inline.
+    google_vertex_location: str = "us-central1"
+    google_application_credentials_json: str = ""
 
     # S3-compatible storage for generated images + email assets.
     s3_endpoint_url: str = ""

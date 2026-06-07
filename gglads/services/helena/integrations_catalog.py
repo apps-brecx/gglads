@@ -64,11 +64,9 @@ SECTIONS: list[dict[str, Any]] = [
             _card("google_docs", "Google Docs", "Read and write campaign briefs.", "oauth"),
             _card("meta_ads", "Meta Ads", "Create and manage Meta ad campaigns; read metrics."),
             _card("tiktok_ads", "TikTok Ads", "Manage TikTok ad campaigns."),
-            _card("klaviyo", "Klaviyo", "Sync email/SMS campaign data.", "api_key"),
-            _card("mailchimp", "Mailchimp", "Sync email campaign data.", "oauth"),
-            _card("instantly", "Instantly", "Manage cold-email campaigns.", "api_key"),
-            _card("brevo", "Brevo", "Sync email/SMS data.", "api_key"),
-            _card("beehiiv", "beehiiv", "Sync newsletter data.", "api_key"),
+            # Marketing email is sent exclusively through Shopify Email (via the
+            # Shopify card above) — third-party email tools are intentionally
+            # not offered here.
             _card("stripe", "Stripe", "Read revenue and subscription data.", "oauth"),
             _card("revenuecat", "RevenueCat", "Read subscription revenue data.", "api_key"),
             _card("notion", "Notion", "Read/write briefs and content calendars.", "oauth"),

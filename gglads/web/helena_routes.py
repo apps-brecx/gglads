@@ -229,8 +229,22 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 status="connected",
             ))
             db.commit()
-            flash(request, f"{card['name']} connected via browser agent. "
-                           "Sign in and clear verification in the agent's browser.")
+            # Be explicit about whether the backend that actually posts/reads
+            # is configured, so "Connected" never looks like it does nothing.
+            from gglads.config import get_settings
+            s = get_settings()
+            if s.meta_execution_mode == "api" and s.meta_app_id and s.meta_app_secret:
+                flash(request, f"{card['name']} connected. Official Meta API mode is "
+                               "active — posting and ad management will run through it.")
+            elif s.browser_agent_url:
+                flash(request, f"{card['name']} account linked. The browser agent is "
+                               "configured — sign in once in its Chrome session and Helena "
+                               "can post and read data through it.")
+            else:
+                flash(request, f"{card['name']} account linked, but no execution backend is "
+                               "configured yet, so Helena can't post or pull data until you "
+                               "set up the browser agent (BROWSER_AGENT_URL) or the official "
+                               "Meta API (META_APP_ID/SECRET). See setup below.", "warn")
         else:
             flash(request, f"{card['name']} connected.")
         return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)

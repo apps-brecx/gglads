@@ -19,7 +19,14 @@
     <h1 class="page-title">Analytics</h1>
     <p class="page-subtitle">Last {{ days }} days · current vs previous period.</p>
   </div>
-  <form method="post" action="/helena/analytics/refresh"><button class="btn-secondary">Refresh metrics</button></form>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div class="seg-toggle" role="group" aria-label="Date range">
+      {% for d in [7, 30, 90] %}
+        <a href="/helena/analytics?days={{ d }}"><button class="{% if days == d %}is-active{% endif %}">{{ d }}d</button></a>
+      {% endfor %}
+    </div>
+    <form method="post" action="/helena/analytics/refresh"><button class="btn-secondary">Refresh metrics</button></form>
+  </div>
 </div>
 
 {# ---- Customizable metric cards ---- #}

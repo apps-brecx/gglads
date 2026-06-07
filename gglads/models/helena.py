@@ -221,6 +221,10 @@ class ScheduledTask(Base):
     )
     # Recurrence: cron-like text or simple presets ('daily','weekly:mon').
     recurrence: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # When the task last executed (for the Tasks page "last ran" column).
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")

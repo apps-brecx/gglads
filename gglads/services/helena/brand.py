@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from gglads.models.brand import Brand, BrandAsset
+from gglads.models.brand import Brand, BrandAsset, BrandDocument
 from gglads.models.product_chat import ProductChatMessage
 from gglads.models.shopify_product import ShopifyProduct, ShopifyProductImage
 
@@ -82,7 +82,57 @@ def brand_context_text(db: Session) -> str:
         f"Palette: {palette}" if palette else "",
         f"Guidelines: {brand.guidelines}" if brand.guidelines else "",
     ]
+    # Append brand-knowledge documents (persistent memory) as excerpts.
+    docs = list_documents(db)
+    if docs:
+        parts.append("\nBrand knowledge documents:")
+        for d in docs:
+            excerpt = (d.content or "").strip().replace("\n", " ")
+            if len(excerpt) > 600:
+                excerpt = excerpt[:600] + "…"
+            line = f"- {d.title}: {excerpt}" if excerpt else f"- {d.title}"
+            if d.url:
+                line += f" ({d.url})"
+            parts.append(line)
     return "\n".join(p for p in parts if p)
+
+
+# ---------------------------------------------------------------------------
+# Brand knowledge documents (persistent memory)
+# ---------------------------------------------------------------------------
+
+def list_documents(db: Session) -> list[BrandDocument]:
+    brand = get_or_create_brand(db)
+    return list(
+        db.scalars(
+            select(BrandDocument)
+            .where(BrandDocument.brand_id == brand.id)
+            .order_by(BrandDocument.created_at.desc())
+        ).all()
+    )
+
+
+def add_document(
+    db: Session, *, title: str, content: str | None = None,
+    url: str | None = None, user_id: int | None = None,
+) -> BrandDocument:
+    brand = get_or_create_brand(db)
+    doc = BrandDocument(
+        brand_id=brand.id, title=title.strip()[:255] or "Untitled",
+        content=(content or "").strip() or None, url=(url or "").strip() or None,
+        created_by_user_id=user_id,
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    return doc
+
+
+def delete_document(db: Session, doc_id: int) -> None:
+    doc = db.get(BrandDocument, doc_id)
+    if doc is not None:
+        db.delete(doc)
+        db.commit()
 
 
 def list_assets(db: Session, kind: str | None = None) -> list[BrandAsset]:

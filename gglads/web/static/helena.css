@@ -349,3 +349,74 @@
 
 /* ---- Inline generated-video card --------------------------------- */
 .vid-card { max-width: 360px; width: 100%; border-radius: 12px; border: 1px solid var(--border); background: #000; }
+
+/* ===================================================================
+   Feature-gap additions: full-page chat, live progress, explore, files
+   =================================================================== */
+
+/* ---- Full-page chat shell ---------------------------------------- */
+.helena-fullpage { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.helena-topbar {
+  display: flex; align-items: center; gap: 18px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); background: var(--panel); flex-shrink: 0;
+}
+.helena-topnav { display: flex; gap: 14px; flex: 1; flex-wrap: wrap; }
+.helena-topnav a { color: var(--muted-strong); text-decoration: none; font-size: 13px; }
+.helena-topnav a:hover { color: var(--text-strong); }
+.helena-chat-full {
+  flex: 1; display: grid; grid-template-columns: 260px 1fr 320px; gap: 14px;
+  padding: 14px; overflow: hidden; min-height: 0;
+}
+.helena-chat-full .helena-col { min-height: 0; }
+@media (max-width: 1100px) { .helena-chat-full { grid-template-columns: 1fr; }
+  .helena-chat-full .helena-col:first-child, .helena-chat-full .helena-col:last-child { display: none; } }
+
+/* ---- Live "working" state + steps -------------------------------- */
+.helena-working {
+  border-top: 1px solid var(--border); padding: 10px 14px; font-size: 13px;
+  color: var(--muted-strong); display: flex; flex-direction: column; gap: 4px;
+}
+.helena-working .spinner {
+  width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px;
+  border: 2px solid var(--border-strong); border-top-color: var(--accent);
+  animation: helena-spin 0.7s linear infinite; vertical-align: middle;
+}
+@keyframes helena-spin { to { transform: rotate(360deg); } }
+.working-steps { display: flex; flex-direction: column; gap: 2px; margin-left: 20px; }
+.working-step { font-size: 12px; color: var(--muted); }
+
+/* ---- Explore grid ------------------------------------------------ */
+.explore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.explore-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 150px;
+}
+.explore-badges { display: flex; gap: 6px; }
+.explore-title { font-weight: 600; font-size: 15px; color: var(--text-strong); }
+
+/* ---- Files grid -------------------------------------------------- */
+.files-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.file-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.file-thumb { width: 100%; height: 160px; object-fit: cover; background: #000; display: block; }
+.file-meta { padding: 10px 12px 4px; }
+.file-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-actions { display: flex; gap: 8px; padding: 8px 12px 12px; align-items: center; }
+
+/* ---- Task edit popover ------------------------------------------- */
+.edit-pop { position: relative; }
+.edit-pop > summary { cursor: pointer; display: inline-block; }
+.edit-pop[open] > summary { outline: none; }
+.edit-form {
+  position: absolute; z-index: 20; top: 110%; right: 0; width: 280px;
+  background: var(--panel-elevated); border: 1px solid var(--border-strong);
+  border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: var(--shadow-lg);
+}
+.edit-form label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.edit-form input {
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 8px; color: var(--text); font-size: 13px;
+}

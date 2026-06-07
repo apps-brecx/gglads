@@ -72,3 +72,25 @@ class BrandAsset(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class BrandDocument(Base):
+    """A document the agent treats as persistent brand memory — pasted text or
+    a linked file. Titles + excerpts are injected into the agent's brand
+    context so it can draw on them across conversations."""
+
+    __tablename__ = "brand_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    brand_id: Mapped[int] = mapped_column(
+        ForeignKey("brands.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

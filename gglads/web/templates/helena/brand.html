@@ -19,6 +19,32 @@
   <div class="form-actions"><button class="btn-primary" type="submit">Save brand</button></div>
 </form>
 
+<h2 style="font-size:18px;margin-top:28px;">Knowledge base</h2>
+<p class="conn-desc" style="margin-top:-6px;">Documents here are persistent brand memory — Helena draws on them across every conversation.</p>
+<form method="post" action="/helena/brand/docs" style="max-width:720px;margin-bottom:16px;">
+  <div class="form-row"><label>Title</label><input name="title" placeholder="e.g. Brand style guide, FTC do's & don'ts" required/></div>
+  <div class="form-row"><label>Content (paste text the agent should remember)</label><textarea name="content" rows="4"></textarea></div>
+  <div class="form-row"><label>Reference URL (optional)</label><input name="url" placeholder="https://…"/></div>
+  <div class="form-actions"><button class="btn-primary" type="submit">Add document</button></div>
+</form>
+<table class="helena-table" style="max-width:720px;">
+  <thead><tr><th>Document</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {% for d in documents %}
+    <tr>
+      <td>{{ d.title }}{% if d.url %} · <a href="{{ d.url }}" target="_blank" class="tool-link">link</a>{% endif %}
+        {% if d.content %}<div class="conn-desc">{{ d.content[:120] }}{% if d.content|length > 120 %}…{% endif %}</div>{% endif %}</td>
+      <td class="conn-desc">{{ d.created_at.strftime('%b %d') if d.created_at else '' }}</td>
+      <td><form method="post" action="/helena/brand/docs/{{ d.id }}/delete"
+                onsubmit="return confirm('Remove this document from the knowledge base?');">
+        <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button></form></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="conn-desc">No documents yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
 <h2 style="font-size:18px;margin-top:28px;">Brand assets</h2>
 <div class="integ-grid">
   {% for a in assets %}

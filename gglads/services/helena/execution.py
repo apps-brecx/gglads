@@ -110,6 +110,65 @@ def cancel(db: Session, task_id: int) -> None:
         db.commit()
 
 
+def pause(db: Session, task_id: int) -> None:
+    """Pause a scheduled task so the worker skips it until resumed."""
+    task = db.get(ScheduledTask, task_id)
+    if task is not None and task.status not in ("cancelled",):
+        task.status = "paused"
+        task.updated_at = _now()
+        db.commit()
+
+
+def resume(db: Session, task_id: int) -> None:
+    task = db.get(ScheduledTask, task_id)
+    if task is not None and task.status == "paused":
+        task.status = "needs_review" if task.requires_approval else "pending"
+        task.updated_at = _now()
+        db.commit()
+
+
+def delete(db: Session, task_id: int) -> None:
+    task = db.get(ScheduledTask, task_id)
+    if task is not None:
+        db.delete(task)
+        db.commit()
+
+
+def update_task(
+    db: Session, task_id: int, *, title: str | None = None,
+    recurrence: str | None = None, run_after: datetime | None = None,
+) -> ScheduledTask | None:
+    task = db.get(ScheduledTask, task_id)
+    if task is None:
+        return None
+    if title is not None:
+        task.title = title.strip()[:255] or task.title
+    if recurrence is not None:
+        task.recurrence = recurrence.strip() or None
+    if run_after is not None:
+        task.run_after = run_after
+    task.updated_at = _now()
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def list_tasks(db: Session, limit: int = 100) -> list[ScheduledTask]:
+    """All non-cancelled scheduled tasks for the Tasks page."""
+    return list(
+        db.scalars(
+            select(ScheduledTask)
+            .where(ScheduledTask.status != "cancelled")
+            .order_by(
+                ScheduledTask.recurrence.is_(None),  # recurring first
+                ScheduledTask.run_after.is_(None),
+                ScheduledTask.run_after,
+            )
+            .limit(limit)
+        ).all()
+    )
+
+
 def upcoming(db: Session, limit: int = 20) -> list[ScheduledTask]:
     return list(
         db.scalars(
@@ -191,6 +250,7 @@ def run_task(db: Session, task: ScheduledTask) -> bool:
         return False
     task.status = "running"
     task.attempts += 1
+    task.last_run_at = _now()
     task.updated_at = _now()
     db.commit()
 
@@ -221,17 +281,58 @@ def run_task(db: Session, task: ScheduledTask) -> bool:
     return result.success
 
 
+_DOW = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def compute_next_run(recurrence: str | None, from_dt: datetime | None = None) -> datetime | None:
+    """Next occurrence strictly after from_dt for a recurrence spec.
+
+    Supported: 'hourly', 'daily', 'daily@HH:MM', 'weekly', 'weekly:<dow>',
+    'weekly:<dow>@HH:MM'. Returns None for one-off / unknown specs.
+    """
+    if not recurrence:
+        return None
+    now = from_dt or _now()
+    spec = recurrence.strip().lower()
+    timepart = None
+    if "@" in spec:
+        spec, timepart = spec.split("@", 1)
+    hh, mm = 9, 0
+    if timepart and ":" in timepart:
+        try:
+            hh, mm = int(timepart.split(":")[0]), int(timepart.split(":")[1])
+        except ValueError:
+            hh, mm = 9, 0
+
+    if spec == "hourly":
+        return now + timedelta(hours=1)
+
+    if spec == "daily":
+        nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        return nxt
+
+    if spec.startswith("weekly"):
+        target = None
+        if ":" in spec:
+            target = _DOW.get(spec.split(":", 1)[1][:3])
+        base = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if target is None:
+            nxt = base + timedelta(days=7) if base <= now else base
+            return base if base > now else base + timedelta(days=7)
+        days_ahead = (target - now.weekday()) % 7
+        nxt = base + timedelta(days=days_ahead)
+        if nxt <= now:
+            nxt += timedelta(days=7)
+        return nxt
+
+    return None
+
+
 def _reschedule_if_recurring(task: ScheduledTask) -> None:
-    if not task.recurrence:
-        return
-    base = _now()
-    if task.recurrence == "daily":
-        nxt = base + timedelta(days=1)
-    elif task.recurrence.startswith("weekly"):
-        nxt = base + timedelta(days=7)
-    elif task.recurrence == "hourly":
-        nxt = base + timedelta(hours=1)
-    else:
+    nxt = compute_next_run(task.recurrence, _now())
+    if nxt is None:
         return
     # Recurring tasks re-arm; approval-required ones drop back to needs_review.
     task.status = "needs_review" if task.requires_approval else "pending"
@@ -345,7 +446,29 @@ def _dispatch(db: Session, kind: str, spec: dict[str, Any]) -> ProviderResult:
     if kind == "performance_digest":
         return _performance_digest(db, spec)
 
+    if kind == "agent_prompt":
+        return _run_agent_prompt(db, spec)
+
     return ProviderResult(success=False, message=f"Unknown task kind: {kind}")
+
+
+def _run_agent_prompt(db: Session, spec: dict[str, Any]) -> ProviderResult:
+    """Run a stored natural-language instruction through the chat agent on a
+    schedule. Any publish/spend the agent decides on still flows through the
+    approval-gated queue — this only drives the planning turn."""
+    from gglads.services.helena import agent as agent_svc
+
+    prompt = (spec.get("prompt") or "").strip()
+    if not prompt:
+        return ProviderResult(success=False, message="No prompt to run.")
+    title = (spec.get("title") or "Scheduled task")[:60]
+    sid = agent_svc.run_prompt(db, prompt, user_id=spec.get("user_id"),
+                               title=f"{title} — {_now().strftime('%b %d %H:%M')}")
+    return ProviderResult(
+        success=True,
+        message=f"Ran scheduled instruction in chat session {sid}.",
+        steps=[{"session_id": sid, "prompt": prompt[:200]}],
+    )
 
 
 def _dispatch_email(db: Session, kind: str, spec: dict[str, Any]) -> ProviderResult:

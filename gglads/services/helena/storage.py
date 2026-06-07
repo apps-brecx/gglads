@@ -12,9 +12,28 @@ from __future__ import annotations
 import logging
 import uuid
 
+import httpx
+
 from gglads.config import get_settings
 
 logger = logging.getLogger("gglads.helena.storage")
+
+
+def verify_url(url: str, timeout: float = 15.0) -> tuple[bool, str]:
+    """Check that a URL is publicly reachable (anonymous, no auth), so we never
+    hand the user a link that 404s/403s. Returns (ok, detail)."""
+    if not url:
+        return False, "empty url"
+    try:
+        r = httpx.head(url, timeout=timeout, follow_redirects=True)
+        if r.status_code in (405, 403, 501):  # HEAD not allowed → try a ranged GET
+            r = httpx.get(url, headers={"Range": "bytes=0-0"}, timeout=timeout,
+                          follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if r.status_code in (200, 206):
+        return True, "ok"
+    return False, f"HTTP {r.status_code}"
 
 
 def _resolve() -> dict[str, str]:
@@ -50,14 +69,29 @@ def config_error() -> str | None:
     return None
 
 
+def _public_url(c: dict[str, str], key: str) -> str:
+    if c["public_base"]:
+        return f"{c['public_base'].rstrip('/')}/{key}"
+    if c["endpoint"]:
+        return f"{c['endpoint'].rstrip('/')}/{c['bucket']}/{key}"
+    return f"https://{c['bucket']}.s3.{c['region']}.amazonaws.com/{key}"
+
+
 def put_bytes(
     data: bytes,
     *,
     content_type: str = "image/png",
     key_prefix: str = "helena",
     ext: str = "png",
+    verify: bool = True,
 ) -> tuple[str | None, str | None]:
-    """Store bytes, return (public_url, error)."""
+    """Store bytes and return (public_url, error).
+
+    When verify=True (default) the returned URL is confirmed publicly reachable
+    before we hand it back, so callers never surface a dead/private link. If the
+    object stored but isn't reachable (usually a missing S3_PUBLIC_BASE_URL),
+    we return an error explaining how to fix it instead of a broken URL.
+    """
     err = config_error()
     if err:
         return None, err
@@ -85,11 +119,17 @@ def put_bytes(
     except Exception as exc:
         return None, f"Object-storage upload failed: {type(exc).__name__}: {exc}"
 
-    if c["public_base"]:
-        return f"{c['public_base'].rstrip('/')}/{key}", None
-    if c["endpoint"]:
-        return f"{c['endpoint'].rstrip('/')}/{c['bucket']}/{key}", None
-    return f"https://{c['bucket']}.s3.{c['region']}.amazonaws.com/{key}", None
+    url = _public_url(c, key)
+    if verify:
+        ok, detail = verify_url(url)
+        if not ok:
+            logger.warning("stored object not publicly reachable: %s (%s)", url, detail)
+            return None, (
+                f"Image saved but isn't publicly reachable ({detail}). Set "
+                "S3_PUBLIC_BASE_URL to your public bucket/CDN URL (e.g. the R2 "
+                "public dev URL) so generated media can be displayed."
+            )
+    return url, None
 
 
 def key_from_url(url: str) -> str | None:
@@ -123,6 +163,6 @@ def delete_url(url: str) -> tuple[bool, str | None]:
             aws_secret_access_key=c["secret_key"],
         )
         client.delete_object(Bucket=c["bucket"], Key=key)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return False, f"Object-storage delete failed: {type(exc).__name__}: {exc}"
     return True, None

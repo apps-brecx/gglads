@@ -372,7 +372,11 @@
   .helena-chat-full .helena-col:first-child, .helena-chat-full .helena-col:last-child { display: none; } }
 
 /* ---- Live "working" state + steps -------------------------------- */
-.helena-working {
+/* Hidden by default — shown only while a turn is processing (.is-on). Using a
+   class (not the [hidden] attribute) because this rule's display would
+   otherwise override [hidden] and leave the indicator stuck on. */
+.helena-working { display: none; }
+.helena-working.is-on {
   border-top: 1px solid var(--border); padding: 10px 14px; font-size: 13px;
   color: var(--muted-strong); display: flex; flex-direction: column; gap: 4px;
 }

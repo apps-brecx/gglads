@@ -1,19 +1,19 @@
-"""GoogleFlowImageService — on-brand image generation via Google's Imagen.
+"""GoogleFlowImageService — on-brand image generation via Google's Imagen/Gemini.
 
-Two real auth paths (pick whichever you configure on Render):
+Two auth paths:
+  1. Service account (Vertex AI) — GOOGLE_APPLICATION_CREDENTIALS_JSON +
+     GOOGLE_FLOW_PROJECT_ID (+ GOOGLE_VERTEX_LOCATION). Vertex Imagen :predict.
+  2. API key (Generative Language API) — GOOGLE_FLOW_API_KEY.
 
-  1. Service account (Vertex AI) — set GOOGLE_APPLICATION_CREDENTIALS_JSON to
-     the SA key JSON and GOOGLE_FLOW_PROJECT_ID (+ optional
-     GOOGLE_VERTEX_LOCATION). Calls the Vertex AI Imagen `:predict` endpoint
-     with a short-lived OAuth token minted from the SA.
+For the API-key path we DISCOVER a working model at runtime via the
+Generative Language ListModels endpoint instead of hardcoding an id (model
+ids/versions differ per account, which is what caused the
+`imagen-3.0-generate-002 not found for v1beta :predict` 404). Discovery picks an
+Imagen `:predict` model when available, otherwise a Gemini image
+`:generateContent` model, and calls it with the matching request shape.
 
-  2. API key (Generative Language API) — set GOOGLE_FLOW_API_KEY. Calls the
-     generativelanguage.googleapis.com Imagen `:predict` endpoint.
-
-`test_connection()` exercises the exact same model + `:predict` endpoint the
-generator uses (it generates one throwaway image), so the Integrations page
-only shows "Connected" when real image generation actually works. `generate()`
-produces images and stores them via the storage module.
+`test_connection()` runs the exact same discovery + generation path, so the
+Integrations card only shows "Connected" when real generation works.
 """
 
 from __future__ import annotations
@@ -31,7 +31,100 @@ from gglads.services.helena import storage
 logger = logging.getLogger("gglads.helena.google_flow")
 
 _SCOPE = "https://www.googleapis.com/auth/cloud-platform"
-_GL_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+# Discovery cache: {(api_key, version, kind): (model_name, method)}
+_MODEL_CACHE: dict[tuple, tuple[str, str]] = {}
+
+
+def gl_base() -> str:
+    s = get_settings()
+    ver = (s.google_flow_api_version or "v1beta").strip()
+    return f"https://generativelanguage.googleapis.com/{ver}"
+
+
+def gl_list_models(api_key: str) -> tuple[list[dict], str | None]:
+    """Call ListModels and return ([model dicts], error)."""
+    models: list[dict] = []
+    url = f"{gl_base()}/models"
+    page_token = None
+    try:
+        for _ in range(5):  # paginate defensively
+            params = {"key": api_key, "pageSize": 200}
+            if page_token:
+                params["pageToken"] = page_token
+            r = httpx.get(url, params=params, timeout=20.0)
+            if r.status_code != 200:
+                return models, f"ListModels HTTP {r.status_code}: {r.text[:200]}"
+            body = r.json()
+            models.extend(body.get("models", []) or [])
+            page_token = body.get("nextPageToken")
+            if not page_token:
+                break
+    except httpx.HTTPError as exc:
+        return models, f"ListModels request failed: {type(exc).__name__}: {exc}"
+    return models, None
+
+
+def _bare(name: str) -> str:
+    return name.split("/")[-1]
+
+
+def choose_image_model(models: list[dict], preferred: str = "") -> tuple[str, str] | None:
+    """Return (full_model_name, method) for image generation, or None.
+
+    method is 'predict' (Imagen) or 'generateContent' (Gemini image).
+    """
+    def methods(m):
+        return set(m.get("supportedGenerationMethods", []) or [])
+
+    # Honor an explicit preference if it's actually available.
+    if preferred:
+        pref = _bare(preferred)
+        for m in models:
+            if _bare(m.get("name", "")) == pref:
+                ms = methods(m)
+                method = "predict" if "predict" in ms else (
+                    "generateContent" if "generateContent" in ms else "")
+                if method:
+                    return m["name"], method
+
+    imagen_predict = [
+        m for m in models
+        if "predict" in methods(m) and "imagen" in m.get("name", "").lower()
+    ]
+    if imagen_predict:
+        imagen_predict.sort(key=lambda m: m["name"], reverse=True)  # newest-ish
+        return imagen_predict[0]["name"], "predict"
+
+    gemini_image = [
+        m for m in models
+        if "generateContent" in methods(m) and "image" in m.get("name", "").lower()
+    ]
+    if gemini_image:
+        gemini_image.sort(key=lambda m: m["name"], reverse=True)
+        return gemini_image[0]["name"], "generateContent"
+    return None
+
+
+def discover_image_model(api_key: str, preferred: str = "") -> tuple[str | None, str, str | None]:
+    """Return (model_name, method, error). Cached per api key + version."""
+    s = get_settings()
+    cache_key = (api_key, s.google_flow_api_version, "image", preferred)
+    if cache_key in _MODEL_CACHE:
+        name, method = _MODEL_CACHE[cache_key]
+        return name, method, None
+    models, err = gl_list_models(api_key)
+    if err:
+        return None, "", err
+    chosen = choose_image_model(models, preferred)
+    if not chosen:
+        names = ", ".join(_bare(m.get("name", "")) for m in models[:20])
+        return None, "", (
+            "No image-generation model is available to this API key. "
+            f"Models seen: {names or '(none)'}"
+        )
+    _MODEL_CACHE[cache_key] = chosen
+    return chosen[0], chosen[1], None
 
 
 @dataclass
@@ -70,7 +163,7 @@ class GoogleFlowImageService:
         self._project = (s.google_flow_project_id or "").strip()
         self._location = (s.google_vertex_location or "us-central1").strip()
         self._sa_json = (s.google_application_credentials_json or "").strip()
-        self._model = (s.google_flow_image_model or "imagen-3.0-generate-002").strip()
+        self._preferred = (s.google_flow_image_model or "").strip()
 
     # ---- auth mode ----------------------------------------------------
     def auth_mode(self) -> str | None:
@@ -104,32 +197,30 @@ class GoogleFlowImageService:
             return None, f"Service-account auth failed: {type(exc).__name__}: {exc}"
         return creds.token, None
 
-    def _vertex_predict_url(self) -> str:
-        return (
-            f"https://{self._location}-aiplatform.googleapis.com/v1/projects/"
-            f"{self._project}/locations/{self._location}/publishers/google/"
-            f"models/{self._model}:predict"
-        )
+    def _vertex_model(self) -> str:
+        return self._preferred or "imagen-3.0-generate-002"
 
     # ---- connection test (used by the Integrations Connect flow) ------
     def test_connection(self) -> tuple[bool, str]:
-        """Validate by exercising the EXACT generation path the agent uses
-        (same model + `:predict` endpoint), so "Connected" means real image
-        generation works. Avoids false 404s from model-metadata endpoints that
-        don't list Imagen `:predict` models."""
         mode = self.auth_mode()
         if mode is None:
             return False, (
                 "Not configured. Set GOOGLE_APPLICATION_CREDENTIALS_JSON + "
                 "GOOGLE_FLOW_PROJECT_ID (service account) or GOOGLE_FLOW_API_KEY."
             )
-        raw, err = self._predict("A plain solid light-grey square. Connection test.", "1:1")
+        if mode == "apikey":
+            name, method, err = discover_image_model(self._api_key, self._preferred)
+            if err:
+                return False, err
+            label = f"{_bare(name)} via {method}"
+        else:
+            label = f"Vertex AI {self._vertex_model()}"
+        raw, err = self._predict_bytes("A plain solid light-grey square. Connection test.", "1:1")
         if err:
             return False, err
         if not raw:
             return False, "No image returned by the model."
-        label = "Vertex AI" if mode == "vertex" else "Google API key"
-        return True, f"{label} works — generated a test image with {self._model}."
+        return True, f"Image generation works — {label}."
 
     # ---- generation ---------------------------------------------------
     def generate(self, prompt: ImagePrompt) -> tuple[list[GeneratedImage], str | None]:
@@ -146,7 +237,7 @@ class GoogleFlowImageService:
         text = prompt.to_text()
         images: list[GeneratedImage] = []
         for _ in range(max(1, prompt.n)):
-            raw, err = self._predict(text, prompt.aspect_ratio)
+            raw, err = self._predict_bytes(text, prompt.aspect_ratio)
             if err:
                 return images, err
             url, serr = storage.put_bytes(raw, content_type="image/png", key_prefix="helena/flow")
@@ -155,37 +246,82 @@ class GoogleFlowImageService:
             images.append(GeneratedImage(url=url, prompt=text))
         return images, None
 
-    def _predict(self, text: str, aspect_ratio: str) -> tuple[bytes, str | None]:
+    # ---- low-level prediction ----------------------------------------
+    def _predict_bytes(self, text: str, aspect_ratio: str) -> tuple[bytes, str | None]:
+        mode = self.auth_mode()
+        if mode == "vertex":
+            return self._vertex_predict(text, aspect_ratio)
+        return self._apikey_predict(text, aspect_ratio)
+
+    def _vertex_predict(self, text: str, aspect_ratio: str) -> tuple[bytes, str | None]:
+        token, err = self._vertex_token()
+        if err:
+            return b"", err
+        url = (
+            f"https://{self._location}-aiplatform.googleapis.com/v1/projects/"
+            f"{self._project}/locations/{self._location}/publishers/google/"
+            f"models/{self._vertex_model()}:predict"
+        )
         payload = {
             "instances": [{"prompt": text}],
             "parameters": {"sampleCount": 1, "aspectRatio": aspect_ratio},
         }
-        mode = self.auth_mode()
         try:
-            if mode == "vertex":
-                token, err = self._vertex_token()
-                if err:
-                    return b"", err
-                resp = httpx.post(
-                    self._vertex_predict_url(),
-                    headers={"Authorization": f"Bearer {token}"},
-                    json=payload, timeout=120.0,
-                )
-            else:
-                resp = httpx.post(
-                    f"{_GL_BASE}/models/{self._model}:predict",
-                    params={"key": self._api_key},
-                    json=payload, timeout=120.0,
-                )
+            resp = httpx.post(url, headers={"Authorization": f"Bearer {token}"},
+                              json=payload, timeout=120.0)
+        except httpx.HTTPError as exc:
+            return b"", f"Vertex Imagen request failed: {type(exc).__name__}: {exc}"
+        if resp.status_code != 200:
+            return b"", f"Vertex Imagen HTTP {resp.status_code}: {resp.text[:300]}"
+        return _extract_predict_image(resp.json())
+
+    def _apikey_predict(self, text: str, aspect_ratio: str) -> tuple[bytes, str | None]:
+        name, method, err = discover_image_model(self._api_key, self._preferred)
+        if err:
+            return b"", err
+        url = f"{gl_base()}/{name}:{method}"
+        if method == "predict":
+            payload = {
+                "instances": [{"prompt": text}],
+                "parameters": {"sampleCount": 1, "aspectRatio": aspect_ratio},
+            }
+        else:  # generateContent (Gemini image models)
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": text}]}],
+                "generationConfig": {"responseModalities": ["IMAGE"]},
+            }
+        try:
+            resp = httpx.post(url, params={"key": self._api_key}, json=payload, timeout=120.0)
         except httpx.HTTPError as exc:
             return b"", f"Imagen request failed: {type(exc).__name__}: {exc}"
         if resp.status_code != 200:
-            return b"", f"Imagen HTTP {resp.status_code}: {resp.text[:300]}"
-        try:
-            preds = resp.json().get("predictions", [])
-            b64 = preds[0].get("bytesBase64Encoded")
-        except (ValueError, IndexError, AttributeError):
-            return b"", "Imagen returned an unexpected response shape."
-        if not b64:
-            return b"", "Imagen returned no image bytes."
-        return base64.b64decode(b64), None
+            # On a stale cached model, drop the cache so the next call re-discovers.
+            _MODEL_CACHE.clear()
+            return b"", f"Image API HTTP {resp.status_code}: {resp.text[:300]}"
+        body = resp.json()
+        if method == "predict":
+            return _extract_predict_image(body)
+        return _extract_generatecontent_image(body)
+
+
+def _extract_predict_image(body: dict) -> tuple[bytes, str | None]:
+    try:
+        preds = body.get("predictions", [])
+        b64 = preds[0].get("bytesBase64Encoded")
+    except (AttributeError, IndexError):
+        return b"", "Imagen returned an unexpected response shape."
+    if not b64:
+        return b"", "Imagen returned no image bytes."
+    return base64.b64decode(b64), None
+
+
+def _extract_generatecontent_image(body: dict) -> tuple[bytes, str | None]:
+    try:
+        parts = body["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError):
+        return b"", "Gemini image response had no candidates/parts."
+    for part in parts:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            return base64.b64decode(inline["data"]), None
+    return b"", "Gemini image response contained no inline image data."

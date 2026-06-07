@@ -49,6 +49,10 @@
               <div class="img-card" data-images='{{ (result.images | map(attribute="url") | list) | tojson }}'
                    {% if result.get('note') %}data-note="{{ result.note }}"{% endif %}></div>
             </div>
+          {% elif m.tool_name == 'generate_video' and result.get('videos') %}
+            <div class="helena-msg helena-msg-assistant">
+              <video class="vid-card" src="{{ result.videos[0].url }}" controls preload="metadata"></video>
+            </div>
           {% else %}
             <div class="helena-msg helena-msg-tool">
               <div class="helena-tool-chip">🛠 {{ m.tool_name }}
@@ -246,6 +250,9 @@
               const wrap = el('helena-msg helena-msg-assistant', '<div class="img-card"></div>');
               mountImageCard(wrap.querySelector('.img-card'),
                              ev.result.images.map(i => i.url), ev.result.note || '');
+            } else if (ev.name === 'generate_video' && ev.result && ev.result.videos && ev.result.videos.length) {
+              el('helena-msg helena-msg-assistant',
+                 '<video class="vid-card" src="' + escapeHtml(ev.result.videos[0].url) + '" controls preload="metadata"></video>');
             } else {
               const preview = ev.result && ev.result.preview_url;
               const link = preview

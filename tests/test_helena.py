@@ -323,17 +323,43 @@ def test_storage_config_error_names_missing_vars(monkeypatch):
 
 def test_flow_test_connection_uses_generation_path(monkeypatch):
     import gglads.config as cfg
-    from gglads.services.helena.images.google_flow import GoogleFlowImageService
+    from gglads.services.helena.images import google_flow as gf
     monkeypatch.setenv("GOOGLE_FLOW_API_KEY", "AIzaTEST")
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", raising=False)
     cfg.get_settings.cache_clear()
     try:
-        svc = GoogleFlowImageService()
-        # Stub the real predict so the test exercises the SAME path (no GET
-        # metadata endpoint that 404s for Imagen).
-        monkeypatch.setattr(svc, "_predict", lambda text, ar: (b"PNGBYTES", None))
+        svc = gf.GoogleFlowImageService()
+        # Discovery picks a model (no network); the test then exercises the same
+        # generation path the agent uses.
+        monkeypatch.setattr(gf, "discover_image_model",
+                            lambda key, pref="": ("models/imagen-4.0", "predict", None))
+        monkeypatch.setattr(svc, "_predict_bytes", lambda text, ar: (b"PNGBYTES", None))
         ok, detail = svc.test_connection()
         assert ok is True
-        assert svc._model in detail
+        assert "imagen-4.0" in detail
     finally:
         cfg.get_settings.cache_clear()
+
+
+def test_choose_image_model_prefers_imagen_predict():
+    from gglads.services.helena.images.google_flow import choose_image_model
+    models = [
+        {"name": "models/gemini-2.0-flash", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/imagen-3.0-generate-002", "supportedGenerationMethods": ["predict"]},
+        {"name": "models/gemini-2.5-flash-image", "supportedGenerationMethods": ["generateContent"]},
+    ]
+    name, method = choose_image_model(models)
+    assert "imagen" in name and method == "predict"
+    # Falls back to a Gemini image model via generateContent when no Imagen.
+    name2, method2 = choose_image_model(models[:1] + models[2:])
+    assert "image" in name2 and method2 == "generateContent"
+
+
+def test_discover_video_model_picks_veo(monkeypatch):
+    from gglads.services.helena.images import veo
+    monkeypatch.setattr(veo, "gl_list_models", lambda key: ([
+        {"name": "models/gemini-2.0-flash", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/veo-3.0-generate-preview", "supportedGenerationMethods": ["predictLongRunning"]},
+    ], None))
+    name, err = veo.discover_video_model("KEY")
+    assert err is None and "veo" in name

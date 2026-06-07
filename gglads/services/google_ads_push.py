@@ -75,18 +75,34 @@ def _build_client(db: Session):
 
 
 def _gads_error_message(exc: Exception) -> str:
-    """Best-effort extract of GoogleAdsException error text."""
+    """Best-effort extract of GoogleAdsException error text. Also surfaces
+    the field_path_elements on each error so 'The required field was not
+    present' / 'Invalid argument' tell us exactly which field broke."""
     msgs: list[str] = []
     try:
         failure = getattr(exc, "failure", None)
         if failure is not None:
             for err in getattr(failure, "errors", []) or []:
-                msgs.append(str(getattr(err, "message", err))[:300])
+                base = str(getattr(err, "message", err))[:300]
+                # Field path: e.g. operations[0].create.maximize_conversions.target_cpa_micros
+                location = getattr(err, "location", None)
+                fp_elems = getattr(location, "field_path_elements", []) if location else []
+                if fp_elems:
+                    path = ".".join(
+                        getattr(e, "field_name", "") + (
+                            f"[{e.index}]" if getattr(e, "index", None) is not None and e.index >= 0 else ""
+                        )
+                        for e in fp_elems
+                        if getattr(e, "field_name", None)
+                    )
+                    if path:
+                        base = f"{base}  (at {path})"
+                msgs.append(base)
     except Exception:  # noqa: BLE001
         pass
     if not msgs:
         return f"{type(exc).__name__}: {exc}"[:600]
-    return " | ".join(msgs)[:600]
+    return " | ".join(msgs)[:800]
 
 
 def _resource_id_from_name(resource_name: str) -> int:
@@ -104,20 +120,31 @@ def _budget_micros(daily_budget_cents: int) -> int:
 
 
 def _apply_bidding_strategy(client, campaign, bid_strategy: str, target_cpa_cents: int | None) -> None:
-    """Set the right bidding-strategy oneof on a Campaign create mutation."""
+    """Set the right bidding-strategy oneof on a Campaign create mutation.
+
+    Uses client.copy_from to explicitly initialize the oneof branch — the
+    proto3-plus wrapper around the SDK won't always select the branch
+    correctly with bare `_pb.SetInParent()`, which leads to the SDK
+    rejecting the create with 'The required field was not present.'
+    """
     if bid_strategy == "manual_cpc":
-        campaign.manual_cpc.enhanced_cpc_enabled = False
+        manual = client.get_type("ManualCpc")()
+        manual.enhanced_cpc_enabled = False
+        client.copy_from(campaign.manual_cpc, manual)
     elif bid_strategy == "maximize_clicks":
         # 'TargetSpend' is the standard portfolio for Maximize Clicks.
-        campaign.target_spend._pb.SetInParent()
+        client.copy_from(campaign.target_spend, client.get_type("TargetSpend")())
     elif bid_strategy == "target_cpa":
+        tc = client.get_type("TargetCpa")()
         if target_cpa_cents and target_cpa_cents > 0:
-            campaign.target_cpa.target_cpa_micros = int(target_cpa_cents) * 10_000
-        else:
-            campaign.target_cpa._pb.SetInParent()
+            tc.target_cpa_micros = int(target_cpa_cents) * 10_000
+        client.copy_from(campaign.target_cpa, tc)
     else:
-        # Default: MAXIMIZE_CONVERSIONS
-        campaign.maximize_conversions._pb.SetInParent()
+        # Default: MAXIMIZE_CONVERSIONS.
+        client.copy_from(
+            campaign.maximize_conversions,
+            client.get_type("MaximizeConversions")(),
+        )
 
 
 def _field_mask(client, paths: list[str]):

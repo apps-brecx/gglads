@@ -487,6 +487,48 @@
 .helena-composer { flex-direction: column; align-items: stretch; position: relative; }
 .helena-composer.drag { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
+/* Meta Ads: drill-down controls, date range, table links */
+.tbl-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+.tbl-link:hover { text-decoration: underline; }
+.date-range { display: flex; align-items: center; gap: 6px; }
+.date-range input[type="date"] {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 6px 8px; font-size: 12px;
+}
+.date-range span { color: var(--muted); }
+.ctrl-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 10px 12px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.ctrl-label { font-size: 13px; font-weight: 600; color: var(--muted-strong); }
+.ctrl-form { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.ctrl-input {
+  width: 110px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 6px 8px; font-size: 12px;
+}
+.ctrl-input.mini { width: 84px; padding: 4px 6px; }
+.row-ctrls { display: flex; align-items: center; gap: 4px; }
+.mini-btn {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; cursor: pointer; padding: 4px 7px; font-size: 12px;
+}
+.mini-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+
+/* Remix reference banner (Files → Remix in chat) */
+.remix-banner {
+  display: flex; align-items: center; gap: 10px; margin: 0 12px 8px;
+  padding: 8px; background: var(--accent-soft); border: 1px solid var(--accent-soft-border);
+  border-radius: 10px;
+}
+.remix-banner img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.remix-text { display: flex; flex-direction: column; flex: 1; font-size: 12px; }
+.remix-text span { color: var(--muted); }
+.remix-x {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text);
+  width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 12px;
+}
+
 /* @-mention product picker (opens above the input) */
 .mention-menu {
   position: absolute; left: 12px; right: 12px; bottom: calc(100% - 6px);

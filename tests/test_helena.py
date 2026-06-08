@@ -341,6 +341,88 @@ def test_adjust_image_needs_url_and_instruction(db):
     assert res["ok"] is False
 
 
+def test_region_edit_contained_keeps_outside_pixels(monkeypatch):
+    """Tight region edit: only the selected box changes; outside is preserved."""
+    import io
+
+    import httpx as _httpx
+    from PIL import Image
+    from gglads.services.helena import skills
+    from gglads.services.helena.images.google_flow import GeneratedImage, GoogleFlowImageService
+    base = Image.new("RGB", (100, 100), (255, 0, 0)); buf = io.BytesIO(); base.save(buf, "PNG")
+    patch = Image.new("RGB", (40, 40), (0, 0, 255)); pbuf = io.BytesIO(); patch.save(pbuf, "PNG")
+    monkeypatch.setattr(GoogleFlowImageService, "edit_image",
+                        lambda self, b, instr, ref_mime="image/png", region=None:
+                        (GeneratedImage(url="https://pub/patch.png", prompt=instr), None))
+
+    class _R:
+        status_code = 200
+        content = pbuf.getvalue()
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: _R())
+    out, err = skills._edit_region_contained(
+        GoogleFlowImageService(), buf.getvalue(), "make it blue",
+        {"x": 0.3, "y": 0.3, "w": 0.2, "h": 0.2})
+    assert out and err is None
+    res = Image.open(io.BytesIO(out)).convert("RGB")
+    assert res.size == (100, 100)
+    assert res.getpixel((1, 1)) == (255, 0, 0)   # corner outside the box: untouched
+    assert res.getpixel((40, 40)) == (0, 0, 255)  # inside the box: edited
+
+
+def test_meta_live_edit_task_approval_semantics(db):
+    """Pausing is safe (no approval); resume/budget/cost-cap need approval."""
+    from gglads.services.helena import execution as ex
+    p = ex.enqueue(db, title="pause", kind="meta_pause", spec={"entity_id": "1"})
+    assert p.status == "pending" and not p.requires_approval
+    for k in ("meta_resume", "meta_update_budget", "meta_set_costcap"):
+        t = ex.enqueue(db, title=k, kind=k, spec={"entity_id": "1", "amount_cents": 500})
+        assert t.status == "needs_review" and t.requires_approval
+
+
+def test_fetch_campaign_detail(db, monkeypatch):
+    """Drill-down returns ads (with ad-set ids), a daily series, totals, and budget."""
+    import gglads.config as cfg
+    import httpx as _httpx
+    from gglads.services.helena.meta import meta_api, oauth
+    monkeypatch.setenv("META_EXECUTION_MODE", "api")
+    cfg.get_settings.cache_clear()
+    oauth.save_meta_config(db, {"access_token": "T", "ad_account_id": "5",
+                                "ad_accounts": [], "pages": []})
+    insight = {"spend": "100", "impressions": "2000", "clicks": "50", "reach": "1500",
+               "frequency": "1.33", "actions": [{"action_type": "purchase", "value": "4"}],
+               "action_values": [{"action_type": "purchase", "value": "400"}]}
+
+    class _R:
+        status_code = 200
+        def __init__(self, d): self._d = d
+        def json(self): return self._d
+
+    def fake_get(url, params=None, **k):
+        params = params or {}
+        if params.get("fields") == "currency":
+            return _R({"currency": "USD"})
+        if url.endswith("/campaigns"):
+            return _R({"data": [{"id": "c1", "name": "C", "effective_status": "ACTIVE",
+                                 "daily_budget": "1000"}]})
+        if params.get("level") == "ad":
+            return _R({"data": [{**insight, "ad_id": "a1", "ad_name": "Ad", "adset_id": "s1",
+                                 "adset_name": "Set", "effective_status": "ACTIVE"}]})
+        if params.get("level") == "campaign":
+            return _R({"data": [{**insight, "date_start": "2026-06-01"},
+                                {**insight, "date_start": "2026-06-02"}]})
+        return _R({"data": []})
+    monkeypatch.setattr(_httpx, "get", fake_get)
+    try:
+        d = meta_api.MetaApiProvider(db).fetch_campaign_detail("c1", "2026-06-01", "2026-06-02")
+        assert d["ok"]
+        assert d["ads"][0]["adset_id"] == "s1" and d["ads"][0]["cpc"] == 2.0
+        assert d["campaign"]["name"] == "C" and d["campaign"]["daily_budget"] == 10.0
+        assert len(d["series"]) == 2 and d["series"][0]["roas"] == 4.0
+        assert d["totals"]["roas"] == 4.0 and d["currency"] == "USD"
+    finally:
+        cfg.get_settings.cache_clear()
+
+
 def test_generate_image_pins_exact_mentioned_bottle(db, monkeypatch):
     """An @-mentioned product_image_id pins that EXACT library bottle, even when
     flavor isn't passed."""

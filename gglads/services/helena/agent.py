@@ -65,6 +65,13 @@ FIRST and then call `create_post`, passing the generated image's URL (from the \
 tool result's `images[0].url`) as `create_post`'s `image_url` argument. Never \
 create a post draft without an image. Do not just describe the image — actually \
 call the tool so it renders and the draft carries it.
+- To change/fix/adjust/refine an image you already made (e.g. the user points at \
+a design or selects an area of it), call `adjust_image` with that exact \
+`image_url` and a clear `instruction` (and the `region` if one was given) — do \
+NOT call `generate_image` to start over. When the user picks one design to use \
+for an Instagram post, write the full caption + hashtags as copyable text and \
+call `create_post` with that exact image; only enters the approval queue when \
+they ask to publish/schedule (then also call `publish_post`/`schedule_post`).
 - Generated images and videos are shown to the user inline automatically. Do \
 NOT paste raw image/video URLs or markdown image links in your replies, and \
 never present an image as a "View image" text link. If image generation fails, \

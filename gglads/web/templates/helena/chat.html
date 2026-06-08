@@ -238,7 +238,12 @@
       '<div class="img-card-main"><img alt="generated image"/></div>' +
       '<div class="img-card-bar"><button class="img-nav prev">‹</button>' +
       '<span class="img-counter"></span><button class="img-nav next">›</button>' +
-      '<button class="img-expand">⤢</button></div>' + (note ? '<div class="img-note"></div>' : '');
+      '<button class="img-expand">⤢</button></div>' +
+      '<div class="img-actions">' +
+        '<button class="img-act" data-act="post" type="button">📋 Use for IG post</button>' +
+        '<button class="img-act" data-act="push" type="button">📲 Push to Instagram</button>' +
+        '<button class="img-act" data-act="adjust" type="button">✎ Adjust an area</button>' +
+      '</div>' + (note ? '<div class="img-note"></div>' : '');
     const img = card.querySelector('img'); const counter = card.querySelector('.img-counter');
     // Belt-and-suspenders: if an image still fails to load, show a note instead
     // of a broken-image icon (the server already verifies reachability).
@@ -253,13 +258,102 @@
     card.querySelector('.next')?.addEventListener('click', () => { idx = (idx + 1) % images.length; show(); });
     const expand = () => openLightbox(images[idx]);
     img.addEventListener('click', expand); card.querySelector('.img-expand').addEventListener('click', expand);
+    // Per-design actions act on the CURRENTLY shown image.
+    card.querySelector('[data-act="post"]').addEventListener('click', () =>
+      imageAction(images[idx], 'post'));
+    card.querySelector('[data-act="push"]').addEventListener('click', () =>
+      imageAction(images[idx], 'push'));
+    card.querySelector('[data-act="adjust"]').addEventListener('click', () =>
+      openLightbox(images[idx], { edit: true }));
     show();
   }
-  function openLightbox(url) {
+  // Send a turn for an action taken on a specific generated design.
+  function imageAction(url, kind) {
+    if (kind === 'post') {
+      sendTurn('Use this design for an Instagram post — write me the full caption + hashtags '
+        + 'I can copy, and create the post draft with this exact image.',
+        null, null, null, { selectedImage: url });
+    } else if (kind === 'push') {
+      sendTurn('Use this design — create the Instagram post with this exact image and queue it '
+        + 'for publishing approval.', null, null, null, { selectedImage: url });
+    }
+  }
+  function openLightbox(url, opts) {
+    opts = opts || {};
     let lb = document.getElementById('img-lightbox');
-    if (!lb) { lb = document.createElement('div'); lb.id = 'img-lightbox'; lb.className = 'img-lightbox';
-      lb.innerHTML = '<img alt="expanded"/>'; lb.addEventListener('click', () => lb.classList.remove('open')); document.body.appendChild(lb); }
-    lb.querySelector('img').src = url; lb.classList.add('open');
+    if (!lb) {
+      lb = document.createElement('div'); lb.id = 'img-lightbox'; lb.className = 'img-lightbox';
+      lb.innerHTML =
+        '<div class="lb-inner">' +
+          '<button class="lb-close" type="button" title="Close">✕</button>' +
+          '<div class="lb-stage"><img alt="expanded"/><div class="lb-sel" hidden></div></div>' +
+          '<div class="lb-tools" hidden>' +
+            '<span class="lb-hint">Drag on the image to select the area to change.</span>' +
+            '<div class="lb-row"><input class="lb-instruction" type="text" ' +
+              'placeholder="What should change in the selected area?"/>' +
+              '<button class="lb-apply" type="button">Apply change</button></div>' +
+          '</div>' +
+        '</div>';
+      // Close only when clicking the dark backdrop or the ✕ — not the image.
+      lb.addEventListener('click', e => { if (e.target === lb) lb.classList.remove('open'); });
+      lb.querySelector('.lb-close').addEventListener('click', () => lb.classList.remove('open'));
+      mountLightboxSelection(lb);
+      document.body.appendChild(lb);
+    }
+    lb.querySelector('img').src = url;
+    lb.dataset.url = url;
+    const sel = lb.querySelector('.lb-sel'); sel.hidden = true; lb.dataset.region = '';
+    lb.querySelector('.lb-tools').hidden = !opts.edit;
+    lb.querySelector('.lb-instruction').value = '';
+    lb.classList.toggle('editing', !!opts.edit);
+    lb.classList.add('open');
+  }
+  // Rubber-band region selection + "Apply change" inside the lightbox.
+  function mountLightboxSelection(lb) {
+    const stage = lb.querySelector('.lb-stage');
+    const img = lb.querySelector('img');
+    const sel = lb.querySelector('.lb-sel');
+    let dragging = false, sx = 0, sy = 0;
+    const rectOf = () => img.getBoundingClientRect();
+    stage.addEventListener('mousedown', e => {
+      if (lb.querySelector('.lb-tools').hidden) return;  // only in edit mode
+      const r = rectOf();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      sel.hidden = false; sel.style.left = (sx - r.left) + 'px'; sel.style.top = (sy - r.top) + 'px';
+      sel.style.width = '0px'; sel.style.height = '0px'; e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const r = rectOf();
+      const x = Math.max(r.left, Math.min(e.clientX, r.right));
+      const y = Math.max(r.top, Math.min(e.clientY, r.bottom));
+      sel.style.left = (Math.min(sx, x) - r.left) + 'px';
+      sel.style.top = (Math.min(sy, y) - r.top) + 'px';
+      sel.style.width = Math.abs(x - sx) + 'px';
+      sel.style.height = Math.abs(y - sy) + 'px';
+    });
+    window.addEventListener('mouseup', e => {
+      if (!dragging) return; dragging = false;
+      const r = rectOf();
+      const x0 = Math.max(r.left, Math.min(sx, e.clientX)), x1 = Math.min(r.right, Math.max(sx, e.clientX));
+      const y0 = Math.max(r.top, Math.min(sy, e.clientY)), y1 = Math.min(r.bottom, Math.max(sy, e.clientY));
+      const w = x1 - x0, h = y1 - y0;
+      if (w < 6 || h < 6) { sel.hidden = true; lb.dataset.region = ''; return; }
+      lb.dataset.region = JSON.stringify({
+        x: +((x0 - r.left) / r.width).toFixed(4), y: +((y0 - r.top) / r.height).toFixed(4),
+        w: +(w / r.width).toFixed(4), h: +(h / r.height).toFixed(4),
+      });
+    });
+    lb.querySelector('.lb-apply').addEventListener('click', () => {
+      const instruction = lb.querySelector('.lb-instruction').value.trim();
+      if (!instruction) { lb.querySelector('.lb-instruction').focus(); return; }
+      const url = lb.dataset.url, region = lb.dataset.region;
+      const where = region ? 'the selected area of' : '';
+      sendTurn('Adjust ' + where + ' this image: ' + instruction, null, null, null,
+        { selectedImage: url, region: region || undefined });
+      lb.classList.remove('open');
+    });
   }
   function hydrate(root) {
     (root || document).querySelectorAll('.helena-bubble.md:not([data-md])').forEach(b => {
@@ -284,7 +378,8 @@
   let controller = null;
 
   const STEP_LABELS = {
-    generate_image: 'Generating image…', generate_video: 'Generating video (this can take a few minutes)…',
+    generate_image: 'Generating image…', adjust_image: 'Adjusting the image…',
+    generate_video: 'Generating video (this can take a few minutes)…',
     create_post: 'Drafting Instagram post…', schedule_post: 'Scheduling post (needs approval)…',
     publish_post: 'Queuing publish (needs approval)…', create_ad_campaign: 'Drafting ad campaign (needs approval)…',
     update_budget: 'Queuing budget change (needs approval)…', get_analytics: 'Pulling analytics…',
@@ -307,7 +402,8 @@
     s.textContent = '› ' + (STEP_LABELS[name] || name); workingSteps.appendChild(s);
   }
 
-  async function sendTurn(text, imageFile, previewUrl, mentionIds) {
+  async function sendTurn(text, imageFile, previewUrl, mentionIds, opts) {
+    opts = opts || {};
     if (controller) controller.abort();  // a follow-up mid-task supersedes the current turn
     controller = new AbortController();
     const userHtml =
@@ -319,6 +415,8 @@
     setWorking(true);
     const fd = new FormData(); fd.append('message', text);
     if (mentionIds && mentionIds.length) fd.append('mentions', JSON.stringify(mentionIds));
+    if (opts.selectedImage) fd.append('selected_image', opts.selectedImage);
+    if (opts.region) fd.append('region', typeof opts.region === 'string' ? opts.region : JSON.stringify(opts.region));
     if (imageFile) fd.append('image', imageFile, imageFile.name || 'image.png');
     let acc = '';
     try {

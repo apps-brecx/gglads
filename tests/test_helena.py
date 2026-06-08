@@ -302,6 +302,45 @@ def test_generate_image_composites_library_bottle(db, monkeypatch):
     assert res["bottle_used"]["source"] == "library"
 
 
+def test_adjust_image_edits_in_place_with_region(db, monkeypatch):
+    """adjust_image downloads the target image, edits it in place (within the
+    selected region), and returns an image card."""
+    import httpx as _httpx
+
+    from gglads.services.helena import skills, storage
+    from gglads.services.helena.images.google_flow import GeneratedImage, GoogleFlowImageService
+    monkeypatch.setattr(storage, "put_bytes", lambda *a, **k: ("https://pub/edited.png", None))
+
+    class _R:
+        status_code = 200
+        content = b"ORIGINAL"
+        headers = {"content-type": "image/png"}
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: _R())
+
+    captured = {}
+    def fake_edit(self, image_bytes, instruction, ref_mime="image/png", region=None):
+        captured["instruction"] = instruction
+        captured["region"] = region
+        return GeneratedImage(url="https://pub/edited.png", prompt=instruction), None
+    monkeypatch.setattr(GoogleFlowImageService, "edit_image", fake_edit)
+
+    res = skills.run_skill(db, "adjust_image", {
+        "image_url": "https://pub/orig.png", "instruction": "brighten the label",
+        "region": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+    }, user_id=None, session_id=None)
+    assert res["ok"] is True
+    assert res["images"][0]["url"] == "https://pub/edited.png"
+    assert captured["instruction"] == "brighten the label"
+    assert captured["region"]["w"] == 0.3
+
+
+def test_adjust_image_needs_url_and_instruction(db):
+    from gglads.services.helena import skills
+    res = skills.run_skill(db, "adjust_image", {"image_url": "https://pub/x.png"},
+                           user_id=None, session_id=None)
+    assert res["ok"] is False
+
+
 def test_generate_image_pins_exact_mentioned_bottle(db, monkeypatch):
     """An @-mentioned product_image_id pins that EXACT library bottle, even when
     flavor isn't passed."""

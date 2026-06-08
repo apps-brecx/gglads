@@ -58,6 +58,28 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "adjust_image",
+        "description": "Edit/adjust an EXISTING image the user is pointing at — fix, change, "
+                       "or refine part of it while keeping the rest the same. Use this (NOT "
+                       "generate_image) whenever the user selects an area of an image or asks "
+                       "to tweak/fix/adjust a design you already made. Pass the exact "
+                       "`image_url` being edited, a clear `instruction`, and the selected "
+                       "`region` if one was provided.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "image_url": {"type": "string",
+                              "description": "URL of the exact image to edit (the one the user selected)."},
+                "instruction": {"type": "string", "description": "What to change/fix/adjust."},
+                "region": {"type": "object",
+                           "description": "Optional selected area as normalized 0-1 fractions.",
+                           "properties": {"x": {"type": "number"}, "y": {"type": "number"},
+                                          "w": {"type": "number"}, "h": {"type": "number"}}},
+            },
+            "required": ["image_url", "instruction"],
+        },
+    },
+    {
         "name": "generate_video",
         "description": "Generate a short on-brand marketing video via Veo (Google Flow). "
                        "Returns a video URL. Optionally tie to a Shopify product. "
@@ -476,6 +498,35 @@ def _generate_image(db, args, user_id, session_id):
     return {"ok": True, "images": saved, "note": err}
 
 
+def _adjust_image(db, args, user_id, session_id):
+    """Edit an existing image in place (optionally within a selected region),
+    keeping the rest unchanged. Returns an image card like generate_image."""
+    import httpx
+
+    url = (args.get("image_url") or "").strip()
+    instruction = (args.get("instruction") or "").strip()
+    if not url or not instruction:
+        return {"ok": False, "error": "I need both the image and what to change in it."}
+    try:
+        r = httpx.get(url, timeout=30.0, follow_redirects=True)
+        img_bytes = r.content if r.status_code == 200 else b""
+        mime = r.headers.get("content-type", "image/png") or "image/png"
+    except httpx.HTTPError:
+        img_bytes, mime = b"", "image/png"
+    if not img_bytes:
+        return {"ok": False, "error": "I couldn't load that image to edit it."}
+    region = args.get("region") if isinstance(args.get("region"), dict) else None
+    out, err = GoogleFlowImageService().edit_image(
+        img_bytes, instruction, ref_mime=mime, region=region)
+    if not out:
+        return {"ok": False, "error": err or "Couldn't adjust the image — please try again."}
+    asset = brand_svc.save_asset(db, url=out.url, kind="generated",
+                                 title="Adjusted creative", prompt=instruction, user_id=user_id)
+    return {"ok": True, "images": [{"asset_id": asset.id, "url": out.url}],
+            "note": "Adjusted the image as requested — everything outside the edited area "
+                    "is unchanged."}
+
+
 def _generate_video(db, args, user_id, session_id):
     from gglads.services.helena.images.veo import VeoVideoService
 
@@ -838,6 +889,7 @@ def _get_email_analytics(db, args, user_id, session_id):
 
 _HANDLERS = {
     "generate_image": _generate_image,
+    "adjust_image": _adjust_image,
     "generate_video": _generate_video,
     "schedule_recurring_task": _schedule_recurring_task,
     "remember": _remember,

@@ -193,6 +193,32 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                     "real bottle is used (generate only the scene around it — never a "
                     "different or invented bottle):\n" + "\n".join(lines))
 
+        # Image actions: the user clicked an action on a specific generated image
+        # (use it for a post, push it, or adjust a selected region). Give the
+        # model the exact image (and region) it must act on for this turn.
+        selected_image = str(form.get("selected_image", "")).strip()
+        if selected_image:
+            region_raw = str(form.get("region", "")).strip()
+            act = ["The user is acting on this EXACT existing image — use it verbatim, do "
+                   f"not regenerate a new design from scratch: {selected_image}"]
+            if region_raw:
+                act.append(
+                    "They selected a specific area of it (normalized 0-1 fractions): "
+                    f"{region_raw}. If they ask to change/fix/adjust/refine that area, call "
+                    "`adjust_image` with image_url set to that exact URL, this region, and "
+                    "their instruction.")
+            else:
+                act.append(
+                    "If they ask to adjust/fix/change something in it, call `adjust_image` "
+                    "with image_url set to that exact URL. If they ask to use it for an "
+                    "Instagram post, call `create_post` with image_url set to that exact URL "
+                    "and write a strong caption + hashtags; give the caption as copyable text. "
+                    "If they ask to push/publish/schedule it, ALSO call `publish_post` (or "
+                    "`schedule_post`) so it enters the approval queue and tell them it's "
+                    "awaiting approval.")
+            block = "\n".join(act)
+            mention_context = (mention_context + "\n\n" + block) if mention_context else block
+
         def event_stream():
             for event in agent_svc.stream_turn(db, session_id, message, user.id,
                                                image_url=image_url,

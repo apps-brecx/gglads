@@ -126,6 +126,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 sessions=sessions, active_session=active_session,
                 messages=messages, prefill=request.query_params.get("prefill", ""),
                 remix=request.query_params.get("remix", ""),
+                email_remix=request.query_params.get("email_remix", ""),
                 library_products=[
                     {"id": p.id, "flavor": p.flavor, "variant": p.variant,
                      "label": p.label, "url": p.url}
@@ -243,6 +244,18 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "style. Do NOT keep the old product — swap in the new flavor's real bottle. "
                 "If instead they only want small tweaks to this exact image, use "
                 "`adjust_image`.")
+            mention_context = (mention_context + "\n\n" + block) if mention_context else block
+
+        # Email remix/refine: the user is editing a specific email campaign's HTML.
+        email_remix = str(form.get("email_remix", "")).strip()
+        if email_remix.isdigit():
+            block = (
+                f"The user is refining email campaign #{email_remix}. When they ask to "
+                f"change the flavor, wording, text, or a colour in this email, call "
+                f"`edit_email_html` with campaign_id={email_remix} and their instruction "
+                f"(it edits the HTML in place, keeping the rest the same). To push it to "
+                f"Shopify Email as a draft, call `create_email_draft` (approval-gated). "
+                f"Preview: /helena/email/{email_remix}/preview.")
             mention_context = (mention_context + "\n\n" + block) if mention_context else block
 
         def event_stream():
@@ -683,6 +696,92 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         brand_svc.update_brand(db, {k: str(v) for k, v in form.items()}, user.id)
         flash(request, "Brand saved.")
         return RedirectResponse("/helena/brand", status_code=status.HTTP_303_SEE_OTHER)
+
+    # ===================================================================
+    # Email campaigns: list, approval, starters, remix
+    # ===================================================================
+    @router.get("/helena/email", response_class=HTMLResponse)
+    def email_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import email_campaigns as ec_svc
+        return templates.TemplateResponse(
+            request, "helena/email.html",
+            ctx(request, user, "helena_email",
+                campaigns=ec_svc.list_campaigns(db),
+                starters=ec_svc.list_starters(db)),
+        )
+
+    @router.post("/helena/email/{campaign_id}/approve")
+    def email_send_to_approval(campaign_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        camp = db.get(EmailCampaign, campaign_id)
+        if camp is None:
+            return PlainTextResponse("Not found", status_code=404)
+        if not camp.html:
+            flash(request, "Render the email's HTML first (in chat) before sending to approval.",
+                  "warn")
+            return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+        exec_svc.enqueue(db, title=f"Create Shopify Email draft: {camp.name}",
+                         kind="create_email_draft", spec={"campaign_id": camp.id},
+                         user_id=user.id)
+        camp.status = "pending_approval"
+        camp.updated_at = _now()
+        db.commit()
+        flash(request, f"“{camp.name}” sent to Approvals. On approval it pushes to Shopify "
+                       "Email as a draft.")
+        return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/email/starters/add")
+    async def email_starter_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import email_campaigns as ec_svc
+        form = await request.form()
+        row = ec_svc.add_starter(db, name=str(form.get("name", "")),
+                                 html=str(form.get("html", "")))
+        flash(request, "Saved email starter." if row else "Need both a name and HTML.",
+              "info" if row else "warn")
+        return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/email/starters/{starter_id}/delete")
+    def email_starter_delete(starter_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import email_campaigns as ec_svc
+        ec_svc.delete_starter(db, starter_id)
+        flash(request, "Starter removed.")
+        return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/email/starters/{starter_id}/remix")
+    def email_starter_remix(starter_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import email_campaigns as ec_svc
+        camp = ec_svc.remix_starter(db, starter_id, user_id=user.id)
+        if camp is None:
+            flash(request, "Couldn't find that starter.", "warn")
+            return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+        s = agent_svc.create_session(db, title=f"Email remix — {camp.name}", user_id=user.id)
+        return RedirectResponse(f"/helena/chat?session={s.id}&email_remix={camp.id}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/email/{campaign_id}/refine")
+    def email_refine_in_chat(campaign_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        if db.get(EmailCampaign, campaign_id) is None:
+            return PlainTextResponse("Not found", status_code=404)
+        s = agent_svc.create_session(db, title=f"Email refine #{campaign_id}", user_id=user.id)
+        return RedirectResponse(f"/helena/chat?session={s.id}&email_remix={campaign_id}",
+                                status_code=status.HTTP_303_SEE_OTHER)
 
     # ===================================================================
     # Email preview / edit

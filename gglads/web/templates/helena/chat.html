@@ -287,25 +287,28 @@
         '<div class="lb-inner">' +
           '<button class="lb-close" type="button" title="Close">✕</button>' +
           '<div class="lb-stage"><img alt="expanded"/><div class="lb-sel" hidden></div></div>' +
-          '<div class="lb-tools" hidden>' +
-            '<span class="lb-hint">Drag on the image to select the area to change.</span>' +
+          '<div class="lb-tools">' +
+            '<span class="lb-hint">✎ Drag a box over the part to change, type what to change, then Apply. (Leave the box empty to change the whole image.)</span>' +
             '<div class="lb-row"><input class="lb-instruction" type="text" ' +
-              'placeholder="What should change in the selected area?"/>' +
-              '<button class="lb-apply" type="button">Apply change</button></div>' +
+              'placeholder="e.g. make the label brighter / swap this text to Mango"/>' +
+              '<button class="lb-apply btn-primary" type="button">Apply change</button>' +
+              '<button class="lb-clear btn-secondary" type="button" title="Clear selection">Clear</button></div>' +
           '</div>' +
         '</div>';
-      // Close only when clicking the dark backdrop or the ✕ — not the image.
+      // Close only when clicking the dark backdrop or the ✕ — not the image/tools.
       lb.addEventListener('click', e => { if (e.target === lb) lb.classList.remove('open'); });
       lb.querySelector('.lb-close').addEventListener('click', () => lb.classList.remove('open'));
+      lb.querySelector('.lb-clear').addEventListener('click', () => {
+        lb.querySelector('.lb-sel').hidden = true; lb.dataset.region = '';
+      });
       mountLightboxSelection(lb);
       document.body.appendChild(lb);
     }
     lb.querySelector('img').src = url;
     lb.dataset.url = url;
     const sel = lb.querySelector('.lb-sel'); sel.hidden = true; lb.dataset.region = '';
-    lb.querySelector('.lb-tools').hidden = !opts.edit;
     lb.querySelector('.lb-instruction').value = '';
-    lb.classList.toggle('editing', !!opts.edit);
+    lb.classList.add('editing');  // every open is editable — drag to select, type to change
     lb.classList.add('open');
   }
   // Rubber-band region selection + "Apply change" inside the lightbox.
@@ -316,7 +319,6 @@
     let dragging = false, sx = 0, sy = 0;
     const rectOf = () => img.getBoundingClientRect();
     stage.addEventListener('mousedown', e => {
-      if (lb.querySelector('.lb-tools').hidden) return;  // only in edit mode
       const r = rectOf();
       if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
       dragging = true; sx = e.clientX; sy = e.clientY;
@@ -439,6 +441,7 @@
     if (opts.selectedImage) fd.append('selected_image', opts.selectedImage);
     if (opts.region) fd.append('region', typeof opts.region === 'string' ? opts.region : JSON.stringify(opts.region));
     if (opts.remix) fd.append('remix', opts.remix);
+    if (opts.emailRemix) fd.append('email_remix', opts.emailRemix);
     if (imageFile) fd.append('image', imageFile, imageFile.name || 'image.png');
     let acc = '';
     try {
@@ -609,8 +612,10 @@
     attachedFile = null; attachedPreview = null;
     attachBox.hidden = true; fileInput.value = '';
     input.value = ''; chosenMentions = []; closeMention();
-    const opts = remixUrl ? { remix: remixUrl } : undefined;
-    sendTurn(text, file, preview, ids, opts);
+    const opts = {};
+    if (remixUrl) opts.remix = remixUrl;
+    if (emailRemixId) opts.emailRemix = emailRemixId;
+    sendTurn(text, file, preview, ids, Object.keys(opts).length ? opts : undefined);
     if (remixUrl) { remixUrl = ''; document.querySelector('.remix-banner')?.remove(); }
   });
   stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
@@ -636,6 +641,22 @@
     composer.parentNode.insertBefore(banner, composer);
     banner.querySelector('.remix-x').addEventListener('click', () => { remixUrl = ''; banner.remove(); });
     if (!input.value) input.value = 'Use this design’s idea for ';
+    input.focus();
+    const len = input.value.length; input.setSelectionRange(len, len);
+  }
+
+  // Email remix/refine (Email page → Remix / Refine in chat): edit a campaign's
+  // HTML by describing the change. Persists across turns (not cleared on send).
+  let emailRemixId = {{ (email_remix or "") | tojson }};
+  if (emailRemixId) {
+    const banner = document.createElement('div');
+    banner.className = 'remix-banner';
+    banner.innerHTML =
+      '<div class="remix-text"><strong>Refining email design #' + escapeHtml(String(emailRemixId)) + '</strong>' +
+      '<span>Tell me what to change — e.g. “change the flavor to Mango” or “shorten the headline”. ' +
+      '<a href="/helena/email/' + escapeHtml(String(emailRemixId)) + '/preview" target="_blank">Open preview ↗</a></span></div>';
+    composer.parentNode.insertBefore(banner, composer);
+    if (!input.value) input.value = 'In this email, change ';
     input.focus();
     const len = input.value.length; input.setSelectionRange(len, len);
   }

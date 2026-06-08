@@ -344,6 +344,23 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "edit_email_html",
+        "description": "Edit an existing email campaign's HTML in place — swap a flavor, "
+                       "change text/wording, or tweak a colour — keeping the rest of the "
+                       "design the same. Use this when remixing a saved email design or "
+                       "refining one you already rendered. Does NOT push or send.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "campaign_id": {"type": "integer"},
+                "instruction": {"type": "string",
+                                "description": "What to change, e.g. 'change the flavor to Mango "
+                                               "everywhere' or 'make the headline shorter'."},
+            },
+            "required": ["campaign_id", "instruction"],
+        },
+    },
+    {
         "name": "schedule_email",
         "description": "Schedule the email campaign in Shopify Email. Requires approval before any send.",
         "input_schema": {
@@ -917,6 +934,24 @@ def _render_email_html(db, args, user_id, session_id):
             "preview_url": f"/helena/email/{camp.id}/preview"}
 
 
+def _edit_email_html(db, args, user_id, session_id):
+    from gglads.models.email_campaign import EmailCampaign
+    from gglads.services.helena import email_campaigns as ec_svc
+    camp = db.get(EmailCampaign, int(args["campaign_id"]))
+    if camp is None:
+        return {"ok": False, "error": "Email campaign not found."}
+    new_html, err = ec_svc.edit_html(db, camp.html or "", args.get("instruction", ""))
+    if err:
+        return {"ok": False, "error": err}
+    camp.html = new_html
+    camp.updated_at = datetime.now()
+    db.commit()
+    return {"ok": True, "campaign_id": camp.id, "html_length": len(new_html),
+            "preview_url": f"/helena/email/{camp.id}/preview",
+            "note": "Updated the email HTML. Open the preview to see it; push to Shopify "
+                    "stays gated by approval."}
+
+
 def _create_email_draft(db, args, user_id, session_id):
     task = exec_svc.enqueue(
         db, title=f"Create Shopify Email draft #{args['campaign_id']}",
@@ -971,6 +1006,7 @@ _HANDLERS = {
     "plan_email_campaign": _plan_email_campaign,
     "generate_email_copy": _generate_email_copy,
     "render_email_html": _render_email_html,
+    "edit_email_html": _edit_email_html,
     "create_email_draft": _create_email_draft,
     "schedule_email": _schedule_email,
     "get_email_analytics": _get_email_analytics,

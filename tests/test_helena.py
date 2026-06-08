@@ -727,18 +727,19 @@ def test_flow_test_connection_uses_generation_path(monkeypatch):
         cfg.get_settings.cache_clear()
 
 
-def test_choose_image_model_prefers_imagen_predict():
+def test_choose_image_model_prefers_nano_banana():
     from gglads.services.helena.images.google_flow import choose_image_model
     models = [
         {"name": "models/gemini-2.0-flash", "supportedGenerationMethods": ["generateContent"]},
         {"name": "models/imagen-3.0-generate-002", "supportedGenerationMethods": ["predict"]},
         {"name": "models/gemini-2.5-flash-image", "supportedGenerationMethods": ["generateContent"]},
     ]
+    # Nano Banana (gemini *flash-image*) wins over Imagen for design generation.
     name, method = choose_image_model(models)
-    assert "imagen" in name and method == "predict"
-    # Falls back to a Gemini image model via generateContent when no Imagen.
-    name2, method2 = choose_image_model(models[:1] + models[2:])
-    assert "image" in name2 and method2 == "generateContent"
+    assert "flash-image" in name and method == "generateContent"
+    # With no Nano Banana, fall back to Imagen predict.
+    name2, method2 = choose_image_model(models[:2])
+    assert "imagen" in name2 and method2 == "predict"
 
 
 def test_discover_video_model_picks_veo(monkeypatch):

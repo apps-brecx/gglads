@@ -69,40 +69,64 @@ def _bare(name: str) -> str:
     return name.split("/")[-1]
 
 
+def _methods(m) -> set:
+    return set(m.get("supportedGenerationMethods", []) or [])
+
+
+def pick_gemini_image_model(models: list[dict]) -> dict | None:
+    """Pick the best Gemini image (`generateContent`) model, preferring Google's
+    "Nano Banana" — the Gemini *flash-image* family — for the highest-quality
+    on-brand design generation/editing. Falls back to any image model."""
+    gemini_image = [
+        m for m in models
+        if "generateContent" in _methods(m) and "image" in m.get("name", "").lower()
+    ]
+    if not gemini_image:
+        return None
+
+    def rank(m) -> tuple:
+        n = m.get("name", "").lower()
+        # Nano Banana = gemini *flash-image*. Prefer it, then newer names.
+        is_nano = ("flash-image" in n) or ("nano" in n)
+        return (1 if is_nano else 0, n)
+
+    gemini_image.sort(key=rank, reverse=True)
+    return gemini_image[0]
+
+
 def choose_image_model(models: list[dict], preferred: str = "") -> tuple[str, str] | None:
     """Return (full_model_name, method) for image generation, or None.
 
-    method is 'predict' (Imagen) or 'generateContent' (Gemini image).
+    method is 'predict' (Imagen) or 'generateContent' (Gemini image). Default
+    preference is Nano Banana (Gemini flash-image), then Imagen, then any image
+    model — unless an explicit `preferred` model id is available.
     """
-    def methods(m):
-        return set(m.get("supportedGenerationMethods", []) or [])
-
     # Honor an explicit preference if it's actually available.
     if preferred:
         pref = _bare(preferred)
         for m in models:
             if _bare(m.get("name", "")) == pref:
-                ms = methods(m)
+                ms = _methods(m)
                 method = "predict" if "predict" in ms else (
                     "generateContent" if "generateContent" in ms else "")
                 if method:
                     return m["name"], method
 
+    # Prefer Nano Banana (Gemini flash-image) for design generation.
+    nano = pick_gemini_image_model(models)
+    if nano and (("flash-image" in nano["name"].lower()) or ("nano" in nano["name"].lower())):
+        return nano["name"], "generateContent"
+
     imagen_predict = [
         m for m in models
-        if "predict" in methods(m) and "imagen" in m.get("name", "").lower()
+        if "predict" in _methods(m) and "imagen" in m.get("name", "").lower()
     ]
     if imagen_predict:
         imagen_predict.sort(key=lambda m: m["name"], reverse=True)  # newest-ish
         return imagen_predict[0]["name"], "predict"
 
-    gemini_image = [
-        m for m in models
-        if "generateContent" in methods(m) and "image" in m.get("name", "").lower()
-    ]
-    if gemini_image:
-        gemini_image.sort(key=lambda m: m["name"], reverse=True)
-        return gemini_image[0]["name"], "generateContent"
+    if nano:
+        return nano["name"], "generateContent"
     return None
 
 
@@ -263,9 +287,7 @@ class GoogleFlowImageService:
         models, err = gl_list_models(self._api_key)
         if err:
             return None, err
-        gc = next((m for m in models
-                   if "generateContent" in (m.get("supportedGenerationMethods") or [])
-                   and "image" in m.get("name", "").lower()), None)
+        gc = pick_gemini_image_model(models)
         if gc is None:
             return None, ("No image-editing model is available to this API key, so I can't "
                           "place your real bottle into a scene. (Need a Gemini image model.)")
@@ -319,9 +341,7 @@ class GoogleFlowImageService:
         models, err = gl_list_models(self._api_key)
         if err:
             return None, err
-        gc = next((m for m in models
-                   if "generateContent" in (m.get("supportedGenerationMethods") or [])
-                   and "image" in m.get("name", "").lower()), None)
+        gc = pick_gemini_image_model(models)
         if gc is None:
             return None, ("No image-editing model is available to this API key, so I "
                           "can't adjust the image. (Need a Gemini image model.)")

@@ -404,9 +404,11 @@ def test_fetch_campaign_detail(db, monkeypatch):
         if url.endswith("/campaigns"):
             return _R({"data": [{"id": "c1", "name": "C", "effective_status": "ACTIVE",
                                  "daily_budget": "1000"}]})
+        if url.endswith("/ads"):  # ad delivery-status lookup (separate from insights)
+            return _R({"data": [{"id": "a1", "effective_status": "ACTIVE"}]})
         if params.get("level") == "ad":
             return _R({"data": [{**insight, "ad_id": "a1", "ad_name": "Ad", "adset_id": "s1",
-                                 "adset_name": "Set", "effective_status": "ACTIVE"}]})
+                                 "adset_name": "Set"}]})
         if params.get("level") == "campaign":
             return _R({"data": [{**insight, "date_start": "2026-06-01"},
                                 {**insight, "date_start": "2026-06-02"}]})
@@ -416,6 +418,7 @@ def test_fetch_campaign_detail(db, monkeypatch):
         d = meta_api.MetaApiProvider(db).fetch_campaign_detail("c1", "2026-06-01", "2026-06-02")
         assert d["ok"]
         assert d["ads"][0]["adset_id"] == "s1" and d["ads"][0]["cpc"] == 2.0
+        assert d["ads"][0]["status"] == "Active"
         assert d["campaign"]["name"] == "C" and d["campaign"]["daily_budget"] == 10.0
         assert len(d["series"]) == 2 and d["series"][0]["roas"] == 4.0
         assert d["totals"]["roas"] == 4.0 and d["currency"] == "USD"

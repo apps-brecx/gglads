@@ -1,14 +1,14 @@
 {% extends "layout.html" %}
-{% block title %}Memory — Helena{% endblock %}
+{% block title %}Memory — Viktoriia{% endblock %}
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
 <div class="page-head">
   <h1 class="page-title">Memory</h1>
-  <p class="page-subtitle">What Helena has learned and applies to every chat and task. She saves these automatically from conversation — edit or remove anything here.</p>
+  <p class="page-subtitle">What Viktoriia has learned and applies to every chat and task. She saves these automatically from conversation — edit or remove anything here.</p>
 </div>
 
 <form method="post" action="/helena/memory/add" style="display:flex;gap:8px;max-width:760px;margin-bottom:20px;flex-wrap:wrap;">
-  <input type="text" name="content" placeholder="Add something Helena should always remember…" required
+  <input type="text" name="content" placeholder="Add something Viktoriia should always remember…" required
          style="flex:1;min-width:280px;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);"/>
   <select name="category" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);">
     {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
@@ -36,13 +36,13 @@
       <td class="conn-desc">{{ it.created_at.strftime('%b %d') if it.created_at else '' }}</td>
       <td>
         <form method="post" action="/helena/memory/{{ it.id }}/delete"
-              onsubmit="return confirm('Remove this from Helena’s memory?');">
+              onsubmit="return confirm('Remove this from Viktoriia’s memory?');">
           <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button>
         </form>
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="conn-desc">Nothing remembered yet. Tell Helena something in chat, or add it above.</td></tr>
+    <tr><td colspan="5" class="conn-desc">Nothing remembered yet. Tell Viktoriia something in chat, or add it above.</td></tr>
   {% endfor %}
   </tbody>
 </table>

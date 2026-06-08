@@ -52,6 +52,14 @@
 .helena-msg { max-width: 80%; }
 .helena-msg-user { align-self: flex-end; }
 .helena-msg-assistant, .helena-msg-tool { align-self: flex-start; }
+/* Reply-to-this-message affordance */
+.msg-reply {
+  display: block; margin-top: 4px; background: transparent; border: none;
+  color: var(--muted); font-size: 11.5px; font-weight: 600; cursor: pointer;
+  padding: 2px 6px; border-radius: 6px; opacity: .55; transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+.helena-msg-assistant:hover .msg-reply { opacity: 1; }
+.msg-reply:hover { color: var(--accent); background: var(--accent-soft); }
 .helena-bubble {
   padding: 10px 14px;
   border-radius: 12px;
@@ -486,6 +494,28 @@
 /* ---- Chat composer: attach / paste / voice + inline images -------- */
 .helena-composer { flex-direction: column; align-items: stretch; position: relative; }
 .helena-composer.drag { outline: 2px dashed var(--accent); outline-offset: -4px; }
+
+/* ---- Modern button system (helena.css loads last, so this wins) ---- */
+.btn-primary {
+  margin-top: 0; border-radius: 9px; padding: 9px 16px; font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  transition: filter .12s ease, box-shadow .12s ease, transform .08s ease;
+}
+.btn-primary:hover { filter: brightness(1.07); box-shadow: 0 3px 10px rgba(0, 0, 0, .18); }
+.btn-primary:active { transform: translateY(1px); }
+/* .btn-secondary had no styles anywhere — define a proper one. */
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit; line-height: 1.2;
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+}
+.btn-secondary:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.btn-secondary:active { transform: translateY(1px); }
+.seg-toggle { border-radius: 9px; }
+.seg-toggle button { transition: background .12s ease, color .12s ease; }
+.seg-toggle button:hover { background: var(--bg-hover); }
 
 /* Meta Ads: drill-down controls, date range, table links */
 .tbl-link { color: var(--accent); text-decoration: none; font-weight: 600; }

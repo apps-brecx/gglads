@@ -519,8 +519,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ctx(request, user, "helena_meta_ads",
                 connected=connected, data=data, preset=preset,
                 since=since.isoformat(), until=until.isoformat(),
-                account_name=acct_name, account_id=cfg.get("ad_account_id"),
-                **sidebar_data(db)),
+                account_name=acct_name, account_id=cfg.get("ad_account_id")),
         )
 
     @router.get("/helena/meta-ads/campaign/{campaign_id}", response_class=HTMLResponse)
@@ -545,8 +544,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ctx(request, user, "helena_meta_ads",
                 connected=connected, data=data, preset=preset,
                 campaign_id=campaign_id,
-                since=since.isoformat(), until=until.isoformat(),
-                **sidebar_data(db)),
+                since=since.isoformat(), until=until.isoformat()),
         )
 
     @router.post("/helena/meta-ads/action")

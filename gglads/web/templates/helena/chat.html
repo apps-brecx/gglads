@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Helena — Chat</title>
+  <title>Viktoriia — Chat</title>
   <script>
     (function () {
       try {
@@ -21,7 +21,7 @@
 </head>
 <body class="app-body helena-fullpage">
   <header class="helena-topbar">
-    <a href="/helena/chat" class="app-logo">Helena</a>
+    <a href="/helena/chat" class="app-logo">Viktoriia</a>
     <nav class="helena-topnav">
       <a href="/helena/explore">Explore</a>
       <a href="/helena/history">History</a>
@@ -70,7 +70,7 @@
     {# ---- CENTER: thread ---- #}
     <div class="helena-col">
       <div class="helena-col-head">
-        <span>{{ active_session.title if active_session else "Helena" }}</span>
+        <span>{{ active_session.title if active_session else "Viktoriia" }}</span>
         <span class="conn-desc">AI marketing agent</span>
       </div>
       {% if active_session %}
@@ -125,7 +125,7 @@
       </div>
 
       <div class="helena-working" id="working" hidden>
-        <span class="spinner"></span><span id="working-label">Helena is working…</span>
+        <span class="spinner"></span><span id="working-label">Viktoriia is working…</span>
         <div class="working-steps" id="working-steps"></div>
       </div>
 
@@ -139,13 +139,13 @@
           <button class="composer-icon" type="button" id="attach-btn" title="Attach an image">📎</button>
           <button class="composer-icon" type="button" id="mic-btn" title="Dictate (voice)">🎤</button>
           <input type="file" id="file-input" accept="image/*" hidden/>
-          <textarea id="msg" rows="2" placeholder="Ask Helena… (type @ to pick a product bottle, paste/attach an image, or 🎤 to dictate)"></textarea>
+          <textarea id="msg" rows="2" placeholder="Ask Viktoriia… (type @ to pick a product bottle, paste/attach an image, or 🎤 to dictate)"></textarea>
           <button class="btn-primary" type="submit" id="send-btn">Send</button>
           <button class="btn-secondary" type="button" id="stop-btn" hidden>Stop</button>
         </div>
       </form>
       {% else %}
-      <div class="helena-thread"><div class="conn-desc">Start a new chat to talk to Helena.</div></div>
+      <div class="helena-thread"><div class="conn-desc">Start a new chat to talk to Viktoriia.</div></div>
       {% endif %}
     </div>
 
@@ -355,6 +355,26 @@
       lb.classList.remove('open');
     });
   }
+  // Quote one of Viktoriia's replies into the composer so you can respond to
+  // exactly what she said/did.
+  function quoteReply(text) {
+    const box = document.getElementById('msg'); if (!box) return;
+    const snip = (text || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+    box.value = 'About your reply (“' + snip + (text.length > 160 ? '…' : '') + '”): ';
+    box.focus(); const l = box.value.length; box.setSelectionRange(l, l);
+    box.scrollIntoView({ block: 'nearest' });
+  }
+  function addReplyButtons(root) {
+    (root || document).querySelectorAll('.helena-msg-assistant:not([data-reply])').forEach(m => {
+      const bubble = m.querySelector('.helena-bubble');
+      if (!bubble) return;  // skip image/video-only cards
+      m.setAttribute('data-reply', '1');
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'msg-reply'; b.textContent = '↩ Reply';
+      b.addEventListener('click', () => quoteReply(bubble.textContent || ''));
+      m.appendChild(b);
+    });
+  }
   function hydrate(root) {
     (root || document).querySelectorAll('.helena-bubble.md:not([data-md])').forEach(b => {
       b.setAttribute('data-md', '1'); b.innerHTML = renderMarkdown(b.textContent);
@@ -364,6 +384,7 @@
       try { imgs = JSON.parse(c.dataset.images || '[]'); } catch (_) {}
       mountImageCard(c, imgs, c.dataset.note || '');
     });
+    addReplyButtons(root);
   }
   hydrate(document);
 
@@ -465,7 +486,7 @@
     } catch (err) {
       if (err.name === 'AbortError') { bubble.textContent = (acc.trim() ? acc : '') + ' ⏹ stopped'; }
       else { bubble.textContent = '⚠ ' + err; }
-    } finally { setWorking(false); controller = null; }
+    } finally { setWorking(false); controller = null; addReplyButtons(thread); }
   }
 
   // ---- Attachments: file picker, drag-drop, and paste ----

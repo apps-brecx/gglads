@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from gglads.models.helena import MetricSnapshot
@@ -69,17 +69,26 @@ def _sum(db: Session, platform: str, metric: str, since: datetime) -> Decimal:
 
 
 def topline(db: Session, days: int = 30) -> dict[str, Any]:
-    """Top-line cards across all platforms for the dashboard."""
+    """Top-line cards across all platforms for the dashboard. One grouped,
+    DB-side aggregation (not 9 separate fetch-and-sum-in-Python passes) so it
+    stays cheap on every page that shows the sidebar."""
     since = _now() - timedelta(days=days)
-    meta_spend = _sum(db, "meta_ads", "spend", since)
-    meta_clicks = _sum(db, "meta_ads", "clicks", since)
-    meta_impr = _sum(db, "meta_ads", "impressions", since)
-    meta_conv = _sum(db, "meta_ads", "conversions", since)
-    meta_rev = _sum(db, "meta_ads", "revenue", since)
-    ig_reach = _sum(db, "instagram", "reach", since)
-    ig_eng = _sum(db, "instagram", "engagement", since)
-    email_opens = _sum(db, "email", "opens", since)
-    email_clicks = _sum(db, "email", "clicks", since)
+    rows = db.execute(
+        select(MetricSnapshot.platform, MetricSnapshot.metric,
+               func.sum(MetricSnapshot.value))
+        .where(MetricSnapshot.captured_for >= since)
+        .group_by(MetricSnapshot.platform, MetricSnapshot.metric)
+    ).all()
+    agg = {(p, m): (v if v is not None else Decimal(0)) for p, m, v in rows}
+
+    def g(platform: str, metric: str) -> Decimal:
+        return agg.get((platform, metric), Decimal(0))
+
+    meta_spend, meta_clicks = g("meta_ads", "spend"), g("meta_ads", "clicks")
+    meta_impr, meta_conv = g("meta_ads", "impressions"), g("meta_ads", "conversions")
+    meta_rev = g("meta_ads", "revenue")
+    ig_reach, ig_eng = g("instagram", "reach"), g("instagram", "engagement")
+    email_opens, email_clicks = g("email", "opens"), g("email", "clicks")
 
     def ratio(a: Decimal, b: Decimal) -> float:
         return float(a / b) if b else 0.0

@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Files — Helena{% endblock %}
+{% block title %}Files — Viktoriia{% endblock %}
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
 <div class="page-head">
   <h1 class="page-title">Workspace files</h1>
-  <p class="page-subtitle">Generated images, videos, and assets Helena created. Download or delete them here.</p>
+  <p class="page-subtitle">Generated images, videos, and assets Viktoriia created. Download or delete them here.</p>
 </div>
 
 <div class="files-grid">
@@ -34,7 +34,7 @@
     </div>
   </div>
   {% else %}
-  <div class="conn-desc">No files yet. Ask Helena to generate an image or video.</div>
+  <div class="conn-desc">No files yet. Ask Viktoriia to generate an image or video.</div>
   {% endfor %}
 </div>
 {% endblock %}

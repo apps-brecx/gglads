@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block title %}Integrations — Helena{% endblock %}
+{% block title %}Integrations — Viktoriia{% endblock %}
 
 {% macro card(c, row, accs) %}
 {% set status = row.status if row else 'not_connected' %}
@@ -75,13 +75,13 @@
   <strong>How Instagram &amp; Meta Ads connect</strong>
   <div class="conn-desc" style="margin-top:4px;">
     Connecting links the account. To actually <em>post, read post data, and push/manage ads</em>,
-    Helena needs one execution backend, set on the server:
+    Viktoriia needs one execution backend, set on the server:
     <ul style="margin:6px 0 0 18px;">
       <li><strong>Official Meta API</strong> (recommended for real posting + full ad management):
         set <code>META_APP_ID</code>, <code>META_APP_SECRET</code>, <code>META_EXECUTION_MODE=api</code>.
         Requires a Meta Developer app with Instagram + Marketing API permissions.</li>
       <li><strong>Browser agent</strong> (works without API access): set <code>BROWSER_AGENT_URL</code>;
-        a person signs in once and Helena operates the authenticated session.</li>
+        a person signs in once and Viktoriia operates the authenticated session.</li>
     </ul>
     Read &amp; Write must be enabled per card, and every publish/spend still asks for your approval.
   </div>
@@ -89,7 +89,7 @@
 
 {% if meta and meta.get('access_token') %}
 <div class="rec" style="max-width:880px;margin:0 auto 24px;">
-  <strong>Meta connection — choose the accounts Helena uses</strong>
+  <strong>Meta connection — choose the accounts Viktoriia uses</strong>
   <div class="conn-desc" style="margin:4px 0 10px;">
     Your login has access to {{ meta.ad_accounts|length }} ad account(s) and
     {{ meta.pages|length }} Page(s). Pick the right ones — analytics, posting, and

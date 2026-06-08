@@ -307,6 +307,19 @@ class MetaApiProvider(MetaExecutionProvider):
             }
         return out
 
+    def _ad_status_map(self, campaign_id) -> dict[str, str]:
+        """ad_id → human delivery status. Read from the ad object (the insights
+        endpoint can't return effective_status)."""
+        body, err = self._get(f"{campaign_id}/ads",
+                              {"fields": "id,effective_status", "limit": 500})
+        out: dict[str, str] = {}
+        if err or not body:
+            return out
+        for a in (body.get("data") or []):
+            raw = a.get("effective_status") or ""
+            out[a.get("id")] = raw.replace("_", " ").title() or None
+        return out
+
     def _account_currency(self) -> str:
         body, err = self._get(f"act_{self._ad_account_id}", {"fields": "currency"})
         if err or not body:
@@ -323,21 +336,24 @@ class MetaApiProvider(MetaExecutionProvider):
         filt = (f'[{{"field":"campaign.id","operator":"IN","value":["{campaign_id}"]}}]')
 
         # Ads in this campaign (with their ad-set ids for bid/cost-cap edits).
+        # NOTE: the /insights endpoint does NOT accept delivery-status fields
+        # (effective_status); those live on the ad object, fetched separately.
         ad_body, err = self._get(f"act_{self._ad_account_id}/insights", {
             "level": "ad",
-            "fields": ("ad_id,ad_name,adset_id,adset_name,effective_status,"
+            "fields": ("ad_id,ad_name,adset_id,adset_name,"
                        "spend,impressions,clicks,reach,frequency,"
                        "actions,action_values,purchase_roas"),
             "time_range": tr, "filtering": filt, "limit": 500,
         })
         if err:
             return {"ok": False, "error": f"Ad insights failed: {err}"}
+        status_map = self._ad_status_map(campaign_id)
         ads = []
         for r in (ad_body.get("data") or []):
             row = _ad_row(r)
             row.update({"id": r.get("ad_id"), "name": r.get("ad_name") or "(unnamed ad)",
                         "adset_id": r.get("adset_id"), "adset_name": r.get("adset_name"),
-                        "status": (r.get("effective_status") or "").replace("_", " ").title()})
+                        "status": status_map.get(r.get("ad_id"))})
             ads.append(row)
         ads.sort(key=lambda x: x["spend"], reverse=True)
 

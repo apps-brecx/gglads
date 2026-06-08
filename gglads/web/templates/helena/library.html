@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Product images — Helena{% endblock %}
+{% block title %}Product images — Viktoriia{% endblock %}
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
 <div class="page-head">
   <h1 class="page-title">Product images</h1>
-  <p class="page-subtitle">Upload high-quality bottle photos labeled by flavor and Regular / Sugar-Free. Helena pulls the right one when generating content. You can also drop in other reference files.</p>
+  <p class="page-subtitle">Upload high-quality bottle photos labeled by flavor and Regular / Sugar-Free. Viktoriia pulls the right one when generating content. You can also drop in other reference files.</p>
 </div>
 
 <form id="upload-form" method="post" action="/helena/library/upload" enctype="multipart/form-data"

@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Brand & assets — Helena{% endblock %}
+{% block title %}Brand & assets — Viktoriia{% endblock %}
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
 <div class="page-head">
   <h1 class="page-title">Brand &amp; assets</h1>
-  <p class="page-subtitle">Helena injects this brand knowledge into every image and copy generation.</p>
+  <p class="page-subtitle">Viktoriia injects this brand knowledge into every image and copy generation.</p>
 </div>
 
 <form method="post" action="/helena/brand" style="max-width:720px;">
@@ -20,7 +20,7 @@
 </form>
 
 <h2 style="font-size:18px;margin-top:28px;">Knowledge base</h2>
-<p class="conn-desc" style="margin-top:-6px;">Documents here are persistent brand memory — Helena draws on them across every conversation.</p>
+<p class="conn-desc" style="margin-top:-6px;">Documents here are persistent brand memory — Viktoriia draws on them across every conversation.</p>
 <form method="post" action="/helena/brand/docs" style="max-width:720px;margin-bottom:16px;">
   <div class="form-row"><label>Title</label><input name="title" placeholder="e.g. Brand style guide, FTC do's & don'ts" required/></div>
   <div class="form-row"><label>Content (paste text the agent should remember)</label><textarea name="content" rows="4"></textarea></div>
@@ -53,7 +53,7 @@
       <div class="conn-desc">{{ a.kind }}{% if a.prompt %} · {{ a.prompt[:60] }}{% endif %}</div>
     </div>
   {% else %}
-    <div class="conn-desc">No saved assets yet. Ask Helena to generate an image and save the one you like.</div>
+    <div class="conn-desc">No saved assets yet. Ask Viktoriia to generate an image and save the one you like.</div>
   {% endfor %}
 </div>
 {% endblock %}

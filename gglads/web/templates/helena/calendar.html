@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block title %}Content calendar — Helena{% endblock %}
+{% block title %}Content calendar — Viktoriia{% endblock %}
 
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
@@ -55,7 +55,7 @@
         <input type="hidden" name="date" id="add-date"/>
         <input type="hidden" name="view" value="{{ cal.view }}"/>
         <div class="form-row"><label>Caption / title</label>
-          <textarea name="caption" rows="3" placeholder="What's this post about? (Helena can flesh it out in chat)"></textarea></div>
+          <textarea name="caption" rows="3" placeholder="What's this post about? (Viktoriia can flesh it out in chat)"></textarea></div>
         <div class="form-actions"><button class="btn-primary" type="submit">Add draft</button></div>
         <p class="conn-desc">Creates a draft on the calendar. Publishing/sending stays gated by approval.</p>
       </form>

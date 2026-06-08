@@ -439,3 +439,28 @@
   background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
   padding: 7px 10px; color: var(--text); font-size: 13px;
 }
+
+/* ---- Chat composer: attach / paste / voice + inline images -------- */
+.helena-composer { flex-direction: column; align-items: stretch; }
+.helena-composer.drag { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.composer-row { display: flex; gap: 8px; align-items: flex-end; }
+.composer-icon {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--muted-strong);
+  border-radius: 10px; width: 38px; height: 38px; font-size: 16px; cursor: pointer; flex-shrink: 0;
+}
+.composer-icon:hover { background: var(--bg-hover); color: var(--text-strong); }
+.composer-icon:disabled { opacity: .4; cursor: not-allowed; }
+.composer-icon.listening { border-color: var(--fail); color: var(--fail); animation: helena-pulse 1s ease-in-out infinite; }
+@keyframes helena-pulse { 50% { opacity: .5; } }
+.composer-attachment { position: relative; display: inline-block; margin-bottom: 8px; }
+.composer-attachment img { max-height: 84px; max-width: 160px; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.composer-attachment button {
+  position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--panel-elevated); border: 1px solid var(--border-strong); color: var(--text);
+  cursor: pointer; font-size: 12px; line-height: 1;
+}
+.chat-inline-img {
+  max-width: 320px; max-height: 360px; border-radius: 12px; border: 1px solid var(--border);
+  display: block; cursor: zoom-in; background: var(--panel-elevated);
+}
+.helena-msg-user .chat-inline-img { margin-left: auto; }

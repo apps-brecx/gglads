@@ -846,3 +846,48 @@ def test_instagram_post_performance_skill(db, monkeypatch):
     # ingested into the dashboard store
     from gglads.services.helena import analytics as an
     assert an.topline(db, days=3650)["instagram"]["reach"] == 1000
+
+
+# ---- Chat: image attach + post image rendering --------------------------
+
+def test_agent_user_content_includes_image_block():
+    from gglads.services.helena import agent
+    c = agent._user_content("hi", "https://pub/x.png")
+    assert isinstance(c, list)
+    assert c[0]["type"] == "image" and c[0]["source"]["url"] == "https://pub/x.png"
+    assert any(b.get("type") == "text" for b in c)
+    assert agent._user_content("hi", None) == "hi"  # no image -> plain string
+
+
+def test_history_carries_user_image(db):
+    from gglads.services.helena import agent
+    s = agent.create_session(db, user_id=None)
+    agent.append_user_message(db, s.id, "look at this", None, image_url="https://pub/a.png")
+    hist = agent._history_for_api(db, s.id)
+    assert hist[-1]["role"] == "user"
+    assert hist[-1]["content"][0]["source"]["url"] == "https://pub/a.png"
+
+
+def test_create_post_returns_image_url(db):
+    from gglads.services.helena import skills
+    res = skills.run_skill(db, "create_post",
+                           {"caption": "hi", "image_url": "https://pub/bottle.png"},
+                           user_id=None, session_id=None)
+    assert res["ok"] and res["image_url"] == "https://pub/bottle.png"
+
+
+def test_chat_stream_stores_attached_image(db, monkeypatch):
+    import os
+    os.environ["APP_SECRET"] = "t"
+    from gglads.services.helena import agent, storage
+    from gglads.services import claude as claude_svc
+    monkeypatch.setattr(storage, "put_bytes", lambda *a, **k: ("https://pub/up.png", None))
+    # Make the agent turn end immediately (no real Anthropic call).
+    monkeypatch.setattr(claude_svc, "get_client_and_model", lambda _db: (None, None, "no key"))
+    s = agent.create_session(db, user_id=None)
+    list(agent.stream_turn(db, s.id, "use this bottle", None, image_url="https://pub/up.png"))
+    from gglads.models.helena import Message
+    from sqlalchemy import select
+    msg = db.scalars(select(Message).where(Message.session_id == s.id,
+                                           Message.role == "user")).first()
+    assert msg.image_url == "https://pub/up.png"

@@ -94,6 +94,10 @@ class AccessModeGuard(MetaExecutionProvider):
         ok, why = self._can_read("instagram")
         return self._inner.fetch_instagram_insights(date_range) if ok else _denied("Instagram", why)
 
+    def fetch_instagram_media(self, limit: int = 10) -> ProviderResult:
+        ok, why = self._can_read("instagram")
+        return self._inner.fetch_instagram_media(limit) if ok else _denied("Instagram", why)
+
 
 def _base_provider(db: Session) -> MetaExecutionProvider:
     mode = (get_settings().meta_execution_mode or "browser").strip().lower()

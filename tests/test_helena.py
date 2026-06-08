@@ -695,3 +695,68 @@ def test_meta_metric_normalizes_spend_cents():
     from datetime import UTC, datetime
     m = _metric("meta_ads", "spend", "12345", datetime(2026, 6, 7, tzinfo=UTC))
     assert m["value"] == 123.45 and m["platform"] == "meta_ads"
+
+
+# ---- Meta ad-account picker + Instagram post performance ----------------
+
+def test_meta_set_selection_changes_ad_account(db, monkeypatch):
+    """User can switch ad account/Page after connect, without reconnecting."""
+    import gglads.config as cfg
+    from gglads.services.helena.meta import oauth
+    monkeypatch.setenv("APP_SECRET", "t")
+    cfg.get_settings.cache_clear()
+    oauth.save_meta_config(db, {
+        "access_token": "TOK",
+        "ad_accounts": [
+            {"id": "act_111", "account_id": "111", "name": "Empty acct"},
+            {"id": "act_734704884820822", "account_id": "734704884820822", "name": "Syruvia ad"},
+        ],
+        "pages": [{"page_id": "P1", "page_name": "Syruvia", "page_token": "PT",
+                   "ig_user_id": "IG1", "ig_username": "syruvia_official"}],
+        "ad_account_id": "111",  # silently-picked empty one (the bug)
+    })
+    ok, detail = oauth.set_selection(db, ad_account_id="734704884820822",
+                                     page_id="P1", user_id=None)
+    assert ok and "Syruvia ad" in detail
+    saved = oauth.get_meta_config(db)
+    assert saved["ad_account_id"] == "734704884820822"
+    assert saved["ig_user_id"] == "IG1"
+    # MetaApiProvider now targets the chosen account
+    from gglads.services.helena.meta.meta_api import MetaApiProvider
+    assert MetaApiProvider(db)._ad_account_id == "734704884820822"
+
+
+def test_meta_set_selection_rejects_unknown_account(db):
+    from gglads.services.helena.meta import oauth
+    oauth.save_meta_config(db, {"access_token": "TOK", "ad_accounts": [], "pages": []})
+    ok, detail = oauth.set_selection(db, ad_account_id="999999", user_id=None)
+    assert ok is False
+
+
+def test_instagram_post_performance_skill(db, monkeypatch):
+    """Skill returns per-post reach/impressions/likes/comments and ingests them."""
+    from gglads.services.helena import skills
+    from gglads.services.helena.specs import ProviderResult
+    posts = [{"id": "m1", "caption": "Hi", "permalink": "https://ig/p/1",
+              "likes": 42, "comments": 7, "reach": 1000, "impressions": 1500}]
+    metrics = [
+        {"platform": "instagram", "entity_type": "post", "entity_id": None,
+         "metric": "reach", "value": 1000, "captured_for": "2026-06-08T00:00:00"},
+        {"platform": "instagram", "entity_type": "post", "entity_id": None,
+         "metric": "likes", "value": 42, "captured_for": "2026-06-08T00:00:00"},
+    ]
+
+    class FakeProvider:
+        def fetch_instagram_media(self, limit=5):
+            return ProviderResult(success=True, steps=posts, metrics=metrics,
+                                  message="Read insights for 1 recent Instagram post(s).")
+
+    monkeypatch.setattr("gglads.services.helena.meta.factory.get_meta_provider",
+                        lambda _db: FakeProvider())
+    res = skills.run_skill(db, "get_instagram_post_performance", {"limit": 5},
+                           user_id=None, session_id=None)
+    assert res["ok"] and res["count"] == 1
+    assert res["posts"][0]["likes"] == 42 and res["posts"][0]["reach"] == 1000
+    # ingested into the dashboard store
+    from gglads.services.helena import analytics as an
+    assert an.topline(db, days=3650)["instagram"]["reach"] == 1000

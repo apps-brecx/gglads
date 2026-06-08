@@ -53,6 +53,15 @@ class MetaExecutionProvider(ABC):
     @abstractmethod
     def fetch_instagram_insights(self, date_range: DateRange) -> ProviderResult: ...
 
+    # ---- Organic Instagram post performance ---------------------------
+    # Concrete default so backends that can't read post insights don't have to
+    # implement it; MetaApiProvider overrides with the real Graph API call.
+    def fetch_instagram_media(self, limit: int = 10) -> ProviderResult:
+        return ProviderResult(
+            success=False,
+            message="Reading Instagram post insights isn't supported by this backend.",
+        )
+
 
 # Imported late to keep the type hint above readable.
 from datetime import datetime  # noqa: E402

@@ -478,6 +478,30 @@ class MetaApiProvider(MetaExecutionProvider):
             "range": f"{since} → {until}",
         }
 
+    def fetch_ads_with_links(self) -> dict:
+        """Every ad in the account with its destination URL + delivery status —
+        so the stock guard can match each ad to a Shopify product by handle.
+        Returns {ok, ads:[{ad_id, ad_name, campaign_id, status, link}]}."""
+        if not self._token or not self._ad_account_id:
+            return {"ok": False, "error": "Meta isn't connected for ads.", "ads": []}
+        body, err = self._get(f"act_{self._ad_account_id}/ads", {
+            "fields": "id,name,campaign_id,effective_status,"
+                      "creative{link_url,object_story_spec}",
+            "limit": 500,
+        })
+        if err:
+            return {"ok": False, "error": err, "ads": []}
+        ads = []
+        for a in (body.get("data") or []):
+            cr = a.get("creative") or {}
+            ads.append({
+                "ad_id": a.get("id"), "ad_name": a.get("name"),
+                "campaign_id": a.get("campaign_id"),
+                "status": (a.get("effective_status") or "").upper(),
+                "link": cr.get("link_url") or _story_link(cr.get("object_story_spec")),
+            })
+        return {"ok": True, "ads": ads}
+
     # ---- generic writes (campaign / ad-set / ad) ----------------------
     def set_status(self, entity_id: str, status: str) -> ProviderResult:
         """Pause/activate any object (campaign, ad set, or ad) by id."""
@@ -602,6 +626,21 @@ def _div(num: float, den: float, scale: float = 1.0) -> float:
 def _titlecase(v) -> str | None:
     """'OUTCOME_SALES' -> 'Outcome Sales'; empty -> None."""
     return str(v or "").replace("_", " ").title() or None
+
+
+def _story_link(spec) -> str | None:
+    """Pull the destination URL out of a creative's object_story_spec."""
+    if not isinstance(spec, dict):
+        return None
+    ld = spec.get("link_data") or {}
+    if ld.get("link"):
+        return ld["link"]
+    cta = (ld.get("call_to_action") or {}).get("value") or {}
+    if cta.get("link"):
+        return cta["link"]
+    vd = spec.get("video_data") or {}
+    cta2 = (vd.get("call_to_action") or {}).get("value") or {}
+    return cta2.get("link")
 
 
 def _ad_row(row: dict) -> dict:

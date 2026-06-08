@@ -593,13 +593,39 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         data = {"ok": False, "error": "Connect Meta and select an ad account to see live data."}
         if connected:
             data = get_meta_provider(db).fetch_ad_detail(ad_id, since.isoformat(), until.isoformat())
+        from gglads.models.helena import AdStockGuardState
+        guard = db.get(AdStockGuardState, ad_id)
         return templates.TemplateResponse(
             request, "helena/meta_ads_ad.html",
             ctx(request, user, "helena_meta_ads",
                 connected=connected, data=data, preset=preset, ad_id=ad_id,
+                guard=guard,
                 campaign_id=request.query_params.get("campaign", ""),
                 since=since.isoformat(), until=until.isoformat()),
         )
+
+    @router.post("/helena/meta-ads/stock-guard")
+    async def meta_ads_stock_guard(request: Request, db: DbDep) -> Response:
+        """Toggle the admin 'allow out-of-stock' override for one ad."""
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.models.helena import AdStockGuardState
+        form = await request.form()
+        ad_id = str(form.get("ad_id", "")).strip()
+        allow = str(form.get("allow_oos", "")).strip() in ("1", "true", "on", "yes")
+        back = str(form.get("back", "/helena/meta-ads"))
+        if ad_id:
+            st = db.get(AdStockGuardState, ad_id)
+            if st is None:
+                st = AdStockGuardState(ad_id=ad_id)
+                db.add(st)
+            st.allow_oos = allow
+            st.updated_at = _now()
+            db.commit()
+            flash(request, "Override on — this ad keeps running even when out of stock."
+                  if allow else "Override off — the guard will pause this ad when out of stock.")
+        return RedirectResponse(back, status_code=status.HTTP_303_SEE_OTHER)
 
     @router.post("/helena/meta-ads/chat")
     async def meta_ads_chat(request: Request, db: DbDep) -> Response:

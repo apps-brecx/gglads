@@ -61,6 +61,31 @@
 </div>
 {% endif %}
 
+{# ---- Out-of-stock guard ---- #}
+<div class="ctrl-bar" style="justify-content:space-between;">
+  <div style="font-size:13px;">
+    <span class="ctrl-label">Stock guard:</span>
+    {% if guard and guard.product_handle %}
+      linked to <code>{{ guard.product_handle }}</code>
+      {% if guard.paused_by_guard %}<span class="pill needs_review">Paused — out of stock</span>{% endif %}
+      {% if guard.allow_oos %}<span class="pill active">Override: runs while OOS</span>{% endif %}
+    {% else %}
+      <span class="conn-desc">No product linked yet (matched automatically from the ad's destination URL on the next guard run).</span>
+    {% endif %}
+  </div>
+  <form method="post" action="/helena/meta-ads/stock-guard" class="ctrl-form">
+    <input type="hidden" name="ad_id" value="{{ ad_id }}"/>
+    <input type="hidden" name="back" value="/helena/meta-ads/ad/{{ ad_id }}?campaign={{ campaign_id }}&since={{ since }}&until={{ until }}"/>
+    {% if guard and guard.allow_oos %}
+      <input type="hidden" name="allow_oos" value="0"/>
+      <button class="btn-secondary">Turn override off</button>
+    {% else %}
+      <input type="hidden" name="allow_oos" value="1"/>
+      <button class="btn-secondary">Allow OOS (keep running)</button>
+    {% endif %}
+  </form>
+</div>
+
 <div class="ad-detail-grid">
   {# Creative #}
   <div class="tbl-card">

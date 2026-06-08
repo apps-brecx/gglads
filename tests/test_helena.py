@@ -614,6 +614,72 @@ def test_fetch_ad_detail(db, monkeypatch):
         cfg.get_settings.cache_clear()
 
 
+def test_stock_guard_handle_from_url():
+    from gglads.services.helena.ad_stock_guard import handle_from_url
+    assert handle_from_url("https://shop.com/products/mango-splash?ref=x") == "mango-splash"
+    assert handle_from_url("https://shop.com/collections/all") is None
+    assert handle_from_url(None) is None
+
+
+def _fake_meta_provider(monkeypatch, ads, calls):
+    from gglads.services.helena.meta import factory as meta_factory
+
+    class _R:
+        def __init__(self, ok): self.success = ok; self.message = ""
+
+    class FakeProvider:
+        def fetch_ads_with_links(self):
+            return {"ok": True, "ads": ads}
+        def set_status(self, eid, st):
+            calls.append((eid, st)); return _R(True)
+    monkeypatch.setattr(meta_factory, "get_meta_provider", lambda db: FakeProvider())
+
+
+def test_stock_guard_pauses_oos_and_respects_override(db, monkeypatch):
+    from gglads.models.helena import AdStockGuardState
+    from gglads.models.shopify_product import ShopifyProduct
+    from gglads.services import email as email_svc
+    from gglads.services.helena import ad_stock_guard as guard
+    monkeypatch.setattr(email_svc, "is_configured", lambda db: False)
+    db.add(ShopifyProduct(id=1, handle="mango", title="Mango", status="active", total_inventory=0))
+    db.add(ShopifyProduct(id=2, handle="cola", title="Cola", status="active", total_inventory=0))
+    db.commit()
+    # cola has an admin override to keep running while OOS
+    db.add(AdStockGuardState(ad_id="a2", allow_oos=True))
+    db.commit()
+    calls = []
+    _fake_meta_provider(monkeypatch, [
+        {"ad_id": "a1", "ad_name": "Mango", "campaign_id": "c1", "status": "ACTIVE",
+         "link": "https://s.com/products/mango"},
+        {"ad_id": "a2", "ad_name": "Cola", "campaign_id": "c1", "status": "ACTIVE",
+         "link": "https://s.com/products/cola"},
+    ], calls)
+    ok, _detail, stats = guard.run_guard(db)
+    assert ok and stats["paused"] == 1 and stats["matched"] == 2
+    assert ("a1", "PAUSED") in calls and ("a2", "PAUSED") not in calls  # override kept a2 running
+    assert db.get(AdStockGuardState, "a1").paused_by_guard is True
+
+
+def test_stock_guard_auto_resumes_when_restocked(db, monkeypatch):
+    from gglads.models.helena import AdStockGuardState
+    from gglads.models.shopify_product import ShopifyProduct
+    from gglads.services import email as email_svc
+    from gglads.services.helena import ad_stock_guard as guard
+    monkeypatch.setattr(email_svc, "is_configured", lambda db: False)
+    db.add(ShopifyProduct(id=1, handle="mango", title="Mango", status="active", total_inventory=12))
+    db.add(AdStockGuardState(ad_id="a1", product_handle="mango", paused_by_guard=True))
+    db.commit()
+    calls = []
+    _fake_meta_provider(monkeypatch, [
+        {"ad_id": "a1", "ad_name": "Mango", "campaign_id": "c1", "status": "PAUSED",
+         "link": "https://s.com/products/mango"},
+    ], calls)
+    ok, _detail, stats = guard.run_guard(db)
+    assert ok and stats["resumed"] == 1
+    assert ("a1", "ACTIVE") in calls
+    assert db.get(AdStockGuardState, "a1").paused_by_guard is False
+
+
 def test_email_image_starter(db):
     from gglads.services.helena import email_campaigns as ec
     s = ec.add_image_starter(db, name="Screenshot", image_url="https://pub/email.png")

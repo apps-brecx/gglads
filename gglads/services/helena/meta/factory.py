@@ -120,6 +120,12 @@ class AccessModeGuard(MetaExecutionProvider):
             return {"ok": False, "error": f"Meta Ads integration is {why}."}
         return self._inner.fetch_ad_detail(ad_id, since, until)
 
+    def fetch_ads_with_links(self) -> dict:
+        ok, why = self._can_read("meta_ads")
+        if not ok:
+            return {"ok": False, "error": f"Meta Ads integration is {why}.", "ads": []}
+        return self._inner.fetch_ads_with_links()
+
     def set_status(self, entity_id: str, status: str) -> ProviderResult:
         ok, why = self._can_write("meta_ads")
         return self._inner.set_status(entity_id, status) if ok else _denied("Meta Ads", why)

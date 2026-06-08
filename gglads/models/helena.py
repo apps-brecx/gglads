@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -332,4 +333,30 @@ class ProductImage(Base):
     )
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class AdStockGuardState(Base):
+    """Per-ad state for the out-of-stock ad guard. The guard matches a Meta ad
+    to a Shopify product by the destination URL's product handle, pauses the ad
+    when that product is out of stock (and emails an alert), and auto-resumes it
+    when stock returns — unless an admin set `allow_oos` to keep it running."""
+
+    __tablename__ = "helena_ad_stock_guard"
+
+    # The Meta ad's external id (from the Graph API).
+    ad_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ad_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Shopify product handle parsed from the ad's destination URL (if any).
+    product_handle: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # True when the guard itself paused this ad (so it only auto-resumes its own).
+    paused_by_guard: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Admin override: keep running even when the product is out of stock.
+    allow_oos: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Dedupe alert emails / record context.
+    last_alert_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    oos_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

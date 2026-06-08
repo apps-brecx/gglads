@@ -77,23 +77,34 @@ def products_in_collection(db: Session, collection_id: int) -> list[ShopifyProdu
 
 
 def page_url_for_collection(db: Session, handle: str) -> str | None:
-    """Public collection URL — used as the `page` filter for Search Console."""
-    cfg = integrations_svc.get_config(db, "google_search_console")
-    site_url = (cfg.get("site_url") or "").strip()
-    if not site_url:
-        # Fallback to the Shopify store domain so the page still has a URL
-        # shown even when Search Console isn't wired up yet.
-        shopify_cfg = integrations_svc.get_config(db, "shopify")
-        domain = (shopify_cfg.get("store_domain") or "").strip().rstrip("/")
-        if not domain:
-            return None
-        if not domain.startswith("http"):
-            domain = f"https://{domain}"
-        return f"{domain}/collections/{handle}"
-    if site_url.startswith("sc-domain:"):
-        domain = site_url[len("sc-domain:"):]
-        return f"https://{domain}/collections/{handle}"
-    return f"{site_url.rstrip('/')}/collections/{handle}"
+    """Public collection URL — used as the `page` filter for Search Console.
+    Resolution order matches services/campaigns._store_url:
+      1. shopify.public_storefront_url
+      2. google_search_console.site_url
+      3. shopify.store_domain  (last resort — .myshopify.com)
+    """
+    shopify_cfg = integrations_svc.get_config(db, "shopify")
+    public = (shopify_cfg.get("public_storefront_url") or "").strip().rstrip("/")
+    if public:
+        if not public.startswith("http"):
+            public = f"https://{public}"
+        return f"{public}/collections/{handle}"
+
+    sc_cfg = integrations_svc.get_config(db, "google_search_console")
+    site_url = (sc_cfg.get("site_url") or "").strip().rstrip("/")
+    if site_url:
+        if site_url.startswith("sc-domain:"):
+            return f"https://{site_url[len('sc-domain:'):]}/collections/{handle}"
+        if not site_url.startswith("http"):
+            site_url = f"https://{site_url}"
+        return f"{site_url}/collections/{handle}"
+
+    domain = (shopify_cfg.get("store_domain") or "").strip().rstrip("/")
+    if not domain:
+        return None
+    if not domain.startswith("http"):
+        domain = f"https://{domain}"
+    return f"{domain}/collections/{handle}"
 
 
 def organic_queries(

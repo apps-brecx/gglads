@@ -51,13 +51,73 @@ MATCH_TYPE_LABELS = {"exact": "Exact", "phrase": "Phrase", "broad": "Broad"}
 
 
 def _store_url(db: Session) -> str:
-    cfg = integrations_svc.get_config(db, "shopify")
-    domain = (cfg.get("store_domain") or "").strip().rstrip("/")
+    """Public, customer-facing storefront URL — the one Google Ads needs.
+
+    Resolution order:
+      1. shopify.public_storefront_url   (admin-entered, https://yourbrand.com)
+      2. google_search_console.site_url  (already verified there, so we trust it)
+      3. shopify.store_domain            (.myshopify.com — last resort; Google
+                                          Ads will likely reject this as a
+                                          destination mismatch, but it keeps
+                                          the field non-empty for previews)
+    """
+    sh_cfg = integrations_svc.get_config(db, "shopify")
+    public = (sh_cfg.get("public_storefront_url") or "").strip().rstrip("/")
+    if public:
+        if not public.startswith("http"):
+            public = f"https://{public}"
+        return public
+
+    sc_cfg = integrations_svc.get_config(db, "google_search_console")
+    sc_site = (sc_cfg.get("site_url") or "").strip().rstrip("/")
+    if sc_site:
+        if sc_site.startswith("sc-domain:"):
+            sc_site = "https://" + sc_site[len("sc-domain:"):]
+        elif not sc_site.startswith("http"):
+            sc_site = f"https://{sc_site}"
+        return sc_site
+
+    domain = (sh_cfg.get("store_domain") or "").strip().rstrip("/")
     if not domain:
         return ""
     if not domain.startswith("http"):
         domain = f"https://{domain}"
     return domain
+
+
+def url_uses_admin_domain(url: str | None) -> bool:
+    """True if the URL points at Shopify's .myshopify.com admin domain.
+    Google Ads will reject these as a destination mismatch."""
+    return ".myshopify.com" in ((url or "").lower())
+
+
+def fix_landing_url(db: Session, campaign_id: int) -> tuple[bool, str]:
+    """Re-resolve a campaign's landing_page_url using the current public
+    storefront URL. Useful for campaigns saved before the public URL was
+    configured."""
+    c = db.get(AdCampaign, campaign_id)
+    if c is None:
+        return False, "Campaign not found."
+    if c.scope_type == "product" and c.product_id:
+        new_url = _default_landing_url(db, "product", c.product_id)
+    elif c.scope_type == "collection" and c.collection_id:
+        new_url = _default_landing_url(db, "collection", c.collection_id)
+    else:
+        return False, "Campaign has no scope target to derive a URL from."
+    if not new_url:
+        return False, "Couldn't build a URL — set Public storefront URL on Shopify connections."
+    if url_uses_admin_domain(new_url):
+        return False, (
+            "Resolver still returned a .myshopify.com URL. Open Connections → "
+            "Shopify and set 'Public storefront URL' to your live domain "
+            "(e.g. https://syruvia.com), then try again."
+        )
+    if new_url == c.landing_page_url:
+        return True, "Landing URL was already up to date."
+    c.landing_page_url = new_url
+    c.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return True, f"Landing URL updated → {new_url}"
 
 
 def _default_landing_url(db: Session, scope_type: str, scope_id: int) -> str:

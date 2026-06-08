@@ -400,6 +400,16 @@ def push_campaign(db: Session, campaign_id: int) -> tuple[bool, str]:
         return False, "Set a landing page URL on the campaign before pushing."
     if int(c.daily_budget_cents or 0) <= 0:
         return False, "Daily budget must be greater than 0 before pushing."
+    # Google Ads rejects .myshopify.com URLs as destination mismatch — those
+    # are Shopify admin domains, not the customer-facing storefront. Force
+    # the admin to set a public URL before pushing.
+    if campaigns_svc.url_uses_admin_domain(c.landing_page_url):
+        return False, (
+            "Landing URL is the Shopify admin domain (.myshopify.com). "
+            "Google Ads will reject this as a destination mismatch. "
+            "Click 'Fix landing URL' to rebuild from the public storefront, "
+            "or set Public storefront URL on Connections → Shopify first."
+        )
     ad_groups = campaigns_svc.ad_groups_for_campaign(db, campaign_id)
     if not ad_groups:
         return False, "Campaign has no ad groups."

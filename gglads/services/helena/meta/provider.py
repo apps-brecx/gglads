@@ -62,6 +62,13 @@ class MetaExecutionProvider(ABC):
             message="Reading Instagram post insights isn't supported by this backend.",
         )
 
+    # ---- Live per-ad performance for an explicit date range -----------
+    def fetch_ad_performance(self, since, until) -> ProviderResult:
+        return ProviderResult(
+            success=False,
+            message="Live ad performance isn't supported by this backend.",
+        )
+
 
 # Imported late to keep the type hint above readable.
 from datetime import datetime  # noqa: E402

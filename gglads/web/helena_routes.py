@@ -161,12 +161,32 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         accounts: dict[str, list[IntegrationAccount]] = {}
         for acc in db.scalars(select(IntegrationAccount)).all():
             accounts.setdefault(acc.integration_name, []).append(acc)
-        # Treat env-configured Shopify as connected even without a row.
+        # Meta connection: surface every discovered ad account / Page / IG so
+        # the user can pick which Helena uses (the silent first-pick was wrong).
+        from gglads.services.helena.meta import oauth as meta_oauth
+        meta_cfg = meta_oauth.get_meta_config(db)
         return templates.TemplateResponse(
             request, "helena/integrations.html",
             ctx(request, user, "helena_integrations",
-                sections=catalog.SECTIONS, rows=rows, accounts=accounts),
+                sections=catalog.SECTIONS, rows=rows, accounts=accounts,
+                meta=meta_cfg),
         )
+
+    @router.post("/helena/integrations/meta/select")
+    async def meta_select(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena.meta import oauth as meta_oauth
+        form = await request.form()
+        ok, detail = meta_oauth.set_selection(
+            db,
+            ad_account_id=str(form.get("ad_account_id")) if form.get("ad_account_id") else None,
+            page_id=str(form.get("page_id")) if form.get("page_id") else None,
+            user_id=user.id,
+        )
+        flash(request, detail, "ok" if ok else "error")
+        return RedirectResponse("/helena/integrations", status_code=status.HTTP_303_SEE_OTHER)
 
     @router.post("/helena/integrations/{key}/connect")
     async def integ_connect(key: str, request: Request,

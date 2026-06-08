@@ -188,6 +188,48 @@ def complete_oauth(db: Session, code: str, user_id: int | None) -> tuple[bool, s
     return True, detail
 
 
+def set_selection(
+    db: Session, *, ad_account_id: str | None = None, page_id: str | None = None,
+    user_id: int | None = None,
+) -> tuple[bool, str]:
+    """Change which ad account / Page (and its linked Instagram) Helena uses,
+    without reconnecting. Picks from the already-discovered lists."""
+    cfg = get_meta_config(db)
+    if not cfg:
+        return False, "Meta isn't connected."
+    detail = []
+    if ad_account_id is not None:
+        match = next((a for a in cfg.get("ad_accounts", [])
+                      if str(a.get("account_id")) == str(ad_account_id)), None)
+        if match is None:
+            return False, "That ad account isn't in your connected accounts."
+        cfg["ad_account_id"] = match["account_id"]
+        detail.append(f"Ad account: {match.get('name') or match['account_id']}")
+    if page_id is not None:
+        page = next((p for p in cfg.get("pages", [])
+                     if str(p.get("page_id")) == str(page_id)), None)
+        if page is None:
+            return False, "That Page isn't in your connected accounts."
+        cfg["page_id"] = page["page_id"]
+        cfg["page_token"] = page.get("page_token")
+        cfg["ig_user_id"] = page.get("ig_user_id")
+        cfg["ig_username"] = page.get("ig_username")
+        detail.append(f"Page: {page.get('page_name')}")
+        if page.get("ig_username"):
+            detail.append(f"Instagram: @{page['ig_username']}")
+    save_meta_config(db, cfg, user_id=user_id)
+    ig = {"ig_username": cfg.get("ig_username"), "ig_user_id": cfg.get("ig_user_id"),
+          "page_id": cfg.get("page_id"), "page_token": cfg.get("page_token")} \
+        if cfg.get("ig_user_id") else None
+    ad = next((a for a in cfg.get("ad_accounts", [])
+               if str(a.get("account_id")) == str(cfg.get("ad_account_id"))), None)
+    # Put the selected Page first so its name shows on the Facebook Pages chip.
+    pages = sorted(cfg.get("pages", []),
+                   key=lambda p: str(p.get("page_id")) != str(cfg.get("page_id")))
+    _mark_cards_connected(db, ig, pages, ad, user_id)
+    return True, ("Selection saved. " + " · ".join(detail)) if detail else "Selection saved."
+
+
 def _mark_cards_connected(db, ig, pages, ad, user_id) -> None:
     from datetime import datetime
 
@@ -208,9 +250,7 @@ def _mark_cards_connected(db, ig, pages, ad, user_id) -> None:
         row.access_mode = "read_write"
         row.updated_by_user_id = user_id
         row.updated_at = datetime.now(UTC)
-        # refresh chips for this card
-        for acc in list(row.__dict__.get("accounts", []) or []):
-            pass
+        # Refresh the chip(s) for this card to reflect the current selection.
         db.query(IntegrationAccount).filter(
             IntegrationAccount.integration_name == key
         ).delete()

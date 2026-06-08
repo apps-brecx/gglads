@@ -223,6 +223,17 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_instagram_post_performance",
+        "description": "Read organic performance of recent Instagram posts for the connected "
+                       "account — reach, impressions, likes, and comments per post. Use when "
+                       "the user asks how a post or their posts performed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer",
+                                     "description": "How many recent posts (1-25).", "default": 5}},
+        },
+    },
+    {
         "name": "list_products",
         "description": "List Shopify products (best sellers first) to feature in posts/ads/emails.",
         "input_schema": {
@@ -594,6 +605,17 @@ def _get_analytics(db, args, user_id, session_id):
     }
 
 
+def _get_instagram_post_performance(db, args, user_id, session_id):
+    from gglads.services.helena.meta.factory import get_meta_provider
+    res = get_meta_provider(db).fetch_instagram_media(int(args.get("limit", 5)))
+    if not res.success:
+        return {"ok": False, "error": res.message}
+    # Also persist so these show up on the analytics dashboard like other metrics.
+    analytics_svc.ingest_metrics(db, res.metrics)
+    return {"ok": True, "posts": res.steps, "count": len(res.steps),
+            "analytics_url": "/helena/analytics", "note": res.message}
+
+
 def _list_products(db, args, user_id, session_id):
     provider = brand_svc.ShopifyProductProvider(db)
     return {"ok": True, "products": provider.list_products(
@@ -738,6 +760,7 @@ _HANDLERS = {
     "pause_campaign": _pause_campaign,
     "resume_campaign": _resume_campaign,
     "get_analytics": _get_analytics,
+    "get_instagram_post_performance": _get_instagram_post_performance,
     "list_products": _list_products,
     "plan_email_campaign": _plan_email_campaign,
     "generate_email_copy": _generate_email_copy,

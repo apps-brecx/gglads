@@ -498,6 +498,25 @@ def test_fetch_ad_performance_uses_selected_account(db, monkeypatch):
         cfg.get_settings.cache_clear()
 
 
+def test_pick_purchase_does_not_double_count():
+    """Meta reports overlapping purchase action types; we must take ONE
+    canonical value, never the sum (that was inflating ROAS/revenue)."""
+    from gglads.services.helena.meta.meta_api import _pick_purchase
+    overlapping = [
+        {"action_type": "purchase", "value": "100"},
+        {"action_type": "omni_purchase", "value": "100"},
+        {"action_type": "offsite_conversion.fb_pixel_purchase", "value": "100"},
+        {"action_type": "onsite_web_purchase", "value": "100"},
+    ]
+    assert _pick_purchase(overlapping) == 100  # not 400
+    # Unknown labels → largest single, still not the sum.
+    assert _pick_purchase([
+        {"action_type": "x_purchase_a", "value": "30"},
+        {"action_type": "x_purchase_b", "value": "50"},
+    ]) == 50
+    assert _pick_purchase([]) == 0.0
+
+
 def test_fetch_ads_breakdown_full_metrics(db, monkeypatch):
     """The Meta Ads page data: per-campaign + per-ad rows with derived rates,
     account totals, status/budget, and currency — all from the selected account."""

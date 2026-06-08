@@ -47,6 +47,9 @@ TOOLS: list[dict[str, Any]] = [
                 "flavor": {"type": "string", "description": "Flavor name to fetch the real bottle for."},
                 "variant": {"type": "string", "enum": ["regular", "sugar_free"],
                             "description": "Regular or Sugar-Free."},
+                "product_image_id": {"type": "integer", "description": "Exact product-image "
+                                     "library entry id to use as the bottle (highest priority — "
+                                     "pass this when the user @-mentioned a specific product image)."},
                 "product_id": {"type": "integer", "description": "Optional Shopify product id to feature."},
                 "aspect_ratio": {"type": "string", "enum": ["1:1", "9:16", "16:9"], "default": "1:1"},
                 "n": {"type": "integer", "description": "Number of distinct concepts (1-4).", "default": 1},
@@ -375,7 +378,13 @@ def _resolve_real_bottle(db, args):
     """Find the user's REAL product bottle image: (a) the product-image library
     by flavor + Regular/Sugar-Free, else (b) the connected Shopify product image.
     Returns (url, source, mime) or (None, None, None)."""
+    from gglads.models.helena import ProductImage
     from gglads.services.helena import product_library as library_svc
+    # Highest priority: an exact library entry the user @-mentioned/selected.
+    if args.get("product_image_id"):
+        img = db.get(ProductImage, int(args["product_image_id"]))
+        if img and img.url:
+            return img.url, "library", (img.content_type or "image/png")
     flavor = (args.get("flavor") or "").strip()
     variant = args.get("variant")
     if flavor:
@@ -401,14 +410,16 @@ def _generate_image(db, args, user_id, session_id):
     from gglads.services.helena import storage
     svc = GoogleFlowImageService()
     flavor = (args.get("flavor") or "").strip()
-    wants_product = bool(flavor or args.get("product_id"))
+    wants_product = bool(flavor or args.get("product_id") or args.get("product_image_id"))
 
     # When the content is for a specific flavor/product, we MUST use the real
     # stored bottle and only generate the scene around it — never invent a bottle.
     if wants_product:
         bottle_url, source, mime = _resolve_real_bottle(db, args)
         if not bottle_url:
-            who = flavor or f"product #{args.get('product_id')}"
+            who = (flavor or (f"library image #{args['product_image_id']}"
+                              if args.get("product_image_id")
+                              else f"product #{args.get('product_id')}"))
             return {"ok": False, "error": (
                 f"I couldn't find a real bottle image for {who}. Upload it to the "
                 "Product images library (labeled with flavor + Regular/Sugar-Free) or "

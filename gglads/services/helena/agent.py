@@ -250,13 +250,15 @@ def _history_for_api(db: Session, session_id: int) -> list[dict[str, Any]]:
 
 def stream_turn(
     db: Session, session_id: int, user_text: str, user_id: int | None,
-    image_url: str | None = None,
+    image_url: str | None = None, mention_context: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Run one user turn. Yields events:
       {type: 'tool', name, args, result}
       {type: 'text', text}
       {type: 'done'} | {type: 'error', error}
     Persists the user message (with any attached image) and the final reply.
+    `mention_context` (e.g. @-mentioned product images) is given to the model
+    for this turn only — it is NOT stored as part of the user's message.
     """
     append_user_message(db, session_id, user_text, user_id, image_url=image_url)
     _maybe_remember_standing_instruction(db, user_text, user_id)
@@ -274,6 +276,8 @@ def stream_turn(
         memory=memory_svc.memory_context_text(db) or "",
         library=library_svc.library_context_text(db) or "",
     )
+    if mention_context:
+        system += "\n\n" + mention_context
     messages = _history_for_api(db, session_id)
 
     final_text = ""

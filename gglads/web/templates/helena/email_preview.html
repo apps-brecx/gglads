@@ -2,12 +2,25 @@
 {% block title %}Email preview — {{ camp.name }}{% endblock %}
 {% block content %}
 {% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
-<div class="page-head">
-  <h1 class="page-title">{{ camp.name }}</h1>
-  <p class="page-subtitle">
-    <span class="pill {{ camp.status }}">{{ camp.status }}</span>
-    Subject: <strong>{{ camp.subject or '—' }}</strong> · Preheader: {{ camp.preheader or '—' }}
-  </p>
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+  <div>
+    <a href="/helena/email" class="conn-desc" style="text-decoration:none;">← All emails</a>
+    <h1 class="page-title" style="margin-top:4px;">{{ camp.name }}</h1>
+    <p class="page-subtitle">
+      <span class="pill {{ camp.status }}">{{ camp.status }}</span>
+      Subject: <strong>{{ camp.subject or '—' }}</strong> · Preheader: {{ camp.preheader or '—' }}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <form method="post" action="/helena/email/{{ camp.id }}/refine">
+      <button class="btn-secondary" type="submit">✎ Refine in chat</button>
+    </form>
+    {% if camp.html and camp.status != 'pending_approval' %}
+    <form method="post" action="/helena/email/{{ camp.id }}/approve">
+      <button class="btn-primary" type="submit">→ Send to approval</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 
 <div class="preview-frames">

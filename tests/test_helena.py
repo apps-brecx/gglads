@@ -566,6 +566,33 @@ def test_email_skills_return_preview_url(db):
     assert r["status"] == "needs_review"
 
 
+def test_email_starter_remix_creates_campaign(db):
+    from gglads.services.helena import email_campaigns as ec
+    s = ec.add_starter(db, name="Hero", html="<html><body>Pink Splash</body></html>")
+    assert s is not None and s.kind == "starter"
+    assert ec.add_starter(db, name="", html="x") is None  # needs both
+    camp = ec.remix_starter(db, s.id, user_id=None)
+    assert camp is not None and camp.status == "draft"
+    assert "Pink Splash" in camp.html
+    assert [c.id for c in ec.list_campaigns(db)] == [camp.id]
+    assert [t.id for t in ec.list_starters(db)] == [s.id]
+
+
+def test_edit_email_html_skill_updates_html(db, monkeypatch):
+    from gglads.models.email_campaign import EmailCampaign
+    from gglads.services import claude as claude_svc
+    from gglads.services.helena import skills
+    db.add(EmailCampaign(id=12, name="Promo", html="<h1>Pink Splash</h1>", status="draft"))
+    db.commit()
+    monkeypatch.setattr(claude_svc, "chat",
+                        lambda *a, **k: ("<h1>Mango</h1>", None))
+    r = skills.run_skill(db, "edit_email_html",
+                         {"campaign_id": 12, "instruction": "change flavor to Mango"},
+                         user_id=None, session_id=None)
+    assert r["ok"] and r["preview_url"] == "/helena/email/12/preview"
+    assert db.get(EmailCampaign, 12).html == "<h1>Mango</h1>"
+
+
 def test_create_email_draft_is_approval_gated(db):
     task = exec_svc.enqueue(db, title="Draft", kind="create_email_draft",
                             spec={"campaign_id": 1}, user_id=None)

@@ -92,6 +92,19 @@
     <div class="field">
       <label for="landing_page_url">Landing page URL</label>
       <input type="text" id="landing_page_url" name="landing_page_url" value="{{ campaign.landing_page_url or '' }}" />
+      {% if campaign.landing_page_url and '.myshopify.com' in campaign.landing_page_url %}
+      <div class="auth-error" style="margin-top:8px;">
+        <strong>This URL uses the Shopify admin domain (.myshopify.com).</strong>
+        Google Ads will reject it as a destination mismatch — it expects your
+        verified public domain (e.g. <code>https://syruvia.com/...</code>).
+        Set <strong>Public storefront URL</strong> on <a href="/connections" class="muted-link">Connections → Shopify</a>,
+        then click the button below to rebuild this campaign's landing URL from it.
+      </div>
+      <form method="post" action="/campaigns/{{ campaign.id }}/fix-landing-url"
+            class="inline-form" style="margin-top:8px;">
+        <button type="submit" class="btn-ghost btn-sm">Fix landing URL</button>
+      </form>
+      {% endif %}
     </div>
     <div class="form-actions">
       <button type="submit" class="btn-primary">Save basics</button>

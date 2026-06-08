@@ -18,7 +18,8 @@ INTEGRATION_FIELDS: dict[str, list[tuple[str, str, bool]]] = {
         ("model", "Model", False),
     ],
     "shopify": [
-        ("store_domain", "Store domain", False),
+        ("store_domain", "Store domain (admin .myshopify.com)", False),
+        ("public_storefront_url", "Public storefront URL (https://yourbrand.com)", False),
         ("admin_api_token", "Admin API access token", True),
         ("api_version", "API version", False),
     ],
@@ -55,6 +56,7 @@ def _env_fallback(name: str) -> dict[str, Any]:
     if name == "shopify":
         return {
             "store_domain": s.shopify_store_domain,
+            "public_storefront_url": "",
             "admin_api_token": s.shopify_admin_api_token,
             "api_version": s.shopify_api_version,
         }

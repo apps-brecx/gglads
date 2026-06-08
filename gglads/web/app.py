@@ -4015,6 +4015,22 @@ def campaign_push_to_google_ads(
     )
 
 
+@app.post("/campaigns/{campaign_id}/fix-landing-url")
+def campaign_fix_landing_url(
+    campaign_id: int, request: Request, db: DbDep
+) -> Response:
+    """Re-resolve the campaign's landing URL using the current public
+    storefront URL. Use when the saved URL still points at .myshopify.com."""
+    user, deny = _require_admin(request, db)
+    if deny is not None:
+        return deny
+    ok, detail = campaigns_svc.fix_landing_url(db, campaign_id)
+    _flash(request, detail, "ok" if ok else "error")
+    return RedirectResponse(
+        _campaign_back_url(db, campaign_id), status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
 # Push a single keyword (from the Keywords page) into an existing campaign.
 # Fans out to every ad group, using each group's match type.
 @app.post("/products/{product_id}/keywords/{keyword_id}/push-to-campaign")

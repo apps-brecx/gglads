@@ -86,7 +86,7 @@
           {% elif m.role == 'tool' %}
             {% set payload = (m.tool_payload_json | fromjson) if m.tool_payload_json else {} %}
             {% set result = payload.get('result', {}) if payload else {} %}
-            {% if m.tool_name == 'generate_image' and result.get('images') %}
+            {% if result.get('images') %}
               <div class="helena-msg helena-msg-assistant">
                 <div class="img-card" data-images='{{ (result.images | map(attribute="url") | list) | tojson }}'
                      {% if result.get('note') %}data-note="{{ result.note }}"{% endif %}></div>
@@ -459,7 +459,9 @@
           else if (ev.type === 'step') { addStep(ev.name); }
           else if (ev.type === 'text') { acc += ev.text; bubble.innerHTML = renderMarkdown(acc); }
           else if (ev.type === 'tool') {
-            if (ev.name === 'generate_image' && ev.result && ev.result.images && ev.result.images.length) {
+            // Any tool that returns images (generate_image, adjust_image, …)
+            // renders an image card inline so every update is shown in chat.
+            if (ev.result && ev.result.images && ev.result.images.length) {
               const w = el('helena-msg helena-msg-assistant', '<div class="img-card"></div>');
               mountImageCard(w.querySelector('.img-card'), ev.result.images.map(i => i.url), ev.result.note || '');
             } else if (ev.name === 'generate_video' && ev.result && ev.result.videos && ev.result.videos.length) {

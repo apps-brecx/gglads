@@ -316,6 +316,17 @@
 }
 .helena-bubble.md a { color: var(--accent); }
 .helena-bubble.md strong { font-weight: 700; color: var(--text-strong); }
+.helena-bubble.md table {
+  border-collapse: collapse; margin: 8px 0; max-width: 100%;
+  font-size: 13px; display: block; overflow-x: auto;
+}
+.helena-bubble.md th, .helena-bubble.md td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap;
+}
+.helena-bubble.md thead th {
+  background: var(--bg-input); color: var(--text-strong); font-weight: 700;
+}
+.helena-bubble.md tbody tr:nth-child(even) { background: var(--accent-soft); }
 
 /* ---- Inline generated-image card + lightbox ----------------------- */
 .img-card {

@@ -198,8 +198,29 @@
       .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
     const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br/>') + '</p>'); para = []; } };
     const flushList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
-    for (const raw of lines) {
-      const line = raw.trimEnd(); let m;
+    // Split a GitHub-style table row into trimmed cells (ignoring the outer pipes).
+    const cells = row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+    const isTableRow = l => /\|/.test(l) && /^\s*\|?.*\|.*$/.test(l);
+    const isSeparator = l => /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(l) && /-/.test(l);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trimEnd(); let m;
+      // GitHub-style table: a header row followed by a |---|---| separator.
+      if (line.trim() && isTableRow(line) && i + 1 < lines.length && isSeparator(lines[i + 1])) {
+        flushPara(); flushList();
+        const header = cells(line);
+        const body = [];
+        i += 2;  // skip header + separator; consume body rows
+        while (i < lines.length && lines[i].trim() && isTableRow(lines[i])) { body.push(cells(lines[i])); i++; }
+        i--;  // for-loop will increment
+        let html = '<table><thead><tr>' + header.map(h => '<th>' + inline(h) + '</th>').join('') + '</tr></thead>';
+        if (body.length) {
+          html += '<tbody>' + body.map(r =>
+            '<tr>' + header.map((_, c) => '<td>' + inline(r[c] || '') + '</td>').join('') + '</tr>'
+          ).join('') + '</tbody>';
+        }
+        out.push(html + '</table>');
+        continue;
+      }
       if (!line.trim()) { flushPara(); flushList(); continue; }
       if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { flushPara(); flushList(); out.push('<h' + (m[1].length + 2) + '>' + inline(m[2]) + '</h' + (m[1].length + 2) + '>'); continue; }
       if ((m = line.match(/^>\s?(.*)$/))) { flushPara(); flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); continue; }

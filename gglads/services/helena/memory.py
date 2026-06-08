@@ -89,4 +89,8 @@ def memory_context_text(db: Session, limit: int = 50) -> str:
     if not items:
         return ""
     lines = [f"- ({i.category}) {i.content}" for i in items]
-    return "Things you have learned and must apply without being re-told:\n" + "\n".join(lines)
+    return (
+        "Standing instructions from the user (BINDING — apply every one on every "
+        "relevant turn without being re-told, including output/formatting rules):\n"
+        + "\n".join(lines)
+    )

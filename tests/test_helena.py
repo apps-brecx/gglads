@@ -688,6 +688,21 @@ def test_memory_remember_inject_edit_delete(db):
     assert mem.list_items(db) == []
 
 
+def test_auto_capture_standing_instruction(db):
+    from gglads.services.helena import agent, memory as mem
+    # A message phrased as a standing instruction is persisted to memory even
+    # without the model calling the `remember` skill.
+    agent._maybe_remember_standing_instruction(
+        db, "use this table layout every time you give me analytics", user_id=None
+    )
+    items = mem.list_items(db)
+    assert any("table layout" in i.content for i in items)
+    assert items[0].category == "preference"
+    # A normal message is NOT captured.
+    agent._maybe_remember_standing_instruction(db, "show me last week's ROAS", user_id=None)
+    assert len(mem.list_items(db)) == 1
+
+
 def test_remember_skill_writes_memory(db):
     from gglads.services.helena import memory as mem, skills
     r = skills.run_skill(db, "remember", {"content": "audience is 18-34", "category": "fact"},

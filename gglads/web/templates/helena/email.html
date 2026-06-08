@@ -65,17 +65,25 @@
   <div class="tbl-body">
     {% if starters %}
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Added</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Preview</th><th>Name</th><th>Type</th><th>Added</th><th>Actions</th></tr></thead>
       <tbody>
         {% for s in starters %}
         <tr>
+          <td>{% if s.kind == 'starter_image' %}<a href="{{ s.html_fragment }}" target="_blank"><img class="ad-thumb" src="{{ s.html_fragment }}" alt="email"/></a>{% else %}<span class="conn-desc">HTML</span>{% endif %}</td>
           <td><strong>{{ s.name }}</strong></td>
+          <td class="conn-desc">{{ 'Screenshot' if s.kind == 'starter_image' else 'HTML' }}</td>
           <td class="conn-desc">{{ s.created_at.strftime('%b %d') if s.created_at else '' }}</td>
           <td>
             <div class="row-ctrls">
+              {% if s.kind == 'starter_image' %}
+              <form method="post" action="/helena/email/starters/{{ s.id }}/build" class="ctrl-form">
+                <button class="mini-btn" title="Rebuild this screenshot as a real HTML email in chat">🎨 Build in chat</button>
+              </form>
+              {% else %}
               <form method="post" action="/helena/email/starters/{{ s.id }}/remix" class="ctrl-form">
                 <button class="mini-btn" title="Start a new campaign from this design and edit it in chat">🎨 Remix</button>
               </form>
+              {% endif %}
               <form method="post" action="/helena/email/starters/{{ s.id }}/delete" class="ctrl-form"
                     onsubmit="return confirm('Delete this starter?');">
                 <button class="mini-btn" style="color:var(--fail);">Delete</button>
@@ -87,14 +95,17 @@
       </tbody>
     </table>
     {% else %}
-      <div class="conn-desc" style="padding:14px;">No starters yet. Paste an email design below to reuse it.</div>
+      <div class="conn-desc" style="padding:14px;">No starters yet. Paste an email's HTML, or upload an image of one, below.</div>
     {% endif %}
 
-    <form method="post" action="/helena/email/starters/add" style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
-      <input class="ctrl-input" style="width:auto;" type="text" name="name" placeholder="Starter name (e.g. Launch hero — single product)" required/>
-      <textarea name="html" rows="8" required placeholder="Paste full email HTML here…"
+    <form method="post" action="/helena/email/starters/add" enctype="multipart/form-data"
+          style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
+      <input class="ctrl-input" style="width:auto;" type="text" name="name" placeholder="Design name (e.g. Launch hero — single product)" required/>
+      <textarea name="html" rows="7" placeholder="Paste full email HTML here…"
         style="background:var(--bg-input);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-family:ui-monospace,monospace;font-size:12px;"></textarea>
-      <div><button class="btn-primary" type="submit">Save starter</button></div>
+      <div class="conn-desc">…or upload an image of an email to save &amp; rebuild it:</div>
+      <input type="file" name="image" accept="image/*"/>
+      <div><button class="btn-primary" type="submit">Save design</button></div>
     </form>
   </div>
 </div>

@@ -78,6 +78,10 @@ class MetaExecutionProvider(ABC):
         return {"ok": False,
                 "error": "Campaign drill-down isn't supported by this backend."}
 
+    def fetch_ad_detail(self, ad_id, since, until) -> dict:
+        return {"ok": False,
+                "error": "Ad drill-down isn't supported by this backend."}
+
     # ---- Generic writes (campaign / ad set / ad), approval-gated ------
     def set_status(self, entity_id: str, status: str) -> ProviderResult:
         return ProviderResult(

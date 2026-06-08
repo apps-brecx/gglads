@@ -442,6 +442,7 @@
     if (opts.region) fd.append('region', typeof opts.region === 'string' ? opts.region : JSON.stringify(opts.region));
     if (opts.remix) fd.append('remix', opts.remix);
     if (opts.emailRemix) fd.append('email_remix', opts.emailRemix);
+    if (opts.emailBuild) fd.append('email_build', opts.emailBuild);
     if (imageFile) fd.append('image', imageFile, imageFile.name || 'image.png');
     let acc = '';
     try {
@@ -615,8 +616,10 @@
     const opts = {};
     if (remixUrl) opts.remix = remixUrl;
     if (emailRemixId) opts.emailRemix = emailRemixId;
+    if (emailBuildUrl) opts.emailBuild = emailBuildUrl;
     sendTurn(text, file, preview, ids, Object.keys(opts).length ? opts : undefined);
     if (remixUrl) { remixUrl = ''; document.querySelector('.remix-banner')?.remove(); }
+    if (emailBuildUrl) { emailBuildUrl = ''; document.querySelector('.email-build-banner')?.remove(); }
   });
   stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
 
@@ -625,6 +628,12 @@
   // Prefill (e.g. launched from Explore) — drop into the box and auto-send once.
   const prefill = {{ (prefill or "") | tojson }};
   if (prefill) { input.value = prefill; sendTurn(prefill); input.value = ''; }
+
+  // Draft (e.g. "Chat" from Meta Ads) — fill the composer but DON'T send; the
+  // user adds their question/instruction first.
+  const draft = {{ (draft or "") | tojson }};
+  if (draft && !input.value) { input.value = draft; input.focus();
+    const dl = input.value.length; input.setSelectionRange(dl, dl); }
 
   // Remix (Files → "Remix in chat"): seed a new chat with an existing design.
   // Show the reference and prefill a hint — but DON'T auto-send; the user names
@@ -657,6 +666,23 @@
       '<a href="/helena/email/' + escapeHtml(String(emailRemixId)) + '/preview" target="_blank">Open preview ↗</a></span></div>';
     composer.parentNode.insertBefore(banner, composer);
     if (!input.value) input.value = 'In this email, change ';
+    input.focus();
+    const len = input.value.length; input.setSelectionRange(len, len);
+  }
+
+  // Email from image (Email page → Build in chat): rebuild a screenshot as HTML.
+  let emailBuildUrl = {{ (email_build or "") | tojson }};
+  if (emailBuildUrl) {
+    const banner = document.createElement('div');
+    banner.className = 'remix-banner email-build-banner';
+    banner.innerHTML =
+      '<img src="' + escapeHtml(emailBuildUrl) + '" alt="email screenshot"/>' +
+      '<div class="remix-text"><strong>Rebuild this email from the image</strong>' +
+      '<span>I’ll recreate it as a real HTML email you can tweak. Add any notes (flavor, links) and send.</span></div>' +
+      '<button type="button" class="remix-x" title="Remove">✕</button>';
+    composer.parentNode.insertBefore(banner, composer);
+    banner.querySelector('.remix-x').addEventListener('click', () => { emailBuildUrl = ''; banner.remove(); });
+    if (!input.value) input.value = 'Recreate this email design as HTML.';
     input.focus();
     const len = input.value.length; input.setSelectionRange(len, len);
   }

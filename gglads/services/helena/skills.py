@@ -553,7 +553,7 @@ def _find_product_image(db, args, user_id, session_id):
     if img is None:
         return {"ok": False, "error": "No matching product image in the library. "
                 "Upload one on the Product images page."}
-    return {"ok": True, "url": img.url, "flavor": img.flavor,
+    return {"ok": True, "url": img.url, "image_url": img.url, "flavor": img.flavor,
             "variant": img.variant, "label": img.label}
 
 
@@ -569,7 +569,8 @@ def _create_post(db, args, user_id, session_id):
     db.add(post)
     db.commit()
     db.refresh(post)
-    return {"ok": True, "post_id": post.id, "status": "draft"}
+    # Return image_url so the chat renders the drafted post's image inline.
+    return {"ok": True, "post_id": post.id, "status": "draft", "image_url": post.image_url}
 
 
 def _schedule_post(db, args, user_id, session_id):

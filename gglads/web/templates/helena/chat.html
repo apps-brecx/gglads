@@ -77,7 +77,10 @@
       <div class="helena-thread" id="thread">
         {% for m in messages %}
           {% if m.role == 'user' %}
-            <div class="helena-msg helena-msg-user"><div class="helena-bubble">{{ m.content }}</div></div>
+            <div class="helena-msg helena-msg-user">
+              {% if m.image_url %}<img class="chat-inline-img" src="{{ m.image_url }}" alt="attachment"/>{% endif %}
+              {% if m.content %}<div class="helena-bubble">{{ m.content }}</div>{% endif %}
+            </div>
           {% elif m.role == 'assistant' and m.content %}
             <div class="helena-msg helena-msg-assistant"><div class="helena-bubble md">{{ m.content }}</div></div>
           {% elif m.role == 'tool' %}
@@ -91,6 +94,10 @@
             {% elif m.tool_name == 'generate_video' and result.get('videos') %}
               <div class="helena-msg helena-msg-assistant">
                 <video class="vid-card" src="{{ result.videos[0].url }}" controls preload="metadata"></video>
+              </div>
+            {% elif result.get('image_url') %}
+              <div class="helena-msg helena-msg-assistant">
+                <img class="chat-inline-img" src="{{ result.image_url }}" alt="image"/>
               </div>
             {% else %}
               <div class="helena-msg helena-msg-tool">
@@ -123,9 +130,18 @@
       </div>
 
       <form class="helena-composer" id="composer" data-session="{{ active_session.id }}">
-        <textarea id="msg" rows="2" placeholder="Ask Helena to plan content, generate an image or video, schedule a recurring task, launch a campaign, or design an email…"></textarea>
-        <button class="btn-primary" type="submit" id="send-btn">Send</button>
-        <button class="btn-secondary" type="button" id="stop-btn" hidden>Stop</button>
+        <div class="composer-attachment" id="attachment" hidden>
+          <img id="attachment-thumb" alt="attachment"/>
+          <button type="button" id="attachment-remove" title="Remove">✕</button>
+        </div>
+        <div class="composer-row">
+          <button class="composer-icon" type="button" id="attach-btn" title="Attach an image">📎</button>
+          <button class="composer-icon" type="button" id="mic-btn" title="Dictate (voice)">🎤</button>
+          <input type="file" id="file-input" accept="image/*" hidden/>
+          <textarea id="msg" rows="2" placeholder="Ask Helena… (paste or attach an image, or 🎤 to dictate)"></textarea>
+          <button class="btn-primary" type="submit" id="send-btn">Send</button>
+          <button class="btn-secondary" type="button" id="stop-btn" hidden>Stop</button>
+        </div>
       </form>
       {% else %}
       <div class="helena-thread"><div class="conn-desc">Start a new chat to talk to Helena.</div></div>
@@ -269,14 +285,18 @@
     s.textContent = '› ' + (STEP_LABELS[name] || name); workingSteps.appendChild(s);
   }
 
-  async function sendTurn(text) {
+  async function sendTurn(text, imageFile, previewUrl) {
     if (controller) controller.abort();  // a follow-up mid-task supersedes the current turn
     controller = new AbortController();
-    el('helena-msg helena-msg-user', '<div class="helena-bubble">' + escapeHtml(text) + '</div>');
+    const userHtml =
+      (previewUrl ? '<img class="chat-inline-img" src="' + escapeHtml(previewUrl) + '" alt="attachment"/>' : '') +
+      (text ? '<div class="helena-bubble">' + escapeHtml(text) + '</div>' : '');
+    el('helena-msg helena-msg-user', userHtml);
     const assistantWrap = el('helena-msg helena-msg-assistant', '<div class="helena-bubble md"></div>');
     const bubble = assistantWrap.querySelector('.helena-bubble');
     setWorking(true);
     const fd = new FormData(); fd.append('message', text);
+    if (imageFile) fd.append('image', imageFile, imageFile.name || 'image.png');
     let acc = '';
     try {
       const resp = await fetch('/helena/chat/' + sessionId + '/stream', { method: 'POST', body: fd, signal: controller.signal });
@@ -298,6 +318,11 @@
             } else if (ev.name === 'generate_video' && ev.result && ev.result.videos && ev.result.videos.length) {
               el('helena-msg helena-msg-assistant',
                  '<video class="vid-card" src="' + escapeHtml(ev.result.videos[0].url) + '" controls preload="metadata"></video>');
+            } else if (ev.result && ev.result.image_url) {
+              const w = el('helena-msg helena-msg-assistant', '<img class="chat-inline-img" alt="image"/>');
+              const im = w.querySelector('img');
+              im.addEventListener('error', () => { w.innerHTML = '<div class="img-note">⚠ This image couldn’t be loaded.</div>'; });
+              im.src = ev.result.image_url;
             } else {
               const r = ev.result || {};
               let link = '';
@@ -321,10 +346,70 @@
     } finally { setWorking(false); controller = null; }
   }
 
+  // ---- Attachments: file picker, drag-drop, and paste ----
+  const fileInput = document.getElementById('file-input');
+  const attachBtn = document.getElementById('attach-btn');
+  const attachBox = document.getElementById('attachment');
+  const attachThumb = document.getElementById('attachment-thumb');
+  let attachedFile = null, attachedPreview = null;
+  function setAttachment(file) {
+    if (!file || !file.type || file.type.indexOf('image/') !== 0) return;
+    attachedFile = file;
+    if (attachedPreview) URL.revokeObjectURL(attachedPreview);
+    attachedPreview = URL.createObjectURL(file);
+    attachThumb.src = attachedPreview; attachBox.hidden = false;
+  }
+  function clearAttachment() {
+    attachedFile = null;
+    if (attachedPreview) { URL.revokeObjectURL(attachedPreview); attachedPreview = null; }
+    attachBox.hidden = true; fileInput.value = '';
+  }
+  attachBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => setAttachment(fileInput.files[0]));
+  document.getElementById('attachment-remove').addEventListener('click', clearAttachment);
+  // paste an image from the clipboard
+  input.addEventListener('paste', e => {
+    const items = (e.clipboardData || {}).items || [];
+    for (const it of items) {
+      if (it.type && it.type.indexOf('image/') === 0) { setAttachment(it.getAsFile()); e.preventDefault(); break; }
+    }
+  });
+  // drag-drop onto the composer
+  ['dragover', 'dragenter'].forEach(ev => composer.addEventListener(ev, e => { e.preventDefault(); composer.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(ev => composer.addEventListener(ev, e => { e.preventDefault(); composer.classList.remove('drag'); }));
+  composer.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) setAttachment(f); });
+
+  // ---- Voice dictation (Web Speech API) ----
+  const micBtn = document.getElementById('mic-btn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recog = null, listening = false;
+  if (!SR) { micBtn.disabled = true; micBtn.title = 'Voice not supported in this browser'; }
+  micBtn.addEventListener('click', () => {
+    if (!SR) return;
+    if (listening && recog) { recog.stop(); return; }
+    recog = new SR(); recog.lang = 'en-US'; recog.interimResults = true; recog.continuous = false;
+    const base = input.value ? input.value + ' ' : '';
+    recog.onresult = e => {
+      let t = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+      input.value = base + t;
+    };
+    recog.onstart = () => { listening = true; micBtn.classList.add('listening'); };
+    recog.onend = () => { listening = false; micBtn.classList.remove('listening'); };
+    recog.onerror = () => { listening = false; micBtn.classList.remove('listening'); };
+    recog.start();
+  });
+
   composer.addEventListener('submit', e => {
     e.preventDefault();
-    const text = input.value.trim(); if (!text) return;
-    input.value = ''; sendTurn(text);
+    const text = input.value.trim();
+    if (!text && !attachedFile) return;  // need text or an image
+    const file = attachedFile, preview = attachedPreview;
+    // Detach WITHOUT revoking the blob URL — it's now shown in the sent bubble.
+    attachedFile = null; attachedPreview = null;
+    attachBox.hidden = true; fileInput.value = '';
+    input.value = '';
+    sendTurn(text, file, preview);
   });
   stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
 

@@ -138,13 +138,33 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             return PlainTextResponse("Unauthorized", status_code=401)
         form = await request.form()
         message = str(form.get("message", "")).strip()
-        if not message:
-            return PlainTextResponse("Empty message", status_code=400)
         if agent_svc.get_session(db, session_id) is None:
             return PlainTextResponse("Session not found", status_code=404)
 
+        # Optional pasted/uploaded image — store it and give the agent a public
+        # URL it can see. (We only need text OR an image to proceed.)
+        image_url = None
+        upload = form.get("image")
+        if upload is not None and hasattr(upload, "read"):
+            data = await upload.read()
+            if data:
+                from gglads.services.helena import storage
+                ext = "png"
+                ct = getattr(upload, "content_type", "") or "image/png"
+                ext = {"image/jpeg": "jpg", "image/webp": "webp",
+                       "image/gif": "gif"}.get(ct, "png")
+                url, err = storage.put_bytes(data, content_type=ct,
+                                             key_prefix="helena/chat", ext=ext)
+                if url:
+                    image_url = url
+                elif err:
+                    message = (message + f"\n\n(Note: your image couldn't be saved: {err})").strip()
+        if not message and not image_url:
+            return PlainTextResponse("Empty message", status_code=400)
+
         def event_stream():
-            for event in agent_svc.stream_turn(db, session_id, message, user.id):
+            for event in agent_svc.stream_turn(db, session_id, message, user.id,
+                                               image_url=image_url):
                 yield f"data: {json.dumps(event)}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

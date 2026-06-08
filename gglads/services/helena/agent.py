@@ -46,9 +46,14 @@ tell the user clearly that it's awaiting approval. Never claim something went \
 live if it is only queued.
 - Email campaigns are always created as drafts — never auto-send.
 - Whenever the user states a durable fact, preference, or decision (how they \
-like things done, audience, do's/don'ts, recurring choices), call the \
-`remember` skill so you never have to be told again. If they share company / \
-brand info, call `update_brand_knowledge`.
+like things done, audience, do's/don'ts, recurring choices, output/formatting \
+preferences such as "use this layout every time"), call the `remember` skill so \
+you never have to be told again. If they share company / brand info, call \
+`update_brand_knowledge`.
+- The "Standing instructions from the user" below are BINDING. You MUST follow \
+every one of them on every relevant turn without being reminded — including how \
+you format and lay out your answers (e.g. a required table format for analytics). \
+If a saved instruction specifies an output format, reproduce that exact format.
 - When generating content for a specific flavor/product, call `generate_image` \
 with `flavor` (and `variant`) and/or `product_id`. It uses the user's REAL \
 stored bottle and generates only the scene — it never invents a bottle. If it \
@@ -72,6 +77,41 @@ Brand context:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+# Phrases that signal the user is stating a standing instruction / durable
+# preference (e.g. "use this format every time"). Used as a deterministic
+# backstop so a standing instruction is persisted to memory even if the model
+# forgets to call the `remember` skill that turn.
+_STANDING_PHRASES = (
+    "every time", "everytime", "from now on", "going forward", "always",
+    "by default", "lock it in", "locked in", "lock in", "whenever",
+    "each time", "remember this", "remember that", "remember to",
+    "in the future", "for all future", "keep using", "keep doing",
+    "make sure you always", "from here on",
+)
+
+
+def _maybe_remember_standing_instruction(
+    db: Session, user_text: str, user_id: int | None
+) -> None:
+    """If the user's message looks like a standing instruction, persist it to
+    memory so it carries across turns/sessions — a backstop independent of the
+    model choosing to call the `remember` skill. De-duped by memory.add_item."""
+    text = (user_text or "").strip()
+    if not text:
+        return
+    low = text.lower()
+    if not any(p in low for p in _STANDING_PHRASES):
+        return
+    try:
+        from gglads.services.helena import memory as memory_svc
+        memory_svc.add_item(
+            db, content=text[:1000], category="preference",
+            source="chat-auto", user_id=user_id,
+        )
+    except Exception:  # never let memory capture break the turn
+        logger.exception("auto-capture of standing instruction failed")
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +254,7 @@ def stream_turn(
     Persists the user message (with any attached image) and the final reply.
     """
     append_user_message(db, session_id, user_text, user_id, image_url=image_url)
+    _maybe_remember_standing_instruction(db, user_text, user_id)
     yield {"type": "start"}  # UI shows the "working" state
 
     client, model, err = claude_svc.get_client_and_model(db)

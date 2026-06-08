@@ -34,12 +34,19 @@ logger = logging.getLogger("gglads.helena.skills")
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "generate_image",
-        "description": "Generate on-brand marketing image concept(s) via Google Flow. "
-                       "Returns image URLs. Optionally tie to a Shopify product.",
+        "description": "Generate an on-brand marketing image. For a specific product, pass "
+                       "`flavor` (and `variant`) and/or `product_id`: the tool uses the user's "
+                       "REAL stored bottle (product-image library or Shopify) and generates "
+                       "ONLY the surrounding scene — it never invents a bottle. If no real "
+                       "bottle exists it returns an error (don't claim you used one). `concept` "
+                       "describes the scene/background, not the bottle.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "concept": {"type": "string", "description": "Creative concept / scene to depict."},
+                "concept": {"type": "string", "description": "The scene/background to generate around the real product."},
+                "flavor": {"type": "string", "description": "Flavor name to fetch the real bottle for."},
+                "variant": {"type": "string", "enum": ["regular", "sugar_free"],
+                            "description": "Regular or Sugar-Free."},
                 "product_id": {"type": "integer", "description": "Optional Shopify product id to feature."},
                 "aspect_ratio": {"type": "string", "enum": ["1:1", "9:16", "16:9"], "default": "1:1"},
                 "n": {"type": "integer", "description": "Number of distinct concepts (1-4).", "default": 1},
@@ -234,6 +241,23 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_ad_performance",
+        "description": "Read LIVE Meta ad performance from the user's selected ad account, "
+                       "broken down per ad, for a date range — real spend, purchases, revenue, "
+                       "and ROAS. Use for any 'how are my ads doing' / spend / ROAS question.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "range": {"type": "string",
+                          "enum": ["today", "yesterday", "last_7d", "last_14d",
+                                   "last_30d", "this_month", "last_month"],
+                          "default": "last_7d"},
+                "since": {"type": "string", "description": "Explicit start date YYYY-MM-DD."},
+                "until": {"type": "string", "description": "Explicit end date YYYY-MM-DD."},
+            },
+        },
+    },
+    {
         "name": "list_products",
         "description": "List Shopify products (best sellers first) to feature in posts/ads/emails.",
         "input_schema": {
@@ -347,66 +371,98 @@ def run_skill(
 # Handlers
 # ---------------------------------------------------------------------------
 
-def _generate_image(db, args, user_id, session_id):
-    svc = GoogleFlowImageService()
-    products = brand_svc.ShopifyProductProvider(db)
-    product_ctx = ""
+def _resolve_real_bottle(db, args):
+    """Find the user's REAL product bottle image: (a) the product-image library
+    by flavor + Regular/Sugar-Free, else (b) the connected Shopify product image.
+    Returns (url, source, mime) or (None, None, None)."""
+    from gglads.services.helena import product_library as library_svc
+    flavor = (args.get("flavor") or "").strip()
+    variant = args.get("variant")
+    if flavor:
+        img = library_svc.find_image(db, flavor, variant)
+        if img and img.url:
+            return img.url, "library", (img.content_type or "image/png")
     if args.get("product_id"):
-        product_ctx = products.product_context_text(int(args["product_id"]))
-    prompt = ImagePrompt(
-        concept=args["concept"],
-        brand_context=brand_svc.brand_context_text(db),
-        product_context=product_ctx,
-        aspect_ratio=args.get("aspect_ratio", "1:1"),
-        n=min(4, max(1, int(args.get("n", 1)))),
-    )
-    # storage.put_bytes (inside generate) only returns publicly-reachable URLs,
-    # so anything we get back is safe to show inline. Retry once before giving
-    # up, so a transient save/reachability failure doesn't post a dead link.
-    images, err = svc.generate(prompt)
-    if not images and err:
-        images, err = svc.generate(prompt)
-    saved = []
-    for img in images:
-        asset = brand_svc.save_asset(
-            db, url=img.url, kind="generated", prompt=img.prompt,
-            product_id=args.get("product_id"), user_id=user_id,
-        )
-        saved.append({"asset_id": asset.id, "url": img.url})
-
-    # Fallback: when Google Flow isn't configured (or returned nothing) but a
-    # product was referenced, use that product's existing Shopify image so the
-    # chat still shows a usable on-brand visual — but only if it's reachable.
-    fallback = False
-    if not saved and args.get("product_id"):
-        from gglads.services.helena import storage
+        products = brand_svc.ShopifyProductProvider(db)
         pid = int(args["product_id"])
         urls = [i["url"] for i in products.get_product_images(pid) if i.get("url")]
         if not urls:
             prod = products.get_product(pid)
             if prod and prod.get("image_url"):
                 urls = [prod["image_url"]]
-        for url in urls[:1]:
-            ok, _ = storage.verify_url(url)
-            if not ok:
-                continue
-            asset = brand_svc.save_asset(
-                db, url=url, kind="product", title="Product image (fallback)",
-                prompt=args["concept"], product_id=pid, user_id=user_id,
-            )
-            saved.append({"asset_id": asset.id, "url": url, "fallback": True})
-            fallback = True
+        if urls:
+            return urls[0], "shopify", "image/png"
+    return None, None, None
 
+
+def _generate_image(db, args, user_id, session_id):
+    import httpx
+
+    from gglads.services.helena import storage
+    svc = GoogleFlowImageService()
+    flavor = (args.get("flavor") or "").strip()
+    wants_product = bool(flavor or args.get("product_id"))
+
+    # When the content is for a specific flavor/product, we MUST use the real
+    # stored bottle and only generate the scene around it — never invent a bottle.
+    if wants_product:
+        bottle_url, source, mime = _resolve_real_bottle(db, args)
+        if not bottle_url:
+            who = flavor or f"product #{args.get('product_id')}"
+            return {"ok": False, "error": (
+                f"I couldn't find a real bottle image for {who}. Upload it to the "
+                "Product images library (labeled with flavor + Regular/Sugar-Free) or "
+                "connect the Shopify product. I won't invent a fake bottle.")}
+        ok, _ = storage.verify_url(bottle_url)
+        if not ok:
+            return {"ok": False, "error": "Your stored bottle image isn't publicly reachable; "
+                    "re-upload it to the Product images library."}
+        # Download the real bottle bytes and composite it into a generated scene.
+        try:
+            r = httpx.get(bottle_url, timeout=30.0, follow_redirects=True)
+            ref_bytes = r.content if r.status_code == 200 else b""
+            mime = r.headers.get("content-type", mime) or mime
+        except httpx.HTTPError:
+            ref_bytes = b""
+        img, err = (None, "no bytes")
+        if ref_bytes:
+            img, err = svc.generate_with_reference(
+                args["concept"], ref_bytes, ref_mime=mime,
+                brand_context=brand_svc.brand_context_text(db))
+        if img:
+            asset = brand_svc.save_asset(
+                db, url=img.url, kind="generated", title=f"{flavor or 'Product'} creative",
+                prompt=args["concept"], product_id=args.get("product_id"), user_id=user_id)
+            return {"ok": True, "images": [{"asset_id": asset.id, "url": img.url}],
+                    "bottle_used": {"source": source, "url": bottle_url},
+                    "note": f"Used your real {source} bottle image and generated only the scene."}
+        # Scene compositing unavailable/failed — show the REAL bottle as-is rather
+        # than a fabricated lookalike.
+        asset = brand_svc.save_asset(
+            db, url=bottle_url, kind="product", title=f"{flavor or 'Product'} (real image)",
+            prompt=args["concept"], product_id=args.get("product_id"), user_id=user_id)
+        return {"ok": True, "images": [{"asset_id": asset.id, "url": bottle_url, "fallback": True}],
+                "bottle_used": {"source": source, "url": bottle_url},
+                "note": (f"Showing your real {source} bottle image (couldn't generate a scene "
+                         f"around it: {err}). I did not invent a bottle.")}
+
+    # No specific product → a generic generated scene is fine (no real bottle to keep).
+    prompt = ImagePrompt(
+        concept=args["concept"], brand_context=brand_svc.brand_context_text(db),
+        aspect_ratio=args.get("aspect_ratio", "1:1"),
+        n=min(4, max(1, int(args.get("n", 1)))),
+    )
+    images, err = svc.generate(prompt)
+    if not images and err:
+        images, err = svc.generate(prompt)
+    saved = []
+    for img in images:
+        asset = brand_svc.save_asset(db, url=img.url, kind="generated",
+                                     prompt=img.prompt, user_id=user_id)
+        saved.append({"asset_id": asset.id, "url": img.url})
     if not saved:
-        # Don't post a dead link — say what went wrong so the user can retry.
-        return {"ok": False, "error": err or "Couldn't produce a usable image. "
-                "The image either failed to generate or wasn't publicly reachable "
-                "after saving — please try again."}
-    note = err
-    if fallback:
-        note = ("Google Flow isn't configured — showing the product's existing "
-                "Shopify image instead.")
-    return {"ok": True, "images": saved, "fallback": fallback, "note": note}
+        return {"ok": False, "error": err or "Couldn't produce a usable image — please try again."}
+    return {"ok": True, "images": saved, "note": err}
 
 
 def _generate_video(db, args, user_id, session_id):
@@ -616,6 +672,19 @@ def _get_instagram_post_performance(db, args, user_id, session_id):
             "analytics_url": "/helena/analytics", "note": res.message}
 
 
+def _get_ad_performance(db, args, user_id, session_id):
+    from gglads.services.helena import daterange
+    from gglads.services.helena.meta.factory import get_meta_provider
+    since, until = daterange.resolve_range(args.get("range"), args.get("since"), args.get("until"))
+    res = get_meta_provider(db).fetch_ad_performance(since.isoformat(), until.isoformat())
+    if not res.success:
+        return {"ok": False, "error": res.message}
+    # Surface on the dashboard too, like other analytics.
+    analytics_svc.ingest_metrics(db, res.metrics)
+    return {"ok": True, "range": f"{since.isoformat()} → {until.isoformat()}",
+            "ads": res.steps, "summary": res.message, "analytics_url": "/helena/analytics"}
+
+
 def _list_products(db, args, user_id, session_id):
     provider = brand_svc.ShopifyProductProvider(db)
     return {"ok": True, "products": provider.list_products(
@@ -761,6 +830,7 @@ _HANDLERS = {
     "resume_campaign": _resume_campaign,
     "get_analytics": _get_analytics,
     "get_instagram_post_performance": _get_instagram_post_performance,
+    "get_ad_performance": _get_ad_performance,
     "list_products": _list_products,
     "plan_email_campaign": _plan_email_campaign,
     "generate_email_copy": _generate_email_copy,

@@ -129,21 +129,48 @@ def _exchange_code(code: str) -> tuple[str | None, str | None]:
     return short, None  # fall back to short-lived if exchange fails
 
 
+def _resolve_ig_for_page(page_id: str | None, page_token: str | None) -> tuple[str | None, str | None]:
+    """Resolve the Instagram account linked to a Page, using the PAGE token and
+    trying both edges (instagram_business_account, then connected_instagram_account).
+    The user token often returns these blank; the page token resolves them."""
+    if not page_id or not page_token:
+        return None, None
+    try:
+        r = httpx.get(f"{graph_base()}/{page_id}", params={
+            "fields": "instagram_business_account{id,username},connected_instagram_account{id,username}",
+            "access_token": page_token,
+        }, timeout=20.0)
+        if r.status_code == 200:
+            d = r.json()
+            ig = d.get("instagram_business_account") or d.get("connected_instagram_account") or {}
+            return ig.get("id"), ig.get("username")
+        logger.warning("IG resolve for page %s HTTP %s: %s", page_id, r.status_code, r.text[:200])
+    except httpx.HTTPError as exc:
+        logger.warning("IG resolve for page %s failed: %s", page_id, exc)
+    return None, None
+
+
 def _discover(token: str) -> dict[str, Any]:
     """Discover Pages + linked IG business accounts + ad accounts."""
     out: dict[str, Any] = {"pages": [], "ad_accounts": []}
     try:
         r = httpx.get(f"{graph_base()}/me/accounts", params={
-            "fields": "name,access_token,instagram_business_account{id,username}",
+            "fields": "name,access_token,instagram_business_account{id,username},"
+                      "connected_instagram_account{id,username}",
             "access_token": token, "limit": 100,
         }, timeout=20.0)
         if r.status_code == 200:
             for p in r.json().get("data", []):
-                ig = p.get("instagram_business_account") or {}
+                ig = (p.get("instagram_business_account")
+                      or p.get("connected_instagram_account") or {})
+                ig_id, ig_user = ig.get("id"), ig.get("username")
+                # Fall back to a per-page lookup with the page token if blank.
+                if not ig_id:
+                    ig_id, ig_user = _resolve_ig_for_page(p.get("id"), p.get("access_token"))
                 out["pages"].append({
                     "page_id": p.get("id"), "page_name": p.get("name"),
                     "page_token": p.get("access_token"),
-                    "ig_user_id": ig.get("id"), "ig_username": ig.get("username"),
+                    "ig_user_id": ig_id, "ig_username": ig_user,
                 })
     except httpx.HTTPError as exc:
         logger.warning("page discovery failed: %s", exc)
@@ -210,6 +237,10 @@ def set_selection(
                      if str(p.get("page_id")) == str(page_id)), None)
         if page is None:
             return False, "That Page isn't in your connected accounts."
+        # Resolve the linked Instagram account now if it wasn't captured before.
+        if not page.get("ig_user_id") and page.get("page_token"):
+            ig_id, ig_user = _resolve_ig_for_page(page["page_id"], page["page_token"])
+            page["ig_user_id"], page["ig_username"] = ig_id, ig_user
         cfg["page_id"] = page["page_id"]
         cfg["page_token"] = page.get("page_token")
         cfg["ig_user_id"] = page.get("ig_user_id")
@@ -217,6 +248,8 @@ def set_selection(
         detail.append(f"Page: {page.get('page_name')}")
         if page.get("ig_username"):
             detail.append(f"Instagram: @{page['ig_username']}")
+        else:
+            detail.append("No Instagram business account is linked to this Page")
     save_meta_config(db, cfg, user_id=user_id)
     ig = {"ig_username": cfg.get("ig_username"), "ig_user_id": cfg.get("ig_user_id"),
           "page_id": cfg.get("page_id"), "page_token": cfg.get("page_token")} \

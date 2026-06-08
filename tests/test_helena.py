@@ -236,21 +236,106 @@ def test_calendar_add_item_appears_inline(db):
 
 # ---- Review fixes: generate_image product fallback ----------------------
 
-def test_generate_image_falls_back_to_product_image(db, monkeypatch):
+def test_generate_image_uses_real_shopify_bottle(db, monkeypatch):
+    """For a product, never invent a bottle: when scene-compositing isn't
+    available it shows the user's REAL Shopify image, not a generated one."""
+    import httpx as _httpx
+
     from gglads.models.shopify_product import ShopifyProduct
     from gglads.services.helena import skills, storage
-    # The fallback only uses a product image we can confirm is reachable.
     monkeypatch.setattr(storage, "verify_url", lambda url, **k: (True, "ok"))
+
+    class _R:
+        status_code = 200
+        content = b"REALBOTTLEBYTES"
+        headers = {"content-type": "image/jpeg"}
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: _R())
     db.add(ShopifyProduct(id=55, handle="pink", title="Pink Splash",
                           status="active", image_url="https://cdn/pink.jpg"))
     db.commit()
-    # Google Flow is unconfigured in tests -> must fall back to product image.
+    # Flow has no API key in tests, so compositing is unavailable -> real image.
     res = skills.run_skill(db, "generate_image",
-                           {"concept": "hero", "product_id": 55},
+                           {"concept": "hero on a beach", "product_id": 55},
                            user_id=None, session_id=None)
     assert res["ok"] is True
-    assert res["fallback"] is True
     assert res["images"][0]["url"] == "https://cdn/pink.jpg"
+    assert res["bottle_used"]["source"] == "shopify"
+
+
+def test_generate_image_no_real_bottle_says_so(db):
+    """A flavor with no library/Shopify bottle must error, not invent one."""
+    from gglads.services.helena import skills
+    res = skills.run_skill(db, "generate_image",
+                           {"concept": "beach", "flavor": "Nonexistent"},
+                           user_id=None, session_id=None)
+    assert res["ok"] is False
+    assert "couldn't find a real bottle" in res["error"].lower()
+    assert "images" not in res
+
+
+def test_generate_image_composites_library_bottle(db, monkeypatch):
+    """When a library bottle exists and compositing works, it uses the real
+    bottle and reports bottle_used=library."""
+    import httpx as _httpx
+
+    from gglads.services.helena import product_library as lib
+    from gglads.services.helena import skills, storage
+    from gglads.services.helena.images.google_flow import GeneratedImage, GoogleFlowImageService
+    monkeypatch.setattr(storage, "put_bytes", lambda *a, **k: ("https://pub/lib.png", None))
+    monkeypatch.setattr(storage, "verify_url", lambda url, **k: (True, "ok"))
+    lib.add_image(db, data=b"PNG", content_type="image/png", flavor="Pink Splash",
+                  variant="sugar_free")
+
+    class _R:
+        status_code = 200
+        content = b"BOTTLE"
+        headers = {"content-type": "image/png"}
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: _R())
+    monkeypatch.setattr(GoogleFlowImageService, "generate_with_reference",
+                        lambda self, c, b, ref_mime="image/png", brand_context="":
+                        (GeneratedImage(url="https://pub/scene.png", prompt=c), None))
+    res = skills.run_skill(db, "generate_image",
+                           {"concept": "on a marble counter", "flavor": "Pink Splash",
+                            "variant": "sugar_free"}, user_id=None, session_id=None)
+    assert res["ok"] is True
+    assert res["images"][0]["url"] == "https://pub/scene.png"
+    assert res["bottle_used"]["source"] == "library"
+
+
+def test_fetch_ad_performance_uses_selected_account(db, monkeypatch):
+    """Live ad performance targets the SAVED ad account and returns real totals."""
+    import gglads.config as cfg
+    import httpx as _httpx
+    from gglads.services.helena.meta import meta_api, oauth
+    monkeypatch.setenv("META_EXECUTION_MODE", "api")
+    cfg.get_settings.cache_clear()
+    oauth.save_meta_config(db, {"access_token": "TOK", "ad_account_id": "734704884820822",
+                                "ad_accounts": [], "pages": []})
+
+    captured = {}
+
+    class _R:
+        status_code = 200
+        def json(self):
+            return {"data": [
+                {"ad_id": "a1", "ad_name": "Promo", "campaign_name": "C",
+                 "spend": "120.50", "impressions": "3000", "clicks": "90",
+                 "actions": [{"action_type": "purchase", "value": "5"}],
+                 "action_values": [{"action_type": "purchase", "value": "480.00"}]},
+            ]}
+    def fake_get(url, params=None, **k):
+        captured["url"] = url
+        return _R()
+    monkeypatch.setattr(_httpx, "get", fake_get)
+    try:
+        res = meta_api.MetaApiProvider(db).fetch_ad_performance("2026-06-07", "2026-06-07")
+        assert "act_734704884820822/insights" in captured["url"]  # the SELECTED account
+        assert res.success and res.steps[0]["spend"] == 120.5
+        assert res.steps[0]["revenue"] == 480.0 and res.steps[0]["roas"] == round(480/120.5, 2)
+        totals = {m["metric"]: m["value"] for m in res.metrics}
+        assert totals["spend"] == 120.5 and totals["revenue"] == 480.0
+    finally:
+        cfg.get_settings.cache_clear()
 
 
 def test_generate_image_reports_failure_not_dead_link(db):
@@ -690,11 +775,12 @@ def test_meta_objective_mapping():
     assert _OBJECTIVE["sales"] == "OUTCOME_SALES"
 
 
-def test_meta_metric_normalizes_spend_cents():
-    from gglads.services.helena.meta.meta_api import _metric
+def test_meta_metric_insights_currency_units():
+    # Graph insights spend is already in currency units (not cents) — no /100.
     from datetime import UTC, datetime
+    from gglads.services.helena.meta.meta_api import _metric
     m = _metric("meta_ads", "spend", "12345", datetime(2026, 6, 7, tzinfo=UTC))
-    assert m["value"] == 123.45 and m["platform"] == "meta_ads"
+    assert m["value"] == 12345.0 and m["platform"] == "meta_ads"
 
 
 # ---- Meta ad-account picker + Instagram post performance ----------------

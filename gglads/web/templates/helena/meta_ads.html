@@ -30,6 +30,11 @@
         <a href="/helena/meta-ads?range={{ key }}"><button class="{% if preset == key %}is-active{% endif %}">{{ lbl }}</button></a>
       {% endfor %}
     </div>
+    <form method="get" action="/helena/meta-ads" class="date-range">
+      <input type="date" name="since" value="{{ since }}"/><span>→</span>
+      <input type="date" name="until" value="{{ until }}"/>
+      <button class="btn-secondary" type="submit">Apply</button>
+    </form>
     <a href="/helena/integrations" class="btn-secondary">Manage account</a>
   </div>
 </div>
@@ -83,7 +88,7 @@
       <tbody>
         {% for c in data.campaigns %}
         <tr>
-          <td>{{ c.name }}</td>
+          <td><a class="tbl-link" href="/helena/meta-ads/campaign/{{ c.id }}?since={{ since }}&until={{ until }}">{{ c.name }}</a></td>
           <td>{% if c.status %}<span class="pill {{ 'pill-ok' if 'Active' in c.status else '' }}">{{ c.status }}</span>{% else %}<span class="conn-desc">—</span>{% endif %}</td>
           <td class="num">{% if c.daily_budget %}{{ money(c.daily_budget) }}{% else %}—{% endif %}</td>
           <td class="num">{{ money(c.spend) }}</td>

@@ -301,6 +301,7 @@ class MetaApiProvider(MetaExecutionProvider):
                 budget = None
             raw_status = c.get("effective_status") or c.get("status") or ""
             out[c.get("id")] = {
+                "name": c.get("name"),
                 "status": raw_status.replace("_", " ").title(),
                 "daily_budget": budget,
             }
@@ -311,6 +312,91 @@ class MetaApiProvider(MetaExecutionProvider):
         if err or not body:
             return "USD"
         return body.get("currency") or "USD"
+
+    def fetch_campaign_detail(self, campaign_id, since, until) -> dict:
+        """Drill-down for ONE campaign: its ads (with adset ids) at full metric
+        detail, account totals, and a DAILY time-series for charting. Powers the
+        campaign detail page."""
+        if not self._token or not self._ad_account_id:
+            return {"ok": False, "error": "Meta isn't connected for ads."}
+        tr = f'{{"since":"{since}","until":"{until}"}}'
+        filt = (f'[{{"field":"campaign.id","operator":"IN","value":["{campaign_id}"]}}]')
+
+        # Ads in this campaign (with their ad-set ids for bid/cost-cap edits).
+        ad_body, err = self._get(f"act_{self._ad_account_id}/insights", {
+            "level": "ad",
+            "fields": ("ad_id,ad_name,adset_id,adset_name,effective_status,"
+                       "spend,impressions,clicks,reach,frequency,"
+                       "actions,action_values,purchase_roas"),
+            "time_range": tr, "filtering": filt, "limit": 500,
+        })
+        if err:
+            return {"ok": False, "error": f"Ad insights failed: {err}"}
+        ads = []
+        for r in (ad_body.get("data") or []):
+            row = _ad_row(r)
+            row.update({"id": r.get("ad_id"), "name": r.get("ad_name") or "(unnamed ad)",
+                        "adset_id": r.get("adset_id"), "adset_name": r.get("adset_name"),
+                        "status": (r.get("effective_status") or "").replace("_", " ").title()})
+            ads.append(row)
+        ads.sort(key=lambda x: x["spend"], reverse=True)
+
+        # Daily series for the chart (campaign-level, one row per day).
+        series = []
+        s_body, s_err = self._get(f"act_{self._ad_account_id}/insights", {
+            "level": "campaign",
+            "fields": "spend,impressions,clicks,actions,action_values",
+            "time_range": tr, "filtering": filt, "time_increment": 1, "limit": 500,
+        })
+        if not s_err:
+            for r in (s_body.get("data") or []):
+                spend = float(r.get("spend") or 0)
+                rev = _sum_actions(r.get("action_values"), "purchase")
+                series.append({
+                    "date": r.get("date_start") or r.get("date_stop"),
+                    "spend": round(spend, 2),
+                    "revenue": round(rev, 2),
+                    "clicks": int(float(r.get("clicks") or 0)),
+                    "purchases": round(_sum_actions(r.get("actions"), "purchase"), 2),
+                    "roas": _div(rev, spend),
+                })
+            series.sort(key=lambda p: p["date"] or "")
+
+        meta = self._campaign_meta_map().get(str(campaign_id)) or {}
+        name = meta.get("name")
+        if not name:  # fall back to a direct lookup
+            cb, _ = self._get(str(campaign_id), {"fields": "name,effective_status,daily_budget"})
+            if cb:
+                name = cb.get("name")
+        return {"ok": True,
+                "campaign": {"id": str(campaign_id), "name": name or f"Campaign {campaign_id}",
+                             "status": meta.get("status"),
+                             "daily_budget": meta.get("daily_budget")},
+                "ads": ads, "totals": _totals(ads), "series": series,
+                "currency": self._account_currency(), "range": f"{since} → {until}"}
+
+    # ---- generic writes (campaign / ad-set / ad) ----------------------
+    def set_status(self, entity_id: str, status: str) -> ProviderResult:
+        """Pause/activate any object (campaign, ad set, or ad) by id."""
+        if not self._token:
+            return self._not_connected("ads")
+        status = "ACTIVE" if str(status).upper() in ("ACTIVE", "RESUME", "ON") else "PAUSED"
+        _body, err = self._post(str(entity_id), {"status": status})
+        if err:
+            return ProviderResult(success=False, message=f"Status change failed: {err}")
+        return ProviderResult(success=True, external_id=str(entity_id),
+                              message=f"Set status to {status}.")
+
+    def set_fields(self, entity_id: str, fields: dict) -> ProviderResult:
+        """Update arbitrary writable fields on an object (e.g. daily_budget,
+        bid_amount + bid_strategy). Money fields must be in minor units (cents)."""
+        if not self._token:
+            return self._not_connected("ads")
+        _body, err = self._post(str(entity_id), dict(fields))
+        if err:
+            return ProviderResult(success=False, message=f"Update failed: {err}")
+        return ProviderResult(success=True, external_id=str(entity_id), message="Updated.")
+
 
     def fetch_instagram_insights(self, date_range: DateRange) -> ProviderResult:
         if not self._token or not self._ig_user_id:

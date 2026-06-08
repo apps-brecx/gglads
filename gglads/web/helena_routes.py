@@ -51,6 +51,13 @@ def _now() -> datetime:
 DbDep = Annotated[Session, Depends(get_db)]
 
 
+def _to_float(v) -> float | None:
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def build_router(templates: Jinja2Templates) -> APIRouter:
     router = APIRouter()
 
@@ -118,6 +125,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ctx(request, user, "helena_chat",
                 sessions=sessions, active_session=active_session,
                 messages=messages, prefill=request.query_params.get("prefill", ""),
+                remix=request.query_params.get("remix", ""),
                 library_products=[
                     {"id": p.id, "flavor": p.flavor, "variant": p.variant,
                      "label": p.label, "url": p.url}
@@ -217,6 +225,24 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                     "`schedule_post`) so it enters the approval queue and tell them it's "
                     "awaiting approval.")
             block = "\n".join(act)
+            mention_context = (mention_context + "\n\n" + block) if mention_context else block
+
+        # Remix: a new chat seeded from an existing design (Files → "Remix").
+        # Show the reference to the model and tell it to reuse the IDEA for the
+        # new flavor the user names — with that flavor's real bottle.
+        remix_url = str(form.get("remix", "")).strip()
+        if remix_url:
+            if not image_url:
+                image_url = remix_url  # so the model can SEE the reference design
+            block = (
+                "REMIX: the attached/above image is an existing design the user wants to "
+                "reuse the IDEA, composition, mood, and style of — for a DIFFERENT "
+                "product/flavor they will name. When they name the flavor, call "
+                "`generate_image` for THAT flavor (using its REAL bottle via flavor/"
+                "product_image_id) with a concept that recreates this design's scene and "
+                "style. Do NOT keep the old product — swap in the new flavor's real bottle. "
+                "If instead they only want small tweaks to this exact image, use "
+                "`adjust_image`.")
             mention_context = (mention_context + "\n\n" + block) if mention_context else block
 
         def event_stream():
@@ -496,6 +522,73 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 account_name=acct_name, account_id=cfg.get("ad_account_id"),
                 **sidebar_data(db)),
         )
+
+    @router.get("/helena/meta-ads/campaign/{campaign_id}", response_class=HTMLResponse)
+    def meta_ads_campaign(campaign_id: str, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import daterange
+        from gglads.services.helena.meta import oauth as meta_oauth
+        from gglads.services.helena.meta.factory import get_meta_provider
+        cfg = meta_oauth.get_meta_config(db)
+        connected = bool(cfg.get("access_token") and cfg.get("ad_account_id"))
+        preset = request.query_params.get("range", "last_30d")
+        since, until = daterange.resolve_range(
+            preset, request.query_params.get("since"), request.query_params.get("until"))
+        data = {"ok": False, "error": "Connect Meta and select an ad account to see live data."}
+        if connected:
+            data = get_meta_provider(db).fetch_campaign_detail(
+                campaign_id, since.isoformat(), until.isoformat())
+        return templates.TemplateResponse(
+            request, "helena/meta_ads_campaign.html",
+            ctx(request, user, "helena_meta_ads",
+                connected=connected, data=data, preset=preset,
+                campaign_id=campaign_id,
+                since=since.isoformat(), until=until.isoformat(),
+                **sidebar_data(db)),
+        )
+
+    @router.post("/helena/meta-ads/action")
+    async def meta_ads_action(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        action = str(form.get("action", "")).strip()
+        entity_id = str(form.get("entity_id", "")).strip()
+        label = str(form.get("label", "")).strip() or entity_id
+        back = str(form.get("back", "/helena/meta-ads"))
+        if not entity_id:
+            flash(request, "Missing the object to change.", "warn")
+            return RedirectResponse(back, status_code=status.HTTP_303_SEE_OTHER)
+        kind, spec, msg = None, {"entity_id": entity_id}, ""
+        if action == "pause":
+            kind, msg = "meta_pause", f"Queued to pause {label}."
+        elif action == "resume":
+            kind, msg = "meta_resume", f"Resume {label} queued — needs approval (spends money)."
+        elif action == "budget":
+            dollars = _to_float(form.get("value"))
+            if dollars is None or dollars <= 0:
+                flash(request, "Enter a valid daily budget.", "warn")
+                return RedirectResponse(back, status_code=status.HTTP_303_SEE_OTHER)
+            spec["amount_cents"] = int(round(dollars * 100))
+            kind = "meta_update_budget"
+            msg = f"Daily budget for {label} → set to {dollars:.2f} queued — needs approval."
+        elif action == "costcap":
+            dollars = _to_float(form.get("value"))
+            if dollars is None or dollars <= 0:
+                flash(request, "Enter a valid cost cap.", "warn")
+                return RedirectResponse(back, status_code=status.HTTP_303_SEE_OTHER)
+            spec["amount_cents"] = int(round(dollars * 100))
+            kind = "meta_set_costcap"
+            msg = f"Cost cap for {label} → {dollars:.2f} queued — needs approval."
+        if kind is None:
+            flash(request, "Unknown action.", "warn")
+            return RedirectResponse(back, status_code=status.HTTP_303_SEE_OTHER)
+        exec_svc.enqueue(db, title=msg[:120], kind=kind, spec=spec, user_id=user.id)
+        flash(request, msg + " Track it under Approvals.")
+        return RedirectResponse(back, status_code=status.HTTP_303_SEE_OTHER)
 
     # ===================================================================
     # Content calendar
@@ -792,6 +885,24 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         flash(request, "File deleted." if ok else f"Couldn't delete: {err}",
               "info" if ok else "error")
         return RedirectResponse("/helena/files", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/files/remix")
+    async def files_remix(request: Request, db: DbDep) -> Response:
+        """Start a NEW chat seeded with an existing design so the user can reuse
+        the idea for another flavor/product."""
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        image_url = str(form.get("image_url", "")).strip()
+        if not image_url:
+            return RedirectResponse("/helena/files", status_code=status.HTTP_303_SEE_OTHER)
+        from urllib.parse import quote
+        s = agent_svc.create_session(db, title="Remix", user_id=user.id)
+        return RedirectResponse(
+            f"/helena/chat?session={s.id}&remix={quote(image_url, safe='')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
 
     # ===================================================================
     # Brand knowledge documents

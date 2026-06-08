@@ -20,6 +20,12 @@
       <div class="conn-desc">{{ f.source }} · {{ f.created_at.strftime('%b %d') if f.created_at else '' }}</div>
     </div>
     <div class="file-actions">
+      {% if f.media != 'video' %}
+      <form method="post" action="/helena/files/remix">
+        <input type="hidden" name="image_url" value="{{ f.url }}"/>
+        <button class="btn-primary" style="padding:4px 10px;font-size:12px;" title="Start a new chat using this design as the starting point">🎨 Remix in chat</button>
+      </form>
+      {% endif %}
       <a class="btn-secondary" style="padding:4px 10px;font-size:12px;" href="{{ f.url }}" download target="_blank">Download</a>
       <form method="post" action="/helena/files/delete" onsubmit="return confirm('Delete this file? This cannot be undone.');">
         <input type="hidden" name="ref" value="{{ f.ref }}"/>

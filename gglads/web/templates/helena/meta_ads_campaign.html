@@ -1,0 +1,200 @@
+{% extends "layout.html" %}
+{% block title %}Campaign — Meta Ads{% endblock %}
+
+{% set cur = (data.currency if data and data.currency else 'USD') %}
+{% set sym = {'USD': '$', 'EUR': '€', 'GBP': '£', 'CAD': 'C$', 'AUD': 'A$'} %}
+{% macro money(v) %}{{ sym.get(cur, cur ~ ' ') }}{{ '{:,.2f}'.format(v or 0) }}{% endmacro %}
+{% macro num(v) %}{{ '{:,}'.format(v or 0) }}{% endmacro %}
+{% macro roas_pill(v) %}
+  {% if v >= 2 %}<span class="pill pill-ok">{{ v }}x</span>
+  {% elif v >= 1 %}<span class="pill pill-warn">{{ v }}x</span>
+  {% else %}<span class="pill pill-fail">{{ v }}x</span>{% endif %}
+{% endmacro %}
+
+{% set back = '/helena/meta-ads/campaign/' ~ campaign_id ~ '?since=' ~ since ~ '&until=' ~ until %}
+
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+  <div>
+    <a href="/helena/meta-ads?since={{ since }}&until={{ until }}" class="conn-desc" style="text-decoration:none;">← All campaigns</a>
+    <h1 class="page-title" style="margin-top:4px;">
+      {{ data.campaign.name if data.ok else 'Campaign' }}
+      {% if data.ok and data.campaign.status %}<span class="pill {{ 'pill-ok' if 'Active' in data.campaign.status else '' }}" style="vertical-align:middle;">{{ data.campaign.status }}</span>{% endif %}
+    </h1>
+    <p class="page-subtitle">{% if data.ok %}{{ data.range }}{% if data.campaign.daily_budget %} · Budget {{ money(data.campaign.daily_budget) }}/day{% endif %}{% endif %}</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <div class="seg-toggle" role="group" aria-label="Date range">
+      {% for key, lbl in [('last_7d','7d'), ('last_14d','14d'), ('last_30d','30d'), ('this_month','MTD'), ('last_month','Last mo')] %}
+        <a href="/helena/meta-ads/campaign/{{ campaign_id }}?range={{ key }}"><button class="{% if preset == key %}is-active{% endif %}">{{ lbl }}</button></a>
+      {% endfor %}
+    </div>
+    <form method="get" action="/helena/meta-ads/campaign/{{ campaign_id }}" class="date-range">
+      <input type="date" name="since" value="{{ since }}"/><span>→</span>
+      <input type="date" name="until" value="{{ until }}"/>
+      <button class="btn-secondary" type="submit">Apply</button>
+    </form>
+  </div>
+</div>
+
+{% if not connected %}
+  <div class="rec warn"><strong>Meta isn't connected.</strong> <a href="/helena/integrations">Connect it →</a></div>
+{% elif not data.ok %}
+  <div class="rec warn"><strong>Couldn't load this campaign</strong><div class="conn-desc">{{ data.error }}</div></div>
+{% else %}
+
+{% set t = data.totals %}
+{# ---- Campaign controls (all route through Approvals) ---- #}
+<div class="ctrl-bar">
+  <span class="ctrl-label">Campaign:</span>
+  <form method="post" action="/helena/meta-ads/action" class="ctrl-form">
+    <input type="hidden" name="action" value="pause"/><input type="hidden" name="entity_id" value="{{ data.campaign.id }}"/>
+    <input type="hidden" name="label" value="{{ data.campaign.name }}"/><input type="hidden" name="back" value="{{ back }}"/>
+    <button class="btn-secondary">⏸ Pause</button>
+  </form>
+  <form method="post" action="/helena/meta-ads/action" class="ctrl-form">
+    <input type="hidden" name="action" value="resume"/><input type="hidden" name="entity_id" value="{{ data.campaign.id }}"/>
+    <input type="hidden" name="label" value="{{ data.campaign.name }}"/><input type="hidden" name="back" value="{{ back }}"/>
+    <button class="btn-secondary">▶ Resume</button>
+  </form>
+  <form method="post" action="/helena/meta-ads/action" class="ctrl-form">
+    <input type="hidden" name="action" value="budget"/><input type="hidden" name="entity_id" value="{{ data.campaign.id }}"/>
+    <input type="hidden" name="label" value="{{ data.campaign.name }}"/><input type="hidden" name="back" value="{{ back }}"/>
+    <input class="ctrl-input" type="number" step="0.01" min="0" name="value" placeholder="Daily {{ sym.get(cur, cur) }}"/>
+    <button class="btn-secondary">Set budget</button>
+  </form>
+</div>
+
+{# ---- Top-line cards ---- #}
+<div class="metric-row">
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">💸</span><span class="mc-label">Spend</span></div><div class="mc-value">{{ money(t.spend) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">💰</span><span class="mc-label">Revenue</span></div><div class="mc-value">{{ money(t.revenue) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">📈</span><span class="mc-label">ROAS</span></div><div class="mc-value">{{ t.roas }}x</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">🛒</span><span class="mc-label">Purchases</span></div><div class="mc-value">{{ num(t.purchases|int) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">🎯</span><span class="mc-label">Cost / order</span></div><div class="mc-value">{{ money(t.cost_per_purchase) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">👆</span><span class="mc-label">Clicks</span></div><div class="mc-value">{{ num(t.clicks) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">👁</span><span class="mc-label">Impressions</span></div><div class="mc-value">{{ num(t.impressions) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">📊</span><span class="mc-label">CTR</span></div><div class="mc-value">{{ t.ctr }}%</div></div>
+</div>
+
+{# ---- Daily trend chart ---- #}
+<div class="trend-card">
+  <div class="trend-head"><strong>Daily performance</strong>
+    <div class="chart-legend">
+      <span class="legend-item"><span class="legend-dot" style="background:#7c9cff"></span>Spend (L)</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#4ade80"></span>Revenue (L)</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#fbbf24"></span>ROAS (R)</span>
+    </div>
+  </div>
+  <div class="chart-wrap"><svg id="camp-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg></div>
+  {% if not data.series %}<div class="conn-desc" style="padding:6px 2px;">No daily data in this range.</div>{% endif %}
+</div>
+
+{# ---- Ads in this campaign ---- #}
+<div class="tbl-card" data-table="ads">
+  <div class="tbl-head"><h3>Ads in this campaign</h3><span class="conn-desc">{{ data.ads|length }} ads</span></div>
+  <div class="tbl-body">
+    {% if data.ads %}
+    <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead><tr>
+        <th>Ad</th><th>Status</th>
+        <th class="num">Spend</th><th class="num">Impr.</th><th class="num">Clicks</th>
+        <th class="num">CTR</th><th class="num">CPC</th><th class="num">CPM</th>
+        <th class="num">Purch.</th><th class="num">Cost/order</th>
+        <th class="num">Revenue</th><th class="num">ROAS</th><th>Controls</th>
+      </tr></thead>
+      <tbody>
+        {% for a in data.ads %}
+        <tr>
+          <td>{{ a.name }}{% if a.adset_name %}<div class="conn-desc">{{ a.adset_name }}</div>{% endif %}</td>
+          <td>{% if a.status %}<span class="pill {{ 'pill-ok' if 'Active' in a.status else '' }}">{{ a.status }}</span>{% else %}—{% endif %}</td>
+          <td class="num">{{ money(a.spend) }}</td>
+          <td class="num">{{ num(a.impressions) }}</td>
+          <td class="num">{{ num(a.clicks) }}</td>
+          <td class="num">{{ a.ctr }}%</td>
+          <td class="num">{{ money(a.cpc) }}</td>
+          <td class="num">{{ money(a.cpm) }}</td>
+          <td class="num">{{ num(a.purchases|int) }}</td>
+          <td class="num">{{ money(a.cost_per_purchase) }}</td>
+          <td class="num">{{ money(a.revenue) }}</td>
+          <td class="num">{{ roas_pill(a.roas) }}</td>
+          <td>
+            <div class="row-ctrls">
+              <form method="post" action="/helena/meta-ads/action" class="ctrl-form">
+                <input type="hidden" name="action" value="pause"/><input type="hidden" name="entity_id" value="{{ a.id }}"/>
+                <input type="hidden" name="label" value="{{ a.name }}"/><input type="hidden" name="back" value="{{ back }}"/>
+                <button class="mini-btn" title="Pause this ad">⏸</button>
+              </form>
+              <form method="post" action="/helena/meta-ads/action" class="ctrl-form">
+                <input type="hidden" name="action" value="resume"/><input type="hidden" name="entity_id" value="{{ a.id }}"/>
+                <input type="hidden" name="label" value="{{ a.name }}"/><input type="hidden" name="back" value="{{ back }}"/>
+                <button class="mini-btn" title="Resume this ad">▶</button>
+              </form>
+              {% if a.adset_id %}
+              <form method="post" action="/helena/meta-ads/action" class="ctrl-form">
+                <input type="hidden" name="action" value="costcap"/><input type="hidden" name="entity_id" value="{{ a.adset_id }}"/>
+                <input type="hidden" name="label" value="{{ a.name }} (ad set)"/><input type="hidden" name="back" value="{{ back }}"/>
+                <input class="ctrl-input mini" type="number" step="0.01" min="0" name="value" placeholder="Cost cap"/>
+                <button class="mini-btn" title="Set cost-per-result cap on this ad's ad set">Set</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+      <div class="conn-desc" style="padding:14px;">No ads with delivery in this range.</div>
+    {% endif %}
+  </div>
+</div>
+
+<p class="conn-desc" style="margin-top:14px;">
+  Pausing, resuming, budget, and cost-cap changes are queued to <a href="/helena/approvals">Approvals</a>
+  — nothing changes on Meta until you approve it. Cost cap is applied to the ad's ad set. Money in {{ cur }}.
+</p>
+
+<script id="series-data" type="application/json">{{ data.series | tojson }}</script>
+<script>
+(function () {
+  const series = JSON.parse(document.getElementById('series-data').textContent || '[]');
+  const svg = document.getElementById('camp-chart');
+  if (!series.length) return;
+  const W = 800, H = 300, PL = 50, PR = 50, PT = 14, PB = 30, NS = 'http://www.w3.org/2000/svg';
+  const plotW = W - PL - PR, plotH = H - PT - PB, n = series.length;
+  const maxMoney = Math.max(1, ...series.map(p => Math.max(p.spend, p.revenue)));
+  const maxRoas = Math.max(1, ...series.map(p => p.roas));
+  const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const xAt = i => PL + (n === 1 ? plotW / 2 : plotW * i / (n - 1));
+  const yMoney = v => PT + plotH * (1 - v / maxMoney);
+  const yRoas = v => PT + plotH * (1 - v / maxRoas);
+  // gridlines + axis labels
+  for (let i = 0; i <= 4; i++) {
+    const y = PT + plotH * i / 4;
+    svg.appendChild(el('line', { class: 'grid-line', x1: PL, y1: y, x2: W - PR, y2: y }));
+    const lt = el('text', { class: 'axis-label', x: PL - 6, y: y + 3, 'text-anchor': 'end' });
+    lt.textContent = Math.round(maxMoney * (1 - i / 4)); svg.appendChild(lt);
+    const rt = el('text', { class: 'axis-label', x: W - PR + 6, y: y + 3 });
+    rt.textContent = (maxRoas * (1 - i / 4)).toFixed(1) + 'x'; svg.appendChild(rt);
+  }
+  // x labels (first, middle, last)
+  [0, Math.floor(n / 2), n - 1].forEach(i => {
+    const tx = el('text', { class: 'axis-label', x: xAt(i), y: H - 8, 'text-anchor': 'middle' });
+    tx.textContent = (series[i].date || '').slice(5); svg.appendChild(tx);
+  });
+  const line = (key, color, yf) => {
+    const pts = series.map((p, i) => xAt(i) + ',' + yf(p[key])).join(' ');
+    svg.appendChild(el('polyline', { points: pts, fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  };
+  line('spend', '#7c9cff', yMoney);
+  line('revenue', '#4ade80', yMoney);
+  line('roas', '#fbbf24', yRoas);
+})();
+</script>
+{% endif %}
+{% endblock %}

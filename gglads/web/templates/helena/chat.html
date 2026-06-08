@@ -417,6 +417,7 @@
     if (mentionIds && mentionIds.length) fd.append('mentions', JSON.stringify(mentionIds));
     if (opts.selectedImage) fd.append('selected_image', opts.selectedImage);
     if (opts.region) fd.append('region', typeof opts.region === 'string' ? opts.region : JSON.stringify(opts.region));
+    if (opts.remix) fd.append('remix', opts.remix);
     if (imageFile) fd.append('image', imageFile, imageFile.name || 'image.png');
     let acc = '';
     try {
@@ -587,7 +588,9 @@
     attachedFile = null; attachedPreview = null;
     attachBox.hidden = true; fileInput.value = '';
     input.value = ''; chosenMentions = []; closeMention();
-    sendTurn(text, file, preview, ids);
+    const opts = remixUrl ? { remix: remixUrl } : undefined;
+    sendTurn(text, file, preview, ids, opts);
+    if (remixUrl) { remixUrl = ''; document.querySelector('.remix-banner')?.remove(); }
   });
   stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
 
@@ -596,6 +599,25 @@
   // Prefill (e.g. launched from Explore) — drop into the box and auto-send once.
   const prefill = {{ (prefill or "") | tojson }};
   if (prefill) { input.value = prefill; sendTurn(prefill); input.value = ''; }
+
+  // Remix (Files → "Remix in chat"): seed a new chat with an existing design.
+  // Show the reference and prefill a hint — but DON'T auto-send; the user names
+  // the flavor/change first. The reference rides along on the first turn.
+  let remixUrl = {{ (remix or "") | tojson }};
+  if (remixUrl) {
+    const banner = document.createElement('div');
+    banner.className = 'remix-banner';
+    banner.innerHTML =
+      '<img src="' + escapeHtml(remixUrl) + '" alt="reference design"/>' +
+      '<div class="remix-text"><strong>Remixing this design</strong>' +
+      '<span>Tell me the flavor or change — e.g. “use this idea for Mango (Sugar-Free)”.</span></div>' +
+      '<button type="button" class="remix-x" title="Remove">✕</button>';
+    composer.parentNode.insertBefore(banner, composer);
+    banner.querySelector('.remix-x').addEventListener('click', () => { remixUrl = ''; banner.remove(); });
+    if (!input.value) input.value = 'Use this design’s idea for ';
+    input.focus();
+    const len = input.value.length; input.setSelectionRange(len, len);
+  }
 })();
 </script>
 </body>

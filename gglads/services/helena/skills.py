@@ -503,6 +503,8 @@ def _adjust_image(db, args, user_id, session_id):
     keeping the rest unchanged. Returns an image card like generate_image."""
     import httpx
 
+    from gglads.services.helena import storage
+
     url = (args.get("image_url") or "").strip()
     instruction = (args.get("instruction") or "").strip()
     if not url or not instruction:
@@ -516,15 +518,75 @@ def _adjust_image(db, args, user_id, session_id):
     if not img_bytes:
         return {"ok": False, "error": "I couldn't load that image to edit it."}
     region = args.get("region") if isinstance(args.get("region"), dict) else None
-    out, err = GoogleFlowImageService().edit_image(
-        img_bytes, instruction, ref_mime=mime, region=region)
+    svc = GoogleFlowImageService()
+
+    # Tight containment: when a region is given, crop it (with a little context
+    # padding), edit ONLY that crop, and paste it back so every pixel outside
+    # the box is byte-for-byte unchanged. Falls back to a whole-image edit.
+    note = "Adjusted the image as requested."
+    out, err = (None, None)
+    if region and all(k in region for k in ("x", "y", "w", "h")):
+        edited_bytes, cerr = _edit_region_contained(svc, img_bytes, instruction, region)
+        if edited_bytes:
+            new_url, serr = storage.put_bytes(
+                edited_bytes, content_type="image/png", key_prefix="helena/flow")
+            if new_url:
+                from gglads.services.helena.images.google_flow import GeneratedImage
+                out = GeneratedImage(url=new_url, prompt=instruction)
+                note = "Adjusted only the selected area — the rest of the image is unchanged."
+            else:
+                err = serr
+        else:
+            err = cerr  # fall through to whole-image edit below
+    if out is None:
+        out, err = svc.edit_image(img_bytes, instruction, ref_mime=mime, region=region)
     if not out:
         return {"ok": False, "error": err or "Couldn't adjust the image — please try again."}
     asset = brand_svc.save_asset(db, url=out.url, kind="generated",
                                  title="Adjusted creative", prompt=instruction, user_id=user_id)
-    return {"ok": True, "images": [{"asset_id": asset.id, "url": out.url}],
-            "note": "Adjusted the image as requested — everything outside the edited area "
-                    "is unchanged."}
+    return {"ok": True, "images": [{"asset_id": asset.id, "url": out.url}], "note": note}
+
+
+def _edit_region_contained(svc, img_bytes, instruction, region):
+    """Crop the selected region (+ small context padding), edit just that crop,
+    and paste it back over the original. Returns (png_bytes, error). Outside the
+    pasted box the original pixels are preserved exactly."""
+    import io
+
+    import httpx
+
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        return None, f"Pillow unavailable: {exc}"
+    try:
+        base = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        width, height = base.size
+        pad = 0.06  # context so the edit blends at the seams
+        x0 = max(0.0, float(region["x"]) - pad)
+        y0 = max(0.0, float(region["y"]) - pad)
+        x1 = min(1.0, float(region["x"]) + float(region["w"]) + pad)
+        y1 = min(1.0, float(region["y"]) + float(region["h"]) + pad)
+        box = (int(x0 * width), int(y0 * height), int(x1 * width), int(y1 * height))
+        if box[2] - box[0] < 8 or box[3] - box[1] < 8:
+            return None, "Selected area too small."
+        crop = base.crop(box)
+        buf = io.BytesIO()
+        crop.save(buf, format="PNG")
+        edited, err = svc.edit_image(buf.getvalue(), instruction, ref_mime="image/png", region=None)
+        if not edited:
+            return None, err
+        r = httpx.get(edited.url, timeout=30.0, follow_redirects=True)
+        if r.status_code != 200 or not r.content:
+            return None, "Couldn't fetch the edited crop."
+        patch = Image.open(io.BytesIO(r.content)).convert("RGB").resize(
+            (box[2] - box[0], box[3] - box[1]))
+        base.paste(patch, (box[0], box[1]))
+        out = io.BytesIO()
+        base.save(out, format="PNG")
+        return out.getvalue(), None
+    except Exception as exc:  # any imaging failure → caller falls back
+        return None, f"Region edit failed: {type(exc).__name__}: {exc}"
 
 
 def _generate_video(db, args, user_id, session_id):

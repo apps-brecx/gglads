@@ -74,6 +74,19 @@ class MetaExecutionProvider(ABC):
         return {"ok": False,
                 "error": "A full ads breakdown isn't supported by this backend."}
 
+    def fetch_campaign_detail(self, campaign_id, since, until) -> dict:
+        return {"ok": False,
+                "error": "Campaign drill-down isn't supported by this backend."}
+
+    # ---- Generic writes (campaign / ad set / ad), approval-gated ------
+    def set_status(self, entity_id: str, status: str) -> ProviderResult:
+        return ProviderResult(
+            success=False, message="Status changes aren't supported by this backend.")
+
+    def set_fields(self, entity_id: str, fields: dict) -> ProviderResult:
+        return ProviderResult(
+            success=False, message="Field updates aren't supported by this backend.")
+
 
 # Imported late to keep the type hint above readable.
 from datetime import datetime  # noqa: E402

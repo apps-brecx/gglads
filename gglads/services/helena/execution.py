@@ -51,6 +51,11 @@ APPROVAL_REQUIRED_KINDS = {
     "create_email_draft",
     "send_email",
     "schedule_email",
+    # Live Meta-object edits from the Ads page (pausing is safe; everything
+    # that can spend more requires approval).
+    "meta_resume",
+    "meta_update_budget",
+    "meta_set_costcap",
 }
 
 
@@ -420,6 +425,24 @@ def _dispatch(db: Session, kind: str, spec: dict[str, Any]) -> ProviderResult:
             camp.updated_at = _now()
             db.commit()
         return res
+
+    # Direct writes on LIVE Meta objects (campaign / ad set / ad) by external
+    # id — used by the Meta Ads page drill-down controls. These operate on
+    # objects that may not have a local row, so the id is in the spec.
+    if kind == "meta_pause":
+        return meta.set_status(str(spec.get("entity_id")), "PAUSED")
+
+    if kind == "meta_resume":
+        return meta.set_status(str(spec.get("entity_id")), "ACTIVE")
+
+    if kind == "meta_update_budget":
+        return meta.set_fields(str(spec.get("entity_id")),
+                               {"daily_budget": int(spec.get("amount_cents", 0))})
+
+    if kind == "meta_set_costcap":
+        return meta.set_fields(str(spec.get("entity_id")),
+                               {"bid_amount": int(spec.get("amount_cents", 0)),
+                                "bid_strategy": "COST_CAP"})
 
     if kind == "fetch_campaign_metrics":
         days = int(spec.get("days", 30))

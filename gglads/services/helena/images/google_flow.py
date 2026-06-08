@@ -301,6 +301,70 @@ class GoogleFlowImageService:
             return None, serr
         return GeneratedImage(url=url, prompt=scene_prompt), None
 
+    # ---- in-place editing of an existing image ------------------------
+    def edit_image(
+        self, image_bytes: bytes, instruction: str, *, ref_mime: str = "image/png",
+        region: dict | None = None,
+    ) -> tuple[GeneratedImage | None, str | None]:
+        """Adjust an EXISTING image in place: keep the overall composition,
+        product, label, and text the same and apply only the requested change.
+        When `region` (normalized 0-1 x/y/w/h) is given, focus the edit on that
+        area and leave everything outside it untouched."""
+        if not self._api_key:
+            return None, ("Editing an image needs the Gemini API-key path "
+                          "(set GOOGLE_FLOW_API_KEY).")
+        storage_err = storage.config_error()
+        if storage_err:
+            return None, storage_err
+        models, err = gl_list_models(self._api_key)
+        if err:
+            return None, err
+        gc = next((m for m in models
+                   if "generateContent" in (m.get("supportedGenerationMethods") or [])
+                   and "image" in m.get("name", "").lower()), None)
+        if gc is None:
+            return None, ("No image-editing model is available to this API key, so I "
+                          "can't adjust the image. (Need a Gemini image model.)")
+        where = ""
+        if region:
+            try:
+                x, y = round(float(region["x"]) * 100), round(float(region["y"]) * 100)
+                w, h = round(float(region["w"]) * 100), round(float(region["h"]) * 100)
+                where = (f" Apply the change ONLY within the rectangular area starting about "
+                         f"{x}% from the left and {y}% from the top, spanning roughly {w}% of "
+                         f"the width and {h}% of the height. Leave everything outside that area "
+                         f"exactly as it is.")
+            except (KeyError, TypeError, ValueError):
+                where = ""
+        edit = (
+            "You are editing the attached marketing image. Keep the overall composition, "
+            "framing, lighting, style, and any product/bottle, label, and text exactly as "
+            "they are — change only what is requested. Do not regenerate the whole scene."
+            + where + "\n\nRequested change: " + instruction
+        )
+        payload = {
+            "contents": [{"role": "user", "parts": [
+                {"text": edit},
+                {"inlineData": {"mimeType": ref_mime or "image/png",
+                                "data": base64.b64encode(image_bytes).decode()}},
+            ]}],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
+        try:
+            resp = httpx.post(f"{gl_base()}/{gc['name']}:generateContent",
+                              params={"key": self._api_key}, json=payload, timeout=120.0)
+        except httpx.HTTPError as exc:
+            return None, f"Image-edit request failed: {type(exc).__name__}: {exc}"
+        if resp.status_code != 200:
+            return None, f"Image-edit HTTP {resp.status_code}: {resp.text[:300]}"
+        raw, perr = _extract_generatecontent_image(resp.json())
+        if perr:
+            return None, perr
+        url, serr = storage.put_bytes(raw, content_type="image/png", key_prefix="helena/flow")
+        if serr:
+            return None, serr
+        return GeneratedImage(url=url, prompt=instruction), None
+
     # ---- low-level prediction ----------------------------------------
     def _predict_bytes(self, text: str, aspect_ratio: str) -> tuple[bytes, str | None]:
         mode = self.auth_mode()

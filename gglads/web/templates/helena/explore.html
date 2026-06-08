@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+{% block title %}Explore — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Explore</h1>
+  <p class="page-subtitle">Ready-to-run creative workflows. Click one to launch it into a new chat.</p>
+</div>
+
+<div class="chip-row" id="explore-filters">
+  <button class="chip is-active" data-f="media" data-v="all">All</button>
+  <button class="chip" data-f="media" data-v="image">Images</button>
+  <button class="chip" data-f="media" data-v="video">Videos</button>
+  <span style="width:12px;"></span>
+  <button class="chip is-active" data-f="type" data-v="all">All types</button>
+  {% for t in types %}<button class="chip" data-f="type" data-v="{{ t }}">{{ t }}</button>{% endfor %}
+</div>
+
+<div class="explore-grid" id="explore-grid">
+  {% for w in workflows %}
+  <form method="post" action="/helena/explore/launch" class="explore-card" data-media="{{ w.media }}" data-type="{{ w.type }}">
+    <input type="hidden" name="workflow" value="{{ w.key }}"/>
+    <div class="explore-badges">
+      <span class="pill">{{ '🎬 Video' if w.media == 'video' else '🖼 Image' }}</span>
+      <span class="pill">{{ w.type }}</span>
+    </div>
+    <div class="explore-title">{{ w.title }}</div>
+    <div class="conn-desc">{{ w.description }}</div>
+    <button class="btn-primary" type="submit" style="margin-top:auto;align-self:flex-start;padding:6px 14px;font-size:13px;">Launch in chat →</button>
+  </form>
+  {% endfor %}
+</div>
+
+<script>
+(function () {
+  const sel = { media: 'all', type: 'all' };
+  document.querySelectorAll('#explore-filters .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const f = chip.dataset.f;
+      document.querySelectorAll('#explore-filters .chip[data-f="' + f + '"]').forEach(c => c.classList.toggle('is-active', c === chip));
+      sel[f] = chip.dataset.v;
+      document.querySelectorAll('#explore-grid .explore-card').forEach(card => {
+        const okMedia = sel.media === 'all' || card.dataset.media === sel.media;
+        const okType = sel.type === 'all' || card.dataset.type === sel.type;
+        card.style.display = (okMedia && okType) ? '' : 'none';
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

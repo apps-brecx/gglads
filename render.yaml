@@ -134,6 +134,36 @@ services:
       - key: AUTONOMOUS_MODE
         sync: false
 
+  # Every minute — Helena task-queue worker. Drains due ScheduledTasks
+  # (publish posts, push campaigns, fetch metrics, post digests, create email
+  # drafts) and reschedules recurring jobs. Approval-required tasks are skipped
+  # until a human approves them in the app.
+  - type: cron
+    name: gglads-helena-worker
+    runtime: python
+    schedule: "* * * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.helena_worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: META_EXECUTION_MODE
+        sync: false
+      - key: EMAIL_DELIVERY_MODE
+        sync: false
+      - key: BROWSER_AGENT_URL
+        sync: false
+      - key: BROWSER_AGENT_TOKEN
+        sync: false
+      - key: GOOGLE_FLOW_API_KEY
+        sync: false
+
   # Mondays 06:00 UTC — AI-generate new collection suggestions from
   # site-wide organic queries. Lands as pending rows on /collections.
   - type: cron

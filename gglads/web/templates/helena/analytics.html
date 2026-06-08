@@ -1,0 +1,262 @@
+{% extends "layout.html" %}
+{% block title %}Analytics — Helena{% endblock %}
+
+{% macro delta(pct) %}
+  {% if pct is none %}
+    <span class="mc-delta flat">— no prior data</span>
+  {% elif pct >= 0 %}
+    <span class="mc-delta up">▲ {{ pct }}%</span>
+  {% else %}
+    <span class="mc-delta down">▼ {{ pct|abs }}%</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:center;">
+  <div>
+    <h1 class="page-title">Analytics</h1>
+    <p class="page-subtitle">Last {{ days }} days · current vs previous period.</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div class="seg-toggle" role="group" aria-label="Date range">
+      {% for d in [7, 30, 90] %}
+        <a href="/helena/analytics?days={{ d }}"><button class="{% if days == d %}is-active{% endif %}">{{ d }}d</button></a>
+      {% endfor %}
+    </div>
+    <form method="post" action="/helena/analytics/refresh"><button class="btn-secondary">Refresh metrics</button></form>
+  </div>
+</div>
+
+{# ---- Customizable metric cards ---- #}
+<div class="metric-row" id="metric-row">
+  {% for c in cards %}
+    <div class="metric-card">
+      <form method="post" action="/helena/analytics/metrics/toggle" style="display:contents;">
+        <input type="hidden" name="key" value="{{ c.key }}"/><input type="hidden" name="days" value="{{ days }}"/>
+        <button class="mc-remove" type="submit" title="Remove metric">✕</button>
+      </form>
+      <div class="mc-top"><span class="mc-icon">{{ c.icon if c.icon else '📈' }}</span><span class="mc-label">{{ c.name }}</span></div>
+      <div class="mc-value">{{ c.formatted }}</div>
+      {{ delta(c.pct_change) }}
+    </div>
+  {% endfor %}
+  <button class="metric-add" type="button" onclick="document.getElementById('metric-modal').classList.add('open')">＋ Add Metric</button>
+</div>
+
+{# ---- Performance Trends (dual-axis) ---- #}
+<div class="trend-card">
+  <div class="trend-head">
+    <strong>Performance Trends</strong>
+    <div class="trend-actions">
+      <button type="button" id="chart-show-all">Show All</button>
+      <button type="button" id="chart-hide-all">Hide All</button>
+    </div>
+  </div>
+  <div class="chart-wrap"><svg id="trend-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg></div>
+  <div class="chart-legend" id="chart-legend"></div>
+</div>
+
+{# ---- Recommendations ---- #}
+{% if recommendations %}
+<h2 style="font-size:16px;">Spend recommendations</h2>
+{% for r in recommendations %}
+  <div class="rec {{ r.severity }}"><strong>{{ r.headline }}</strong>
+    <div class="conn-desc">Spend ${{ r.metrics.spend }} · ROAS {{ r.metrics.roas }}x · {{ r.metrics.clicks }} clicks</div></div>
+{% endfor %}
+{% endif %}
+
+{# ---- Collapsible data tables ---- #}
+<h2 style="font-size:16px;margin-top:24px;">Breakdowns</h2>
+{% for t in tables %}
+<div class="tbl-card" data-table="{{ t.key }}">
+  <div class="tbl-head" onclick="this.closest('.tbl-card').classList.toggle('collapsed')">
+    <svg class="tbl-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    <h3>{{ t.title }}</h3>
+    <span class="conn-desc">{{ t.total }} rows</span>
+  </div>
+  <div class="tbl-body">
+    {% if t.rows %}
+    <table class="data-table">
+      <thead><tr><th class="dt-rank">#</th><th>Name</th><th class="num">Current</th><th class="num">Previous</th><th class="num">Change</th></tr></thead>
+      <tbody>
+        {% for row in t.rows %}
+        <tr class="dt-row {% if loop.index0 >= t.page_size %}hidden-row{% endif %}">
+          <td class="dt-rank">{{ row.rank }}</td>
+          <td><img class="dt-fav" src="{{ row.favicon }}" alt="" loading="lazy"/>{{ row.label }}</td>
+          <td class="num">{% if row.unit == 'currency' %}${{ '%.2f'|format(row.current) }}{% else %}{{ row.current }}{% endif %}</td>
+          <td class="num">{% if row.unit == 'currency' %}${{ '%.2f'|format(row.previous) }}{% else %}{{ row.previous }}{% endif %}</td>
+          <td class="num">
+            {% if row.pct_change is none %}<span class="dt-delta flat">—</span>
+            {% elif row.pct_change >= 0 %}<span class="dt-delta up">▲ {{ row.pct_change }}%</span>
+            {% else %}<span class="dt-delta down">▼ {{ row.pct_change|abs }}%</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if t.remaining > 0 %}
+      <button class="load-more" data-remaining="{{ t.remaining }}" data-step="{{ t.page_size }}">Load {{ t.remaining if t.remaining < t.page_size else t.page_size }} more</button>
+    {% endif %}
+    {% else %}
+      <div class="conn-desc" style="padding:10px;">No data yet — connect the source and refresh metrics.</div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{# ---- Add Metric modal ---- #}
+<div class="modal-backdrop" id="metric-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add Metric</h3>
+      <button class="modal-close" type="button" onclick="document.getElementById('metric-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="modal-tab is-active" data-tab="core">Core Business</button>
+      <button class="modal-tab" data-tab="ga4">Analytics</button>
+    </div>
+    <div class="modal-body">
+      <div data-pane="core">
+        <div class="metric-list">
+          {% for m in catalog.core %}
+            <div class="metric-option {% if m.key in selected %}is-added{% endif %}" data-key="{{ m.key }}">
+              <div class="mo-check">✓</div>
+              <div><div class="mo-name">{{ m.icon }} {{ m.name }}</div><div class="mo-desc">{{ m.desc }}</div></div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div data-pane="ga4" style="display:none;">
+        <div class="chip-row" id="ga4-chips">
+          {% for cat in catalog.categories %}
+            <button class="chip {% if cat == 'All' %}is-active{% endif %}" data-cat="{{ cat }}">{{ cat }}</button>
+          {% endfor %}
+        </div>
+        <div class="metric-list" id="ga4-list">
+          {% for m in catalog.ga4 %}
+            <div class="metric-option {% if m.key in selected %}is-added{% endif %}" data-key="{{ m.key }}" data-cat="{{ m.category }}">
+              <div class="mo-check">✓</div>
+              <div><div class="mo-name">{{ m.name }}</div><div class="mo-desc">{{ m.desc }}</div></div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="chart-data" type="application/json">{{ chart|tojson }}</script>
+<script>
+(function () {
+  // ---- Modal: tabs, category chips, multi-select toggles ----
+  const modal = document.getElementById('metric-modal');
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+  document.querySelectorAll('.modal-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.modal-tab').forEach(t => t.classList.toggle('is-active', t === tab));
+      document.querySelectorAll('[data-pane]').forEach(p => p.style.display = p.dataset.pane === tab.dataset.tab ? '' : 'none');
+    });
+  });
+  document.querySelectorAll('#ga4-chips .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('#ga4-chips .chip').forEach(c => c.classList.toggle('is-active', c === chip));
+      const cat = chip.dataset.cat;
+      document.querySelectorAll('#ga4-list .metric-option').forEach(o => {
+        o.style.display = (cat === 'All' || o.dataset.cat === cat) ? '' : 'none';
+      });
+    });
+  });
+  document.querySelectorAll('.metric-option').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      const key = opt.dataset.key;
+      const r = await fetch('/helena/analytics/metrics/toggle', {
+        method: 'POST', headers: {'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'key=' + encodeURIComponent(key),
+      });
+      const data = await r.json();
+      opt.classList.toggle('is-added', data.selected.includes(key));
+      // Refresh cards/chart by reloading once the user closes the modal.
+      modal.dataset.dirty = '1';
+    });
+  });
+  modal.querySelector('.modal-close').addEventListener('click', () => { if (modal.dataset.dirty) location.reload(); });
+  modal.addEventListener('click', e => { if (e.target === modal && modal.dataset.dirty) location.reload(); });
+
+  // ---- Load more (pagination) ----
+  document.querySelectorAll('.load-more').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.tbl-card');
+      const hidden = card.querySelectorAll('.dt-row.hidden-row');
+      const step = parseInt(btn.dataset.step, 10);
+      let shown = 0;
+      hidden.forEach(row => { if (shown < step) { row.classList.remove('hidden-row'); shown++; } });
+      const left = card.querySelectorAll('.dt-row.hidden-row').length;
+      if (left === 0) btn.remove();
+      else btn.textContent = 'Load ' + Math.min(left, step) + ' more';
+    });
+  });
+
+  // ---- Dual-axis multi-series chart ----
+  const chart = JSON.parse(document.getElementById('chart-data').textContent);
+  const svg = document.getElementById('trend-chart');
+  const legendEl = document.getElementById('chart-legend');
+  const W = 800, H = 300, PAD_L = 48, PAD_R = 48, PAD_T = 14, PAD_B = 26;
+  const hidden = new Set();
+  const NS = 'http://www.w3.org/2000/svg';
+
+  function axisMax(side) {
+    let mx = 0;
+    chart.series.forEach(s => {
+      if (hidden.has(s.key) || s.axis !== side) return;
+      s.points.forEach(v => { if (v > mx) mx = v; });
+    });
+    return mx > 0 ? mx : 1;
+  }
+  function el(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+  function draw() {
+    svg.innerHTML = '';
+    const n = chart.labels.length || 1;
+    const leftMax = axisMax('left'), rightMax = axisMax('right');
+    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+    // gridlines + y labels (left + right)
+    for (let i = 0; i <= 4; i++) {
+      const y = PAD_T + plotH * i / 4;
+      svg.appendChild(el('line', {class: 'grid-line', x1: PAD_L, y1: y, x2: W - PAD_R, y2: y}));
+      const lv = leftMax * (1 - i / 4), rv = rightMax * (1 - i / 4);
+      const lt = el('text', {class: 'axis-label', x: PAD_L - 6, y: y + 3, 'text-anchor': 'end'}); lt.textContent = Math.round(lv); svg.appendChild(lt);
+      const rt = el('text', {class: 'axis-label', x: W - PAD_R + 6, y: y + 3}); rt.textContent = Math.round(rv); svg.appendChild(rt);
+    }
+    const xAt = i => PAD_L + (n === 1 ? plotW / 2 : plotW * i / (n - 1));
+    chart.series.forEach(s => {
+      if (hidden.has(s.key)) return;
+      const mx = s.axis === 'right' ? rightMax : leftMax;
+      const pts = s.points.map((v, i) => xAt(i) + ',' + (PAD_T + plotH * (1 - v / mx))).join(' ');
+      svg.appendChild(el('polyline', {points: pts, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round'}));
+    });
+  }
+
+  function buildLegend() {
+    legendEl.innerHTML = '';
+    chart.series.forEach(s => {
+      const item = document.createElement('span');
+      item.className = 'legend-item' + (hidden.has(s.key) ? ' off' : '');
+      item.innerHTML = '<span class="legend-dot" style="background:' + s.color + '"></span>' + s.name +
+                       ' <span class="conn-desc">(' + (s.axis === 'right' ? 'R' : 'L') + ')</span>';
+      item.addEventListener('click', () => {
+        if (hidden.has(s.key)) hidden.delete(s.key); else hidden.add(s.key);
+        item.classList.toggle('off'); draw();
+      });
+      legendEl.appendChild(item);
+    });
+  }
+  document.getElementById('chart-show-all').addEventListener('click', () => { hidden.clear(); buildLegend(); draw(); });
+  document.getElementById('chart-hide-all').addEventListener('click', () => { chart.series.forEach(s => hidden.add(s.key)); buildLegend(); draw(); });
+
+  if (chart.series && chart.series.length) { buildLegend(); draw(); }
+  else { legendEl.innerHTML = '<span class="conn-desc">Add metrics to plot trends.</span>'; }
+})();
+</script>
+{% endblock %}

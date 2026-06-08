@@ -1,0 +1,150 @@
+{% extends "layout.html" %}
+{% block title %}Integrations — Helena{% endblock %}
+
+{% macro card(c, row, accs) %}
+{% set status = row.status if row else 'not_connected' %}
+{% set mode = row.access_mode if row else 'read_only' %}
+<div class="integ-card {% if not c.real %}is-placeholder{% endif %}">
+  <div class="integ-card-top">
+    <div class="integ-logo">{{ c.name[0] }}</div>
+    <div class="integ-name">{{ c.name }}</div>
+    <span class="integ-info" title="{{ c.info }}">ⓘ</span>
+  </div>
+
+  <div class="integ-status">
+    <span class="integ-dot {% if status == 'connected' %}connected{% elif status == 'reconnect_required' %}reconnect{% endif %}"></span>
+    {% if status == 'connected' %}Connected
+    {% elif status == 'reconnect_required' %}Reconnect required
+    {% else %}Not connected{% endif %}
+    {% if not c.real %}<span class="pill" style="margin-left:auto;">Soon</span>{% endif %}
+  </div>
+
+  {% if status == 'connected' %}
+    {% if accs %}
+    <div class="integ-accounts">
+      {% for a in accs %}
+        <span class="integ-chip">
+          <span class="check">✓</span> {{ a.handle }}
+          {% if a.external_url %}<a href="{{ a.external_url }}" target="_blank" title="Open">↗</a>{% endif %}
+        </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/helena/integrations/{{ c.key }}/access-mode" class="seg-toggle-form">
+      <div class="seg-toggle">
+        <button type="submit" name="mode" value="read_only" class="{% if mode == 'read_only' %}is-active{% endif %}">Read Only</button>
+        <button type="submit" name="mode" value="read_write" class="{% if mode == 'read_write' %}is-active{% endif %}">Read &amp; Write</button>
+      </div>
+    </form>
+
+    <div class="integ-actions">
+      {% if c.auth == 'browser_agent' %}
+      <form method="post" action="/helena/integrations/{{ c.key }}/connect" style="display:flex;gap:6px;">
+        <input type="text" name="handle" placeholder="@handle or property" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);"/>
+        <button class="btn-secondary" style="padding:5px 10px;font-size:12px;">+ Account</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/helena/integrations/{{ c.key }}/disconnect">
+        <button class="btn-secondary" style="padding:5px 10px;font-size:12px;">Disconnect</button>
+      </form>
+    </div>
+  {% else %}
+    <form method="post" action="/helena/integrations/{{ c.key }}/connect" class="integ-actions">
+      {% if c.auth == 'browser_agent' %}
+        <input type="text" name="handle" placeholder="@handle to link" style="flex:1;padding:6px 9px;font-size:13px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);"/>
+      {% endif %}
+      <button class="btn-primary" style="padding:6px 14px;font-size:13px;" {% if not c.real %}disabled title="Coming soon"{% endif %}>Connect</button>
+    </form>
+    {% if c.auth == 'browser_agent' %}
+      <div class="conn-desc" style="font-size:11px;">No API push yet — a person signs in once, then the agent operates the session.</div>
+    {% endif %}
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="integ-header">
+  <h1>Integrations</h1>
+  <p>Connect your platforms to streamline content posting and access channel analytics.</p>
+</div>
+
+<div class="rec" style="max-width:880px;margin:0 auto 24px;">
+  <strong>How Instagram &amp; Meta Ads connect</strong>
+  <div class="conn-desc" style="margin-top:4px;">
+    Connecting links the account. To actually <em>post, read post data, and push/manage ads</em>,
+    Helena needs one execution backend, set on the server:
+    <ul style="margin:6px 0 0 18px;">
+      <li><strong>Official Meta API</strong> (recommended for real posting + full ad management):
+        set <code>META_APP_ID</code>, <code>META_APP_SECRET</code>, <code>META_EXECUTION_MODE=api</code>.
+        Requires a Meta Developer app with Instagram + Marketing API permissions.</li>
+      <li><strong>Browser agent</strong> (works without API access): set <code>BROWSER_AGENT_URL</code>;
+        a person signs in once and Helena operates the authenticated session.</li>
+    </ul>
+    Read &amp; Write must be enabled per card, and every publish/spend still asks for your approval.
+  </div>
+</div>
+
+{% if meta and meta.get('access_token') %}
+<div class="rec" style="max-width:880px;margin:0 auto 24px;">
+  <strong>Meta connection — choose the accounts Helena uses</strong>
+  <div class="conn-desc" style="margin:4px 0 10px;">
+    Your login has access to {{ meta.ad_accounts|length }} ad account(s) and
+    {{ meta.pages|length }} Page(s). Pick the right ones — analytics, posting, and
+    campaigns all use your selection. You can change this anytime without reconnecting.
+  </div>
+  <form method="post" action="/helena/integrations/meta/select"
+        style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);">
+      Ad account
+      <select name="ad_account_id" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);min-width:260px;">
+        {% if not meta.ad_accounts %}<option value="">No ad accounts found (check ads_management permission)</option>{% endif %}
+        {% for a in meta.ad_accounts %}
+          <option value="{{ a.account_id }}" {% if a.account_id|string == meta.ad_account_id|string %}selected{% endif %}>
+            {{ a.name or 'Ad account' }} — {{ a.account_id }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);">
+      Facebook Page / Instagram
+      <select name="page_id" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);min-width:260px;">
+        {% if not meta.pages %}<option value="">No Pages found</option>{% endif %}
+        {% for p in meta.pages %}
+          <option value="{{ p.page_id }}" {% if p.page_id|string == meta.page_id|string %}selected{% endif %}>
+            {{ p.page_name }}{% if p.ig_username %} → @{{ p.ig_username }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn-primary" type="submit" style="padding:8px 16px;">Save selection</button>
+  </form>
+  <div class="conn-desc" style="margin-top:8px;">
+    Currently using — Ad account: <strong>{{ meta.ad_account_id or '—' }}</strong> ·
+    Instagram: <strong>@{{ meta.ig_username or '—' }}</strong> ·
+    Page: <strong>{{ meta.page_id or '—' }}</strong>
+  </div>
+</div>
+{% endif %}
+
+{% for section in sections %}
+<div class="integ-section">
+  <h2>{{ section.title }}</h2>
+  <p class="desc">{{ section.description }}</p>
+  <div class="integ-grid">
+    {% for c in section.cards %}
+      {{ card(c, rows.get(c.key), accounts.get(c.key, [])) }}
+    {% endfor %}
+    {% if section.key == 'channel_data' %}
+      <div class="integ-card is-placeholder">
+        <div class="integ-card-top"><div class="integ-logo">+</div><div class="integ-name">Request a New Integration</div></div>
+        <div class="conn-desc">Don't see your platform? Let us know what to add.</div>
+        <div class="integ-actions"><button class="btn-secondary" style="padding:6px 14px;font-size:13px;">Request</button></div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

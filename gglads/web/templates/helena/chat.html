@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helena — Chat</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem('gglads-theme');
+        var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', stored || sys);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/motion.css" />
+  <link rel="stylesheet" href="/static/helena.css" />
+</head>
+<body class="app-body helena-fullpage">
+  <header class="helena-topbar">
+    <a href="/helena/chat" class="app-logo">Helena</a>
+    <nav class="helena-topnav">
+      <a href="/helena/explore">Explore</a>
+      <a href="/helena/history">History</a>
+      <a href="/helena/tasks">Tasks</a>
+      <a href="/helena/calendar">Calendar</a>
+      <a href="/helena/analytics">Analytics</a>
+      <a href="/helena/files">Files</a>
+      <a href="/helena/library">Product images</a>
+      <a href="/helena/brand">Brand</a>
+      <a href="/helena/memory">Memory</a>
+      <a href="/helena/approvals">Approvals</a>
+      <a href="/helena/integrations">Integrations</a>
+    </nav>
+    <div class="app-header-right">
+      <button class="theme-toggle" type="button" title="Toggle theme"
+              onclick="(function(){var c=document.documentElement.getAttribute('data-theme');var n=c==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('gglads-theme',n);}catch(e){}})()">
+        <span class="icon-go-light">☼</span><span class="icon-go-dark">☾</span>
+      </button>
+      <a href="/" class="app-logout">Exit to app</a>
+    </div>
+  </header>
+
+  {% if flashes %}
+  <div style="padding:8px 16px;">{% for f in flashes %}<span class="pill pill-{{ f.level }}">{{ f.message }}</span>{% endfor %}</div>
+  {% endif %}
+
+  <div class="helena-chat-full">
+    {# ---- LEFT: history ---- #}
+    <div class="helena-col">
+      <div class="helena-col-head">
+        <span>Chats</span>
+        <form method="post" action="/helena/chat/new"><button class="btn-primary" style="padding:4px 10px;font-size:12px;">+ New</button></form>
+      </div>
+      <div class="helena-col-body">
+        <a class="helena-session" href="/helena/history">🔎 Search &amp; manage…</a>
+        <div class="nav-heading" style="padding:10px 6px 4px;">Recent</div>
+        {% for s in sessions %}
+          <a class="helena-session {% if active_session and s.id == active_session.id %}is-active{% endif %}"
+             href="/helena/chat?session={{ s.id }}">{{ s.title }}</a>
+        {% else %}
+          <div class="conn-desc" style="padding:8px 6px;">No chats yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ---- CENTER: thread ---- #}
+    <div class="helena-col">
+      <div class="helena-col-head">
+        <span>{{ active_session.title if active_session else "Helena" }}</span>
+        <span class="conn-desc">AI marketing agent</span>
+      </div>
+      {% if active_session %}
+      <div class="helena-thread" id="thread">
+        {% for m in messages %}
+          {% if m.role == 'user' %}
+            <div class="helena-msg helena-msg-user"><div class="helena-bubble">{{ m.content }}</div></div>
+          {% elif m.role == 'assistant' and m.content %}
+            <div class="helena-msg helena-msg-assistant"><div class="helena-bubble md">{{ m.content }}</div></div>
+          {% elif m.role == 'tool' %}
+            {% set payload = (m.tool_payload_json | fromjson) if m.tool_payload_json else {} %}
+            {% set result = payload.get('result', {}) if payload else {} %}
+            {% if m.tool_name == 'generate_image' and result.get('images') %}
+              <div class="helena-msg helena-msg-assistant">
+                <div class="img-card" data-images='{{ (result.images | map(attribute="url") | list) | tojson }}'
+                     {% if result.get('note') %}data-note="{{ result.note }}"{% endif %}></div>
+              </div>
+            {% elif m.tool_name == 'generate_video' and result.get('videos') %}
+              <div class="helena-msg helena-msg-assistant">
+                <video class="vid-card" src="{{ result.videos[0].url }}" controls preload="metadata"></video>
+              </div>
+            {% else %}
+              <div class="helena-msg helena-msg-tool">
+                <div class="helena-tool-chip">🛠 {{ m.tool_name }}
+                  {% if result.get('preview_url') %}
+                    <a class="tool-link" href="{{ result.preview_url }}" target="_blank">Preview email ↗</a>
+                  {% endif %}
+                  {% if result.get('tasks_url') %}
+                    <a class="tool-link" href="{{ result.tasks_url }}">View task ↗</a>
+                  {% endif %}
+                  {% if result.get('memory_url') %}
+                    <a class="tool-link" href="{{ result.memory_url }}">View memory ↗</a>
+                  {% endif %}
+                  {% if result.get('brand_url') %}
+                    <a class="tool-link" href="{{ result.brand_url }}">View brand ↗</a>
+                  {% endif %}
+                  {% if result.get('analytics_url') %}
+                    <a class="tool-link" href="{{ result.analytics_url }}">View analytics ↗</a>
+                  {% endif %}
+                </div>
+              </div>
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="helena-working" id="working" hidden>
+        <span class="spinner"></span><span id="working-label">Helena is working…</span>
+        <div class="working-steps" id="working-steps"></div>
+      </div>
+
+      <form class="helena-composer" id="composer" data-session="{{ active_session.id }}">
+        <textarea id="msg" rows="2" placeholder="Ask Helena to plan content, generate an image or video, schedule a recurring task, launch a campaign, or design an email…"></textarea>
+        <button class="btn-primary" type="submit" id="send-btn">Send</button>
+        <button class="btn-secondary" type="button" id="stop-btn" hidden>Stop</button>
+      </form>
+      {% else %}
+      <div class="helena-thread"><div class="conn-desc">Start a new chat to talk to Helena.</div></div>
+      {% endif %}
+    </div>
+
+    {# ---- RIGHT: context ---- #}
+    <div class="helena-col">
+      <div class="helena-col-head"><span>Overview</span></div>
+      <div class="helena-col-body">
+        <div class="helena-cards">
+          <div class="helena-card"><div class="label">Ad spend (30d)</div><div class="value">${{ '%.0f'|format(topline.meta.spend) }}</div><div class="sub">ROAS {{ topline.meta.roas }}x</div></div>
+          <div class="helena-card"><div class="label">IG reach</div><div class="value">{{ '%.0f'|format(topline.instagram.reach) }}</div><div class="sub">{{ topline.instagram.engagement_rate }}% eng</div></div>
+          <div class="helena-card"><div class="label">Email CTR</div><div class="value">{{ topline.email.ctr }}%</div></div>
+        </div>
+        <div class="nav-heading" style="padding:14px 2px 6px;">Upcoming tasks
+          {% if approvals_count %}<a href="/helena/approvals" class="pill needs_review">{{ approvals_count }} need approval</a>{% endif %}
+        </div>
+        {% for t in upcoming %}
+          <div class="rec">
+            <div style="display:flex;justify-content:space-between;gap:8px;">
+              <span style="font-size:13px;">{{ t.title }}</span>
+              <span class="pill {{ t.status }}">{{ t.status.replace('_',' ') }}</span>
+            </div>
+            {% if t.run_after %}<div class="conn-desc">{{ t.run_after.strftime('%b %d, %H:%M') }}</div>{% endif %}
+          </div>
+        {% else %}
+          <div class="conn-desc" style="padding:4px 2px;">Nothing scheduled. <a href="/helena/tasks">Tasks →</a></div>
+        {% endfor %}
+        <div class="nav-heading" style="padding:14px 2px 6px;">Brand</div>
+        <div class="conn-desc" style="padding:0 2px 8px;">{{ brand.name }} · <a href="/helena/brand">edit</a></div>
+        {% if assets %}
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          {% for a in assets %}<img src="{{ a.url }}" alt="{{ a.title or 'asset' }}" style="width:100%;border-radius:6px;border:1px solid var(--border);"/>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const thread = document.getElementById('thread');
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+  function renderMarkdown(src) {
+    const lines = String(src).replace(/\r\n/g, '\n').split('\n');
+    const out = []; let listType = null, para = [];
+    const inline = t => escapeHtml(t)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br/>') + '</p>'); para = []; } };
+    const flushList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
+    for (const raw of lines) {
+      const line = raw.trimEnd(); let m;
+      if (!line.trim()) { flushPara(); flushList(); continue; }
+      if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { flushPara(); flushList(); out.push('<h' + (m[1].length + 2) + '>' + inline(m[2]) + '</h' + (m[1].length + 2) + '>'); continue; }
+      if ((m = line.match(/^>\s?(.*)$/))) { flushPara(); flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); continue; }
+      if ((m = line.match(/^[-*]\s+(.*)$/))) { flushPara(); if (listType !== 'ul') { flushList(); out.push('<ul>'); listType = 'ul'; } out.push('<li>' + inline(m[1]) + '</li>'); continue; }
+      if ((m = line.match(/^\d+\.\s+(.*)$/))) { flushPara(); if (listType !== 'ol') { flushList(); out.push('<ol>'); listType = 'ol'; } out.push('<li>' + inline(m[1]) + '</li>'); continue; }
+      flushList(); para.push(line);
+    }
+    flushPara(); flushList(); return out.join('');
+  }
+  function mountImageCard(card, images, note) {
+    if (!images || !images.length) return;
+    let idx = 0;
+    card.innerHTML =
+      '<div class="img-card-main"><img alt="generated image"/></div>' +
+      '<div class="img-card-bar"><button class="img-nav prev">‹</button>' +
+      '<span class="img-counter"></span><button class="img-nav next">›</button>' +
+      '<button class="img-expand">⤢</button></div>' + (note ? '<div class="img-note"></div>' : '');
+    const img = card.querySelector('img'); const counter = card.querySelector('.img-counter');
+    // Belt-and-suspenders: if an image still fails to load, show a note instead
+    // of a broken-image icon (the server already verifies reachability).
+    img.addEventListener('error', () => {
+      card.innerHTML = '<div class="img-note">⚠ This image couldn’t be loaded.</div>';
+    });
+    if (note) card.querySelector('.img-note').textContent = note;
+    const single = images.length < 2;
+    card.querySelectorAll('.img-nav').forEach(b => b.style.display = single ? 'none' : '');
+    function show() { img.src = images[idx]; counter.textContent = (idx + 1) + '/' + images.length; }
+    card.querySelector('.prev')?.addEventListener('click', () => { idx = (idx - 1 + images.length) % images.length; show(); });
+    card.querySelector('.next')?.addEventListener('click', () => { idx = (idx + 1) % images.length; show(); });
+    const expand = () => openLightbox(images[idx]);
+    img.addEventListener('click', expand); card.querySelector('.img-expand').addEventListener('click', expand);
+    show();
+  }
+  function openLightbox(url) {
+    let lb = document.getElementById('img-lightbox');
+    if (!lb) { lb = document.createElement('div'); lb.id = 'img-lightbox'; lb.className = 'img-lightbox';
+      lb.innerHTML = '<img alt="expanded"/>'; lb.addEventListener('click', () => lb.classList.remove('open')); document.body.appendChild(lb); }
+    lb.querySelector('img').src = url; lb.classList.add('open');
+  }
+  function hydrate(root) {
+    (root || document).querySelectorAll('.helena-bubble.md:not([data-md])').forEach(b => {
+      b.setAttribute('data-md', '1'); b.innerHTML = renderMarkdown(b.textContent);
+    });
+    (root || document).querySelectorAll('.img-card:not([data-mounted])').forEach(c => {
+      c.setAttribute('data-mounted', '1'); let imgs = [];
+      try { imgs = JSON.parse(c.dataset.images || '[]'); } catch (_) {}
+      mountImageCard(c, imgs, c.dataset.note || '');
+    });
+  }
+  hydrate(document);
+
+  const composer = document.getElementById('composer');
+  if (!composer) { if (thread) thread.scrollTop = thread.scrollHeight; return; }
+  const input = document.getElementById('msg');
+  const sessionId = composer.dataset.session;
+  const working = document.getElementById('working');
+  const workingSteps = document.getElementById('working-steps');
+  const sendBtn = document.getElementById('send-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  let controller = null;
+
+  const STEP_LABELS = {
+    generate_image: 'Generating image…', generate_video: 'Generating video (this can take a few minutes)…',
+    create_post: 'Drafting Instagram post…', schedule_post: 'Scheduling post (needs approval)…',
+    publish_post: 'Queuing publish (needs approval)…', create_ad_campaign: 'Drafting ad campaign (needs approval)…',
+    update_budget: 'Queuing budget change (needs approval)…', get_analytics: 'Pulling analytics…',
+    list_products: 'Looking up products…', plan_email_campaign: 'Planning email…',
+    generate_email_copy: 'Writing email copy…', render_email_html: 'Rendering email HTML…',
+    create_email_draft: 'Creating Shopify Email draft (needs approval)…',
+    schedule_email: 'Scheduling email (needs approval)…', schedule_recurring_task: 'Setting up the schedule…',
+  };
+  function el(cls, html) {
+    const d = document.createElement('div'); d.className = cls; d.innerHTML = html;
+    thread.appendChild(d); thread.scrollTop = thread.scrollHeight; return d;
+  }
+  function setWorking(on) {
+    working.classList.toggle('is-on', on); stopBtn.hidden = !on;
+    sendBtn.textContent = on ? 'Working…' : 'Send';
+    if (!on) workingSteps.innerHTML = '';
+  }
+  function addStep(name) {
+    const s = document.createElement('div'); s.className = 'working-step';
+    s.textContent = '› ' + (STEP_LABELS[name] || name); workingSteps.appendChild(s);
+  }
+
+  async function sendTurn(text) {
+    if (controller) controller.abort();  // a follow-up mid-task supersedes the current turn
+    controller = new AbortController();
+    el('helena-msg helena-msg-user', '<div class="helena-bubble">' + escapeHtml(text) + '</div>');
+    const assistantWrap = el('helena-msg helena-msg-assistant', '<div class="helena-bubble md"></div>');
+    const bubble = assistantWrap.querySelector('.helena-bubble');
+    setWorking(true);
+    const fd = new FormData(); fd.append('message', text);
+    let acc = '';
+    try {
+      const resp = await fetch('/helena/chat/' + sessionId + '/stream', { method: 'POST', body: fd, signal: controller.signal });
+      const reader = resp.body.getReader(); const decoder = new TextDecoder(); let buf = '';
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n'); buf = parts.pop();
+        for (const part of parts) {
+          const line = part.replace(/^data: /, '').trim(); if (!line) continue;
+          let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
+          if (ev.type === 'start') { /* working already shown */ }
+          else if (ev.type === 'step') { addStep(ev.name); }
+          else if (ev.type === 'text') { acc += ev.text; bubble.innerHTML = renderMarkdown(acc); }
+          else if (ev.type === 'tool') {
+            if (ev.name === 'generate_image' && ev.result && ev.result.images && ev.result.images.length) {
+              const w = el('helena-msg helena-msg-assistant', '<div class="img-card"></div>');
+              mountImageCard(w.querySelector('.img-card'), ev.result.images.map(i => i.url), ev.result.note || '');
+            } else if (ev.name === 'generate_video' && ev.result && ev.result.videos && ev.result.videos.length) {
+              el('helena-msg helena-msg-assistant',
+                 '<video class="vid-card" src="' + escapeHtml(ev.result.videos[0].url) + '" controls preload="metadata"></video>');
+            } else {
+              const r = ev.result || {};
+              let link = '';
+              if (r.preview_url) link += ' <a class="tool-link" href="' + escapeHtml(r.preview_url) + '" target="_blank">Preview email ↗</a>';
+              if (r.tasks_url) link += ' <a class="tool-link" href="' + escapeHtml(r.tasks_url) + '">View task ↗</a>';
+              if (r.memory_url) link += ' <a class="tool-link" href="' + escapeHtml(r.memory_url) + '">View memory ↗</a>';
+              if (r.brand_url) link += ' <a class="tool-link" href="' + escapeHtml(r.brand_url) + '">View brand ↗</a>';
+              if (r.analytics_url) link += ' <a class="tool-link" href="' + escapeHtml(r.analytics_url) + '">View analytics ↗</a>';
+              el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + link + '</div>');
+            }
+          }
+          else if (ev.type === 'error') { bubble.textContent = '⚠ ' + ev.error; }
+          else if (ev.type === 'done') { /* finished */ }
+          thread.scrollTop = thread.scrollHeight;
+        }
+      }
+      if (!acc.trim() && !bubble.textContent) bubble.textContent = '(done)';
+    } catch (err) {
+      if (err.name === 'AbortError') { bubble.textContent = (acc.trim() ? acc : '') + ' ⏹ stopped'; }
+      else { bubble.textContent = '⚠ ' + err; }
+    } finally { setWorking(false); controller = null; }
+  }
+
+  composer.addEventListener('submit', e => {
+    e.preventDefault();
+    const text = input.value.trim(); if (!text) return;
+    input.value = ''; sendTurn(text);
+  });
+  stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
+
+  thread.scrollTop = thread.scrollHeight;
+
+  // Prefill (e.g. launched from Explore) — drop into the box and auto-send once.
+  const prefill = {{ (prefill or "") | tojson }};
+  if (prefill) { input.value = prefill; sendTurn(prefill); input.value = ''; }
+})();
+</script>
+</body>
+</html>

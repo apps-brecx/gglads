@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block title %}Tasks — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Tasks</h1>
+  <p class="page-subtitle">Recurring and one-off scheduled jobs. Ask Helena in chat to “do X every day at 3pm” to add one. Publishing/spending still needs approval.</p>
+</div>
+
+{% if pending %}
+<div class="pill needs_review" style="margin-bottom:12px;">{{ pending|length }} action(s) waiting on the <a href="/helena/approvals">Approvals</a> page.</div>
+{% endif %}
+
+<table class="helena-table">
+  <thead><tr><th>Task</th><th>Schedule</th><th>Status</th><th>Last ran</th><th>Next run</th><th></th></tr></thead>
+  <tbody>
+  {% for t in tasks %}
+    <tr>
+      <td>{{ t.title }} <span class="conn-desc">({{ t.kind }})</span></td>
+      <td class="conn-desc">{{ t.recurrence or 'one-off' }}</td>
+      <td><span class="pill {{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
+      <td class="conn-desc">{{ t.last_run_at.strftime('%b %d, %H:%M') if t.last_run_at else '—' }}</td>
+      <td class="conn-desc">{{ t.run_after.strftime('%b %d, %H:%M') if t.run_after else '—' }}</td>
+      <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        {% if t.status == 'paused' %}
+          <form method="post" action="/helena/tasks/{{ t.id }}/resume"><button class="btn-secondary" style="padding:4px 10px;font-size:12px;">Resume</button></form>
+        {% else %}
+          <form method="post" action="/helena/tasks/{{ t.id }}/pause"
+                onsubmit="return confirm('Pause this task? It won’t run until resumed.');">
+            <button class="btn-secondary" style="padding:4px 10px;font-size:12px;">Pause</button></form>
+        {% endif %}
+        <details class="edit-pop">
+          <summary class="btn-secondary" style="padding:4px 10px;font-size:12px;list-style:none;">Edit</summary>
+          <form method="post" action="/helena/tasks/{{ t.id }}/edit" class="edit-form">
+            <label>Title<input type="text" name="title" value="{{ t.title }}"/></label>
+            <label>Recurrence
+              <input type="text" name="recurrence" value="{{ t.recurrence or '' }}" placeholder="daily / daily@15:00 / weekly:mon / hourly"/>
+            </label>
+            <label>Next run (ISO)<input type="text" name="run_after" placeholder="2026-06-10T15:00"/></label>
+            <button class="btn-primary" style="padding:4px 12px;font-size:12px;">Save</button>
+          </form>
+        </details>
+        <form method="post" action="/helena/tasks/{{ t.id }}/delete"
+              onsubmit="return confirm('Delete this task permanently?');">
+          <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button></form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="conn-desc">No scheduled tasks yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

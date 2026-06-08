@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+{% block title %}Memory — Helena{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+<div class="page-head">
+  <h1 class="page-title">Memory</h1>
+  <p class="page-subtitle">What Helena has learned and applies to every chat and task. She saves these automatically from conversation — edit or remove anything here.</p>
+</div>
+
+<form method="post" action="/helena/memory/add" style="display:flex;gap:8px;max-width:760px;margin-bottom:20px;flex-wrap:wrap;">
+  <input type="text" name="content" placeholder="Add something Helena should always remember…" required
+         style="flex:1;min-width:280px;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);"/>
+  <select name="category" style="padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);">
+    {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+  </select>
+  <button class="btn-primary" type="submit">Remember</button>
+</form>
+
+<table class="helena-table" style="max-width:900px;">
+  <thead><tr><th>Memory</th><th>Category</th><th>Source</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {% for it in items %}
+    <tr style="{% if not it.is_active %}opacity:.5;{% endif %}">
+      <td>
+        <form method="post" action="/helena/memory/{{ it.id }}/edit" style="display:flex;gap:6px;align-items:center;">
+          <input type="text" name="content" value="{{ it.content }}"
+                 style="flex:1;min-width:280px;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);"/>
+          <select name="category" style="padding:5px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);">
+            {% for c in categories %}<option value="{{ c }}" {% if c == it.category %}selected{% endif %}>{{ c }}</option>{% endfor %}
+          </select>
+          <button class="btn-secondary" style="padding:4px 10px;font-size:12px;">Save</button>
+        </form>
+      </td>
+      <td class="conn-desc">{{ it.category }}</td>
+      <td class="conn-desc">{{ it.source }}</td>
+      <td class="conn-desc">{{ it.created_at.strftime('%b %d') if it.created_at else '' }}</td>
+      <td>
+        <form method="post" action="/helena/memory/{{ it.id }}/delete"
+              onsubmit="return confirm('Remove this from Helena’s memory?');">
+          <button class="btn-secondary" style="padding:4px 10px;font-size:12px;color:var(--fail);">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="conn-desc">Nothing remembered yet. Tell Helena something in chat, or add it above.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

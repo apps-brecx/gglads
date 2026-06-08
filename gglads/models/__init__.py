@@ -1,6 +1,20 @@
 from gglads.models.base import Base
+from gglads.models.brand import Brand, BrandAsset, BrandDocument
 from gglads.models.campaign import AdCampaign, AdCampaignKeyword, AdGroup
-from gglads.models.integration import Integration
+from gglads.models.email_campaign import EmailAsset, EmailCampaign, EmailTemplate
+from gglads.models.entity_task import EntityTask
+from gglads.models.helena import (
+    ChatSession,
+    ExecutionRun,
+    Message,
+    MemoryItem,
+    MetaAdCampaign,
+    MetricSnapshot,
+    Post,
+    ProductImage,
+    ScheduledTask,
+)
+from gglads.models.integration import Integration, IntegrationAccount
 from gglads.models.product_chat import ProductChatMessage
 from gglads.models.product_keywords import KeywordResearchRun, ProductKeyword
 from gglads.models.shopify_product import (
@@ -23,11 +37,28 @@ __all__ = [
     "AdCampaign",
     "AdCampaignKeyword",
     "AdGroup",
+    "Brand",
+    "BrandAsset",
+    "BrandDocument",
+    "ChatSession",
+    "EmailAsset",
+    "EmailCampaign",
+    "EmailTemplate",
+    "EntityTask",
+    "ExecutionRun",
     "Integration",
+    "IntegrationAccount",
     "KeywordResearchRun",
+    "MemoryItem",
+    "Message",
+    "MetaAdCampaign",
+    "MetricSnapshot",
+    "Post",
+    "ProductImage",
     "ProductChatMessage",
     "ProductKeyword",
     "ProductSeoDraft",
+    "ScheduledTask",
     "ShopifyCollection",
     "ShopifyInventorySnapshot",
     "ShopifyProduct",

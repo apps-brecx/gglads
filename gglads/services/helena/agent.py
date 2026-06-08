@@ -145,17 +145,20 @@ def get_messages(db: Session, session_id: int) -> list[Message]:
     )
 
 
-def append_user_message(db: Session, session_id: int, text: str, user_id: int | None) -> Message:
-    return _append(db, session_id, "user", text, user_id=user_id)
+def append_user_message(db: Session, session_id: int, text: str, user_id: int | None,
+                        image_url: str | None = None) -> Message:
+    return _append(db, session_id, "user", text, user_id=user_id, image_url=image_url)
 
 
 def append_assistant_message(db: Session, session_id: int, text: str) -> Message:
     return _append(db, session_id, "assistant", text)
 
 
-def _append(db, session_id, role, content, *, tool_name=None, tool_payload=None, user_id=None) -> Message:
+def _append(db, session_id, role, content, *, tool_name=None, tool_payload=None,
+            user_id=None, image_url=None) -> Message:
     m = Message(
         session_id=session_id, role=role, content=content or "",
+        image_url=image_url,
         tool_name=tool_name,
         tool_payload_json=json.dumps(tool_payload) if tool_payload is not None else None,
         user_id=user_id,
@@ -173,27 +176,44 @@ def _append(db, session_id, role, content, *, tool_name=None, tool_payload=None,
 # Tool-calling loop (streaming)
 # ---------------------------------------------------------------------------
 
+def _user_content(text: str, image_url: str | None) -> Any:
+    """Anthropic message content for a user turn, including an image block when
+    the user attached one (pasted/uploaded). Uses a URL image source."""
+    if not image_url:
+        return text or "(no text)"
+    blocks: list[dict[str, Any]] = [
+        {"type": "image", "source": {"type": "url", "url": image_url}}
+    ]
+    if text:
+        blocks.append({"type": "text", "text": text})
+    return blocks
+
+
 def _history_for_api(db: Session, session_id: int) -> list[dict[str, Any]]:
-    """Convert stored Messages into Anthropic message dicts (text only — tool
-    rounds within a turn are handled live in stream_turn)."""
+    """Convert stored Messages into Anthropic message dicts. User messages with
+    an attached image carry an image block; tool rounds within a turn are
+    handled live in stream_turn."""
     msgs = get_messages(db, session_id)
     out: list[dict[str, Any]] = []
     for m in msgs:
-        if m.role in ("user", "assistant") and m.content:
-            out.append({"role": m.role, "content": m.content})
+        if m.role == "user" and (m.content or m.image_url):
+            out.append({"role": "user", "content": _user_content(m.content, m.image_url)})
+        elif m.role == "assistant" and m.content:
+            out.append({"role": "assistant", "content": m.content})
     return out
 
 
 def stream_turn(
-    db: Session, session_id: int, user_text: str, user_id: int | None
+    db: Session, session_id: int, user_text: str, user_id: int | None,
+    image_url: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Run one user turn. Yields events:
       {type: 'tool', name, args, result}
       {type: 'text', text}
       {type: 'done'} | {type: 'error', error}
-    Persists the user message and the final assistant message.
+    Persists the user message (with any attached image) and the final reply.
     """
-    append_user_message(db, session_id, user_text, user_id)
+    append_user_message(db, session_id, user_text, user_id, image_url=image_url)
     yield {"type": "start"}  # UI shows the "working" state
 
     client, model, err = claude_svc.get_client_and_model(db)

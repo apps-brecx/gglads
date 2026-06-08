@@ -302,6 +302,42 @@ def test_generate_image_composites_library_bottle(db, monkeypatch):
     assert res["bottle_used"]["source"] == "library"
 
 
+def test_generate_image_pins_exact_mentioned_bottle(db, monkeypatch):
+    """An @-mentioned product_image_id pins that EXACT library bottle, even when
+    flavor isn't passed."""
+    import httpx as _httpx
+
+    from gglads.services.helena import product_library as lib
+    from gglads.services.helena import skills, storage
+    from gglads.services.helena.images.google_flow import GeneratedImage, GoogleFlowImageService
+    monkeypatch.setattr(storage, "put_bytes", lambda *a, **k: ("https://pub/lib.png", None))
+    monkeypatch.setattr(storage, "verify_url", lambda url, **k: (True, "ok"))
+    # Two flavors in the library; we pin the second by id.
+    lib.add_image(db, data=b"A", content_type="image/png", flavor="Mango", variant="regular")
+    pinned, _ = lib.add_image(db, data=b"B", content_type="image/png",
+                              flavor="Pink Splash", variant="sugar_free")
+
+    captured = {}
+
+    class _R:
+        status_code = 200
+        content = b"BOTTLE"
+        headers = {"content-type": "image/png"}
+    def _get(url, *a, **k):
+        captured["url"] = url
+        return _R()
+    monkeypatch.setattr(_httpx, "get", _get)
+    monkeypatch.setattr(GoogleFlowImageService, "generate_with_reference",
+                        lambda self, c, b, ref_mime="image/png", brand_context="":
+                        (GeneratedImage(url="https://pub/scene.png", prompt=c), None))
+    res = skills.run_skill(db, "generate_image",
+                           {"concept": "beach scene", "product_image_id": pinned.id},
+                           user_id=None, session_id=None)
+    assert res["ok"] is True
+    assert res["bottle_used"]["url"] == pinned.url  # exact pinned bottle, not Mango
+    assert captured["url"] == pinned.url
+
+
 def test_fetch_ad_performance_uses_selected_account(db, monkeypatch):
     """Live ad performance targets the SAVED ad account and returns real totals."""
     import gglads.config as cfg

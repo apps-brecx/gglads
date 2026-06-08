@@ -452,8 +452,25 @@
 }
 
 /* ---- Chat composer: attach / paste / voice + inline images -------- */
-.helena-composer { flex-direction: column; align-items: stretch; }
+.helena-composer { flex-direction: column; align-items: stretch; position: relative; }
 .helena-composer.drag { outline: 2px dashed var(--accent); outline-offset: -4px; }
+
+/* @-mention product picker (opens above the input) */
+.mention-menu {
+  position: absolute; left: 12px; right: 12px; bottom: calc(100% - 6px);
+  background: var(--panel-elevated); border: 1px solid var(--border-strong);
+  border-radius: 10px; box-shadow: 0 -6px 24px rgba(0,0,0,.18);
+  max-height: 260px; overflow-y: auto; z-index: 30; padding: 4px;
+}
+.mention-item {
+  display: flex; align-items: center; gap: 10px; padding: 7px 9px;
+  border-radius: 7px; cursor: pointer; font-size: 13px; color: var(--text);
+}
+.mention-item img {
+  width: 30px; height: 30px; object-fit: cover; border-radius: 6px;
+  border: 1px solid var(--border); flex-shrink: 0; background: var(--bg-input);
+}
+.mention-item.active, .mention-item:hover { background: var(--accent-soft); }
 .composer-row { display: flex; gap: 8px; align-items: flex-end; }
 .composer-icon {
   background: var(--bg-input); border: 1px solid var(--border); color: var(--muted-strong);

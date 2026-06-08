@@ -130,6 +130,7 @@
       </div>
 
       <form class="helena-composer" id="composer" data-session="{{ active_session.id }}">
+        <div class="mention-menu" id="mention-menu" hidden></div>
         <div class="composer-attachment" id="attachment" hidden>
           <img id="attachment-thumb" alt="attachment"/>
           <button type="button" id="attachment-remove" title="Remove">✕</button>
@@ -138,7 +139,7 @@
           <button class="composer-icon" type="button" id="attach-btn" title="Attach an image">📎</button>
           <button class="composer-icon" type="button" id="mic-btn" title="Dictate (voice)">🎤</button>
           <input type="file" id="file-input" accept="image/*" hidden/>
-          <textarea id="msg" rows="2" placeholder="Ask Helena… (paste or attach an image, or 🎤 to dictate)"></textarea>
+          <textarea id="msg" rows="2" placeholder="Ask Helena… (type @ to pick a product bottle, paste/attach an image, or 🎤 to dictate)"></textarea>
           <button class="btn-primary" type="submit" id="send-btn">Send</button>
           <button class="btn-secondary" type="button" id="stop-btn" hidden>Stop</button>
         </div>
@@ -306,7 +307,7 @@
     s.textContent = '› ' + (STEP_LABELS[name] || name); workingSteps.appendChild(s);
   }
 
-  async function sendTurn(text, imageFile, previewUrl) {
+  async function sendTurn(text, imageFile, previewUrl, mentionIds) {
     if (controller) controller.abort();  // a follow-up mid-task supersedes the current turn
     controller = new AbortController();
     const userHtml =
@@ -317,6 +318,7 @@
     const bubble = assistantWrap.querySelector('.helena-bubble');
     setWorking(true);
     const fd = new FormData(); fd.append('message', text);
+    if (mentionIds && mentionIds.length) fd.append('mentions', JSON.stringify(mentionIds));
     if (imageFile) fd.append('image', imageFile, imageFile.name || 'image.png');
     let acc = '';
     try {
@@ -421,16 +423,73 @@
     recog.start();
   });
 
+  // ---- @-mention: pick a product bottle from the image library ----
+  const PRODUCTS = {{ (library_products or []) | tojson }};
+  const mentionMenu = document.getElementById('mention-menu');
+  let mentionActive = false, mentionStart = -1, mentionHi = 0, mentionMatches = [];
+  // Track chosen products; on send we keep those whose token still appears.
+  let chosenMentions = [];
+  function productLabel(p) {
+    const v = (p.variant || '').replace('_', '-');
+    return p.flavor ? (p.flavor + (v ? ' (' + v + ')' : '')) : (p.label || 'product');
+  }
+  function closeMention() { mentionActive = false; mentionMenu.hidden = true; mentionMatches = []; }
+  function renderMention() {
+    if (!mentionMatches.length) { mentionMenu.hidden = true; return; }
+    mentionMenu.innerHTML = mentionMatches.map((p, i) =>
+      '<div class="mention-item' + (i === mentionHi ? ' active' : '') + '" data-i="' + i + '">' +
+        (p.url ? '<img src="' + escapeHtml(p.url) + '" alt=""/>' : '') +
+        '<span>' + escapeHtml(productLabel(p)) + '</span></div>'
+    ).join('');
+    mentionMenu.hidden = false;
+  }
+  function updateMention() {
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, pos);
+    const m = before.match(/(^|\s)@([\w][\w -]*)?$/);
+    if (!m) { closeMention(); return; }
+    mentionStart = pos - (m[2] ? m[2].length : 0) - 1;  // index of '@'
+    const q = (m[2] || '').trim().toLowerCase();
+    mentionMatches = PRODUCTS.filter(p =>
+      !q || productLabel(p).toLowerCase().includes(q) || (p.flavor || '').toLowerCase().includes(q)
+    ).slice(0, 8);
+    mentionActive = mentionMatches.length > 0; mentionHi = 0; renderMention();
+  }
+  function pickMention(p) {
+    const pos = input.selectionStart;
+    const token = '@' + productLabel(p) + ' ';
+    input.value = input.value.slice(0, mentionStart) + token + input.value.slice(pos);
+    const caret = mentionStart + token.length;
+    input.setSelectionRange(caret, caret);
+    chosenMentions.push({ id: p.id, token: '@' + productLabel(p) });
+    closeMention(); input.focus();
+  }
+  input.addEventListener('input', updateMention);
+  input.addEventListener('keydown', e => {
+    if (!mentionActive) return;
+    if (e.key === 'ArrowDown') { mentionHi = (mentionHi + 1) % mentionMatches.length; renderMention(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { mentionHi = (mentionHi - 1 + mentionMatches.length) % mentionMatches.length; renderMention(); e.preventDefault(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { pickMention(mentionMatches[mentionHi]); e.preventDefault(); }
+    else if (e.key === 'Escape') { closeMention(); }
+  });
+  mentionMenu.addEventListener('mousedown', e => {
+    const item = e.target.closest('.mention-item'); if (!item) return;
+    e.preventDefault(); pickMention(mentionMatches[+item.dataset.i]);
+  });
+
   composer.addEventListener('submit', e => {
     e.preventDefault();
+    if (mentionActive && mentionMatches.length) { pickMention(mentionMatches[mentionHi]); return; }
     const text = input.value.trim();
     if (!text && !attachedFile) return;  // need text or an image
+    // Keep only mentions whose token is still present in the text.
+    const ids = chosenMentions.filter(m => text.includes(m.token)).map(m => m.id);
     const file = attachedFile, preview = attachedPreview;
     // Detach WITHOUT revoking the blob URL — it's now shown in the sent bubble.
     attachedFile = null; attachedPreview = null;
     attachBox.hidden = true; fileInput.value = '';
-    input.value = '';
-    sendTurn(text, file, preview);
+    input.value = ''; chosenMentions = []; closeMention();
+    sendTurn(text, file, preview, ids);
   });
   stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
 

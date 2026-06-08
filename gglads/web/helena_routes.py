@@ -118,6 +118,11 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ctx(request, user, "helena_chat",
                 sessions=sessions, active_session=active_session,
                 messages=messages, prefill=request.query_params.get("prefill", ""),
+                library_products=[
+                    {"id": p.id, "flavor": p.flavor, "variant": p.variant,
+                     "label": p.label, "url": p.url}
+                    for p in library_svc.list_images(db, kind="product")
+                ],
                 **sidebar_data(db)),
         )
 
@@ -162,9 +167,36 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         if not message and not image_url:
             return PlainTextResponse("Empty message", status_code=400)
 
+        # @-mentioned product images: pin the EXACT bottle the user selected.
+        # Resolve ids → a context note given to the model for this turn only
+        # (not stored in the user's message).
+        mention_context = None
+        raw_mentions = str(form.get("mentions", "")).strip()
+        if raw_mentions:
+            try:
+                ids = [int(x) for x in json.loads(raw_mentions)]
+            except (ValueError, TypeError, json.JSONDecodeError):
+                ids = []
+            from gglads.models.helena import ProductImage
+            lines = []
+            for pid in ids:
+                img = db.get(ProductImage, pid)
+                if img and img.url:
+                    v = (img.variant or "").replace("_", "-") or "unspecified"
+                    lines.append(f"- product_image_id={img.id} → {img.flavor or img.label} "
+                                 f"({v})")
+            if lines:
+                mention_context = (
+                    "The user @-mentioned specific product bottle images they want used as "
+                    "the EXACT bottle in any image you generate for this message. You MUST "
+                    "call generate_image with the matching `product_image_id` so that exact "
+                    "real bottle is used (generate only the scene around it — never a "
+                    "different or invented bottle):\n" + "\n".join(lines))
+
         def event_stream():
             for event in agent_svc.stream_turn(db, session_id, message, user.id,
-                                               image_url=image_url):
+                                               image_url=image_url,
+                                               mention_context=mention_context):
                 yield f"data: {json.dumps(event)}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

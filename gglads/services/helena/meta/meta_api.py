@@ -197,6 +197,57 @@ class MetaApiProvider(MetaExecutionProvider):
         return ProviderResult(success=True, metrics=metrics,
                               message=f"Pulled {len(metrics)} Instagram metrics.")
 
+    def fetch_instagram_media(self, limit: int = 10) -> ProviderResult:
+        """Recent organic posts with per-post insights (reach, impressions,
+        likes, comments). Returns per-post detail in .steps and metric rows in
+        .metrics (for the dashboard)."""
+        if not self._token or not self._ig_user_id:
+            return self._not_connected("Instagram")
+        limit = max(1, min(int(limit or 10), 25))
+        body, err = self._get(f"{self._ig_user_id}/media", {
+            "fields": "id,caption,permalink,timestamp,media_type,like_count,comments_count",
+            "limit": limit,
+        })
+        if err:
+            return ProviderResult(success=False, message=f"Couldn't list Instagram posts: {err}")
+        posts: list[dict] = []
+        metrics: list[dict] = []
+        from datetime import UTC
+        from datetime import datetime as _dt
+        now = _dt.now(UTC)
+        for m in (body.get("data") or []):
+            mid = m.get("id")
+            likes = m.get("like_count") or 0
+            comments = m.get("comments_count") or 0
+            reach = impressions = None
+            ins, ierr = self._get(f"{mid}/insights", {"metric": "reach,impressions"})
+            if not ierr and ins:
+                for s in (ins.get("data") or []):
+                    vals = s.get("values") or [{}]
+                    v = vals[0].get("value")
+                    if s.get("name") == "reach":
+                        reach = v
+                    elif s.get("name") == "impressions":
+                        impressions = v
+            posts.append({
+                "id": mid,
+                "caption": (m.get("caption") or "")[:120],
+                "permalink": m.get("permalink"),
+                "timestamp": m.get("timestamp"),
+                "media_type": m.get("media_type"),
+                "likes": likes, "comments": comments,
+                "reach": reach, "impressions": impressions,
+            })
+            # Per-post metric rows for the dashboard / ingest.
+            for name, val in (("reach", reach), ("impressions", impressions),
+                              ("likes", likes), ("comments", comments)):
+                if val is not None:
+                    metrics.append(_metric("instagram", name, val, now))
+        return ProviderResult(
+            success=True, metrics=metrics, steps=posts,
+            message=f"Read insights for {len(posts)} recent Instagram post(s).",
+        )
+
 
 def _metric(platform: str, metric: str, value, when: datetime) -> dict:
     try:

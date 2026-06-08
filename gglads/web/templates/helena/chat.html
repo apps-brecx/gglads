@@ -107,6 +107,9 @@
                   {% if result.get('brand_url') %}
                     <a class="tool-link" href="{{ result.brand_url }}">View brand ↗</a>
                   {% endif %}
+                  {% if result.get('analytics_url') %}
+                    <a class="tool-link" href="{{ result.analytics_url }}">View analytics ↗</a>
+                  {% endif %}
                 </div>
               </div>
             {% endif %}
@@ -302,6 +305,7 @@
               if (r.tasks_url) link += ' <a class="tool-link" href="' + escapeHtml(r.tasks_url) + '">View task ↗</a>';
               if (r.memory_url) link += ' <a class="tool-link" href="' + escapeHtml(r.memory_url) + '">View memory ↗</a>';
               if (r.brand_url) link += ' <a class="tool-link" href="' + escapeHtml(r.brand_url) + '">View brand ↗</a>';
+              if (r.analytics_url) link += ' <a class="tool-link" href="' + escapeHtml(r.analytics_url) + '">View analytics ↗</a>';
               el('helena-msg helena-msg-tool', '<div class="helena-tool-chip">🛠 ' + escapeHtml(ev.name) + link + '</div>');
             }
           }

@@ -170,8 +170,8 @@ class MetaApiProvider(MetaExecutionProvider):
             for m in ("spend", "impressions", "clicks"):
                 if row.get(m) is not None:
                     metrics.append(_metric("meta_ads", m, row[m], date_range.end))
-            conv = _sum_actions(row.get("actions"), "purchase")
-            rev = _sum_actions(row.get("action_values"), "purchase")
+            conv = _pick_purchase(row.get("actions"))
+            rev = _pick_purchase(row.get("action_values"))
             if conv:
                 metrics.append(_metric("meta_ads", "conversions", conv, date_range.end))
             if rev:
@@ -201,8 +201,8 @@ class MetaApiProvider(MetaExecutionProvider):
             spend = float(row.get("spend") or 0)
             impr = float(row.get("impressions") or 0)
             clicks = float(row.get("clicks") or 0)
-            purch = _sum_actions(row.get("actions"), "purchase")
-            rev = _sum_actions(row.get("action_values"), "purchase")
+            purch = _pick_purchase(row.get("actions"))
+            rev = _pick_purchase(row.get("action_values"))
             roas = (rev / spend) if spend else 0.0
             ads.append({
                 "ad_id": row.get("ad_id"), "ad_name": row.get("ad_name"),
@@ -386,13 +386,13 @@ class MetaApiProvider(MetaExecutionProvider):
         if not s_err:
             for r in (s_body.get("data") or []):
                 spend = float(r.get("spend") or 0)
-                rev = _sum_actions(r.get("action_values"), "purchase")
+                rev = _pick_purchase(r.get("action_values"))
                 series.append({
                     "date": r.get("date_start") or r.get("date_stop"),
                     "spend": round(spend, 2),
                     "revenue": round(rev, 2),
                     "clicks": int(float(r.get("clicks") or 0)),
-                    "purchases": round(_sum_actions(r.get("actions"), "purchase"), 2),
+                    "purchases": round(_pick_purchase(r.get("actions")), 2),
                     "roas": _div(rev, spend),
                 })
             series.sort(key=lambda p: p["date"] or "")
@@ -619,6 +619,38 @@ def _sum_actions(actions, contains: str) -> float:
     return total
 
 
+# Meta reports the SAME purchases under several overlapping action types
+# (omni_purchase, purchase, offsite_conversion.fb_pixel_purchase, …). Summing
+# them double-counts and inflates purchases/revenue/ROAS, so we take ONE
+# canonical value by priority instead.
+_PURCHASE_PRIORITY = (
+    "omni_purchase",
+    "purchase",
+    "offsite_conversion.fb_pixel_purchase",
+    "onsite_web_purchase",
+    "web_in_store_purchase",
+    "app_custom_event.fb_mobile_purchase",
+)
+
+
+def _pick_purchase(rows) -> float:
+    """Return the single best purchase count/value from an actions or
+    action_values list — NOT the sum (Meta's purchase action types overlap)."""
+    by_type: dict[str, float] = {}
+    for a in (rows or []):
+        at = a.get("action_type") or ""
+        try:
+            by_type[at] = float(a.get("value", 0))
+        except (TypeError, ValueError):
+            continue
+    for pref in _PURCHASE_PRIORITY:
+        if pref in by_type:
+            return by_type[pref]
+    # Unknown labelling — take the largest single purchase-ish value, never the sum.
+    cands = [v for at, v in by_type.items() if "purchase" in at]
+    return max(cands) if cands else 0.0
+
+
 def _div(num: float, den: float, scale: float = 1.0) -> float:
     return round(num / den * scale, 2) if den else 0.0
 
@@ -652,8 +684,8 @@ def _ad_row(row: dict) -> dict:
     clicks = float(row.get("clicks") or 0)
     reach = float(row.get("reach") or 0)
     freq = float(row.get("frequency") or 0)
-    purch = _sum_actions(row.get("actions"), "purchase")
-    rev = _sum_actions(row.get("action_values"), "purchase")
+    purch = _pick_purchase(row.get("actions"))
+    rev = _pick_purchase(row.get("action_values"))
     return {
         "spend": round(spend, 2), "impressions": int(impr), "clicks": int(clicks),
         "reach": int(reach), "frequency": round(freq, 2),

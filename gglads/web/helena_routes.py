@@ -440,6 +440,38 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         return RedirectResponse("/helena/analytics", status_code=status.HTTP_303_SEE_OTHER)
 
     # ===================================================================
+    # Meta Ads — full live breakdown (campaigns + ads + every metric)
+    # ===================================================================
+    @router.get("/helena/meta-ads", response_class=HTMLResponse)
+    def meta_ads_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import daterange
+        from gglads.services.helena.meta import oauth as meta_oauth
+        from gglads.services.helena.meta.factory import get_meta_provider
+        cfg = meta_oauth.get_meta_config(db)
+        connected = bool(cfg.get("access_token") and cfg.get("ad_account_id"))
+        preset = request.query_params.get("range", "last_30d")
+        since, until = daterange.resolve_range(
+            preset, request.query_params.get("since"), request.query_params.get("until"))
+        data = {"ok": False, "error": "Connect Meta and select an ad account to see live data."}
+        if connected:
+            data = get_meta_provider(db).fetch_ads_breakdown(since.isoformat(), until.isoformat())
+        acct_name = next(
+            (a.get("name") for a in (cfg.get("ad_accounts") or [])
+             if str(a.get("account_id")) == str(cfg.get("ad_account_id"))),
+            cfg.get("ad_account_id"))
+        return templates.TemplateResponse(
+            request, "helena/meta_ads.html",
+            ctx(request, user, "helena_meta_ads",
+                connected=connected, data=data, preset=preset,
+                since=since.isoformat(), until=until.isoformat(),
+                account_name=acct_name, account_id=cfg.get("ad_account_id"),
+                **sidebar_data(db)),
+        )
+
+    # ===================================================================
     # Content calendar
     # ===================================================================
     @router.get("/helena/calendar", response_class=HTMLResponse)

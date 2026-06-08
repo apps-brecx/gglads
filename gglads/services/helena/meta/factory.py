@@ -102,6 +102,12 @@ class AccessModeGuard(MetaExecutionProvider):
         ok, why = self._can_read("meta_ads")
         return self._inner.fetch_ad_performance(since, until) if ok else _denied("Meta Ads", why)
 
+    def fetch_ads_breakdown(self, since, until) -> dict:
+        ok, why = self._can_read("meta_ads")
+        if not ok:
+            return {"ok": False, "error": f"Meta Ads integration is {why}."}
+        return self._inner.fetch_ads_breakdown(since, until)
+
 
 def _base_provider(db: Session) -> MetaExecutionProvider:
     mode = (get_settings().meta_execution_mode or "browser").strip().lower()

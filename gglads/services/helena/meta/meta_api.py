@@ -228,6 +228,90 @@ class MetaApiProvider(MetaExecutionProvider):
                      f"${tot_rev:,.2f} revenue · {roas}x ROAS across {len(ads)} ad(s)."),
         )
 
+    def fetch_ads_breakdown(self, since, until) -> dict:
+        """Full Meta ad analytics for an explicit date range: per-campaign and
+        per-ad rows with every derived metric (CTR, CPC, CPM, cost-per-purchase,
+        ROAS, reach, frequency), plus account totals + currency. Powers the
+        Meta Ads analytics page. Returns a plain dict (not a ProviderResult)
+        because the page needs richer structure than the metric list."""
+        if not self._token or not self._ad_account_id:
+            return {"ok": False, "error": "Meta isn't connected for ads. Connect it on the "
+                    "Integrations page and pick an ad account."}
+        tr = f'{{"since":"{since}","until":"{until}"}}'
+        base_fields = ("spend,impressions,clicks,reach,frequency,"
+                       "actions,action_values,purchase_roas")
+
+        def _level(level: str, id_fields: str) -> tuple[list[dict] | None, str | None]:
+            body, err = self._get(f"act_{self._ad_account_id}/insights", {
+                "level": level, "fields": f"{id_fields},{base_fields}",
+                "time_range": tr, "limit": 500,
+            })
+            if err:
+                return None, err
+            return (body.get("data") or []), None
+
+        camp_raw, err = _level("campaign", "campaign_id,campaign_name")
+        if err:
+            return {"ok": False, "error": f"Campaign insights failed for "
+                    f"act_{self._ad_account_id}: {err}"}
+        ad_raw, ad_err = _level("ad", "ad_id,ad_name,campaign_name")
+        if ad_err:  # ad-level detail is supplementary — don't fail the whole page
+            ad_raw = []
+
+        campaigns = []
+        for r in camp_raw:
+            row = _ad_row(r)
+            row.update({"id": r.get("campaign_id"),
+                        "name": r.get("campaign_name") or "(unnamed campaign)"})
+            campaigns.append(row)
+        ads = []
+        for r in ad_raw:
+            row = _ad_row(r)
+            row.update({"id": r.get("ad_id"), "name": r.get("ad_name") or "(unnamed ad)",
+                        "campaign": r.get("campaign_name")})
+            ads.append(row)
+
+        # Best-effort: enrich campaigns with delivery status + configured budget.
+        meta = self._campaign_meta_map()
+        for c in campaigns:
+            m = meta.get(c["id"]) or {}
+            c["status"] = m.get("status")
+            c["daily_budget"] = m.get("daily_budget")
+
+        campaigns.sort(key=lambda x: x["spend"], reverse=True)
+        ads.sort(key=lambda x: x["spend"], reverse=True)
+        return {"ok": True, "campaigns": campaigns, "ads": ads,
+                "totals": _totals(campaigns), "currency": self._account_currency(),
+                "range": f"{since} → {until}"}
+
+    def _campaign_meta_map(self) -> dict[str, dict]:
+        """campaign_id → {status, daily_budget} for context (best-effort)."""
+        body, err = self._get(f"act_{self._ad_account_id}/campaigns", {
+            "fields": "id,name,effective_status,status,daily_budget,lifetime_budget",
+            "limit": 500,
+        })
+        out: dict[str, dict] = {}
+        if err or not body:
+            return out
+        for c in (body.get("data") or []):
+            raw = c.get("daily_budget") or c.get("lifetime_budget")
+            try:  # budgets ARE in minor units (cents) — unlike insights money fields
+                budget = round(float(raw) / 100, 2) if raw else None
+            except (TypeError, ValueError):
+                budget = None
+            raw_status = c.get("effective_status") or c.get("status") or ""
+            out[c.get("id")] = {
+                "status": raw_status.replace("_", " ").title(),
+                "daily_budget": budget,
+            }
+        return out
+
+    def _account_currency(self) -> str:
+        body, err = self._get(f"act_{self._ad_account_id}", {"fields": "currency"})
+        if err or not body:
+            return "USD"
+        return body.get("currency") or "USD"
+
     def fetch_instagram_insights(self, date_range: DateRange) -> ProviderResult:
         if not self._token or not self._ig_user_id:
             return self._not_connected("Instagram")
@@ -320,3 +404,47 @@ def _sum_actions(actions, contains: str) -> float:
             except (TypeError, ValueError):
                 pass
     return total
+
+
+def _div(num: float, den: float, scale: float = 1.0) -> float:
+    return round(num / den * scale, 2) if den else 0.0
+
+
+def _ad_row(row: dict) -> dict:
+    """Normalize one Graph insights row (campaign- or ad-level) into a full
+    metric set with derived rates. Money fields are already in account currency
+    (not cents) for insights."""
+    spend = float(row.get("spend") or 0)
+    impr = float(row.get("impressions") or 0)
+    clicks = float(row.get("clicks") or 0)
+    reach = float(row.get("reach") or 0)
+    freq = float(row.get("frequency") or 0)
+    purch = _sum_actions(row.get("actions"), "purchase")
+    rev = _sum_actions(row.get("action_values"), "purchase")
+    return {
+        "spend": round(spend, 2), "impressions": int(impr), "clicks": int(clicks),
+        "reach": int(reach), "frequency": round(freq, 2),
+        "purchases": round(purch, 2), "revenue": round(rev, 2),
+        "roas": _div(rev, spend), "ctr": _div(clicks, impr, 100.0),
+        "cpc": _div(spend, clicks), "cpm": _div(spend, impr, 1000.0),
+        "cost_per_purchase": _div(spend, purch),
+    }
+
+
+def _totals(rows: list[dict]) -> dict:
+    """Aggregate raw counts across rows, then recompute derived rates from the
+    sums (rates can't simply be summed)."""
+    spend = sum(r["spend"] for r in rows)
+    impr = sum(r["impressions"] for r in rows)
+    clicks = sum(r["clicks"] for r in rows)
+    reach = sum(r["reach"] for r in rows)
+    purch = sum(r["purchases"] for r in rows)
+    rev = sum(r["revenue"] for r in rows)
+    return {
+        "spend": round(spend, 2), "impressions": impr, "clicks": clicks,
+        "reach": reach, "purchases": round(purch, 2), "revenue": round(rev, 2),
+        "roas": _div(rev, spend), "ctr": _div(clicks, impr, 100.0),
+        "cpc": _div(spend, clicks), "cpm": _div(spend, impr, 1000.0),
+        "cost_per_purchase": _div(spend, purch),
+        "frequency": _div(impr, reach), "campaigns": len(rows),
+    }

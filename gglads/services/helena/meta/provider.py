@@ -69,6 +69,11 @@ class MetaExecutionProvider(ABC):
             message="Live ad performance isn't supported by this backend.",
         )
 
+    # ---- Full campaign + ad breakdown for the Meta Ads analytics page -
+    def fetch_ads_breakdown(self, since, until) -> dict:
+        return {"ok": False,
+                "error": "A full ads breakdown isn't supported by this backend."}
+
 
 # Imported late to keep the type hint above readable.
 from datetime import datetime  # noqa: E402

@@ -558,10 +558,20 @@ def _find_product_image(db, args, user_id, session_id):
 
 
 def _create_post(db, args, user_id, session_id):
+    image_url = (args.get("image_url") or "").strip() or None
+    # Backstop: the model often generates the image (which saves a BrandAsset)
+    # but forgets to pass its URL here, leaving the draft — and its inline
+    # render — image-less. Fall back to the most recent generated/product
+    # creative so a drafted post always carries its image.
+    if not image_url:
+        for a in brand_svc.list_assets(db):
+            if a.kind in ("generated", "product") and a.url:
+                image_url = a.url
+                break
     post = Post(
         caption=args.get("caption", ""),
         hashtags=args.get("hashtags"),
-        image_url=args.get("image_url"),
+        image_url=image_url,
         account_handle=args.get("account_handle"),
         status="draft",
         created_by_user_id=user_id,

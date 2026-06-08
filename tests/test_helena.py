@@ -891,6 +891,16 @@ def test_create_post_returns_image_url(db):
     assert res["ok"] and res["image_url"] == "https://pub/bottle.png"
 
 
+def test_create_post_falls_back_to_latest_generated_image(db):
+    # When the model omits image_url, the draft picks up the most recent
+    # generated creative so it never renders image-less.
+    from gglads.services.helena import brand as bsvc, skills
+    bsvc.save_asset(db, url="https://pub/scene.png", kind="generated", title="creative")
+    res = skills.run_skill(db, "create_post", {"caption": "no image passed"},
+                           user_id=None, session_id=None)
+    assert res["ok"] and res["image_url"] == "https://pub/scene.png"
+
+
 def test_chat_stream_stores_attached_image(db, monkeypatch):
     import os
     os.environ["APP_SECRET"] = "t"

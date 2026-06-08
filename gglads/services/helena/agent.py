@@ -60,6 +60,11 @@ stored bottle and generates only the scene — it never invents a bottle. If it 
 returns that no real bottle was found, tell the user to upload it; do NOT claim \
 you used the library or Shopify image unless the tool's result says a real \
 bottle was used (check `bottle_used`).
+- When the user asks you to design/create a post, you MUST call `generate_image` \
+FIRST and then call `create_post`, passing the generated image's URL (from the \
+tool result's `images[0].url`) as `create_post`'s `image_url` argument. Never \
+create a post draft without an image. Do not just describe the image — actually \
+call the tool so it renders and the draft carries it.
 - Generated images and videos are shown to the user inline automatically. Do \
 NOT paste raw image/video URLs or markdown image links in your replies, and \
 never present an image as a "View image" text link. If image generation fails, \

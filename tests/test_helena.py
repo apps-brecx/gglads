@@ -374,6 +374,54 @@ def test_fetch_ad_performance_uses_selected_account(db, monkeypatch):
         cfg.get_settings.cache_clear()
 
 
+def test_fetch_ads_breakdown_full_metrics(db, monkeypatch):
+    """The Meta Ads page data: per-campaign + per-ad rows with derived rates,
+    account totals, status/budget, and currency — all from the selected account."""
+    import gglads.config as cfg
+    import httpx as _httpx
+    from gglads.services.helena.meta import meta_api, oauth
+    monkeypatch.setenv("META_EXECUTION_MODE", "api")
+    cfg.get_settings.cache_clear()
+    oauth.save_meta_config(db, {"access_token": "TOK", "ad_account_id": "999",
+                                "ad_accounts": [], "pages": []})
+
+    insight = {
+        "spend": "100", "impressions": "2000", "clicks": "50", "reach": "1500",
+        "frequency": "1.33", "actions": [{"action_type": "purchase", "value": "4"}],
+        "action_values": [{"action_type": "purchase", "value": "400"}],
+    }
+
+    class _R:
+        status_code = 200
+        def __init__(self, d): self._d = d
+        def json(self): return self._d
+
+    def fake_get(url, params=None, **k):
+        params = params or {}
+        if params.get("fields") == "currency":
+            return _R({"currency": "USD"})
+        if url.endswith("/campaigns"):
+            return _R({"data": [{"id": "c1", "name": "C", "effective_status": "ACTIVE",
+                                 "daily_budget": "1000"}]})
+        if params.get("level") == "campaign":
+            return _R({"data": [{**insight, "campaign_id": "c1", "campaign_name": "C"}]})
+        if params.get("level") == "ad":
+            return _R({"data": [{**insight, "ad_id": "a1", "ad_name": "Ad", "campaign_name": "C"}]})
+        return _R({"data": []})
+    monkeypatch.setattr(_httpx, "get", fake_get)
+    try:
+        data = meta_api.MetaApiProvider(db).fetch_ads_breakdown("2026-06-01", "2026-06-30")
+        assert data["ok"] and data["currency"] == "USD"
+        c = data["campaigns"][0]
+        assert c["spend"] == 100 and c["ctr"] == 2.5 and c["cpc"] == 2.0
+        assert c["cpm"] == 50.0 and c["cost_per_purchase"] == 25.0 and c["roas"] == 4.0
+        assert c["status"] == "Active" and c["daily_budget"] == 10.0
+        assert data["totals"]["roas"] == 4.0 and data["totals"]["campaigns"] == 1
+        assert data["ads"][0]["name"] == "Ad" and data["ads"][0]["ctr"] == 2.5
+    finally:
+        cfg.get_settings.cache_clear()
+
+
 def test_generate_image_reports_failure_not_dead_link(db):
     """No reachable image -> ok False with a clear message, never a dead link."""
     from gglads.services.helena import skills

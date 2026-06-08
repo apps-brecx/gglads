@@ -1,0 +1,158 @@
+{% extends "layout.html" %}
+{% block title %}Meta Ads — Helena{% endblock %}
+
+{# --- currency + number formatting helpers --- #}
+{% set cur = (data.currency if data and data.currency else 'USD') %}
+{% set sym = {'USD': '$', 'EUR': '€', 'GBP': '£', 'CAD': 'C$', 'AUD': 'A$'} %}
+{% macro money(v) %}{{ sym.get(cur, cur ~ ' ') }}{{ '{:,.2f}'.format(v or 0) }}{% endmacro %}
+{% macro num(v) %}{{ '{:,}'.format(v or 0) }}{% endmacro %}
+
+{% macro roas_pill(v) %}
+  {% if v >= 2 %}<span class="pill pill-ok">{{ v }}x</span>
+  {% elif v >= 1 %}<span class="pill pill-warn">{{ v }}x</span>
+  {% else %}<span class="pill pill-fail">{{ v }}x</span>{% endif %}
+{% endmacro %}
+
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+  <div>
+    <h1 class="page-title">Meta Ads</h1>
+    <p class="page-subtitle">
+      {% if account_name %}Account: <strong>{{ account_name }}</strong>{% if account_id %} · {{ account_id }}{% endif %} · {% endif %}
+      {% if data and data.range %}{{ data.range }}{% else %}Live performance{% endif %}
+    </p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <div class="seg-toggle" role="group" aria-label="Date range">
+      {% for key, lbl in [('last_7d','7d'), ('last_14d','14d'), ('last_30d','30d'), ('this_month','MTD'), ('last_month','Last mo')] %}
+        <a href="/helena/meta-ads?range={{ key }}"><button class="{% if preset == key %}is-active{% endif %}">{{ lbl }}</button></a>
+      {% endfor %}
+    </div>
+    <a href="/helena/integrations" class="btn-secondary">Manage account</a>
+  </div>
+</div>
+
+{% if not connected %}
+  <div class="tbl-card"><div class="tbl-body" style="padding:24px;text-align:center;">
+    <h3 style="margin:0 0 6px;">Meta isn't connected yet</h3>
+    <p class="conn-desc" style="margin:0 0 14px;">Connect Meta (official API) and pick an ad account to see every campaign, ad, and metric here.</p>
+    <a href="/helena/integrations" class="btn-primary">Connect Meta →</a>
+  </div></div>
+{% elif not data.ok %}
+  <div class="rec warn"><strong>Couldn't load ad data</strong>
+    <div class="conn-desc">{{ data.error }}</div></div>
+{% else %}
+
+{% set t = data.totals %}
+{# ---- Top-line metric cards ---- #}
+<div class="metric-row">
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">💸</span><span class="mc-label">Spend</span></div><div class="mc-value">{{ money(t.spend) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">💰</span><span class="mc-label">Revenue</span></div><div class="mc-value">{{ money(t.revenue) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">📈</span><span class="mc-label">ROAS</span></div><div class="mc-value">{{ t.roas }}x</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">🛒</span><span class="mc-label">Purchases</span></div><div class="mc-value">{{ num(t.purchases|int) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">🎯</span><span class="mc-label">Cost / order</span></div><div class="mc-value">{{ money(t.cost_per_purchase) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">👆</span><span class="mc-label">Clicks</span></div><div class="mc-value">{{ num(t.clicks) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">👁</span><span class="mc-label">Impressions</span></div><div class="mc-value">{{ num(t.impressions) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">📊</span><span class="mc-label">CTR</span></div><div class="mc-value">{{ t.ctr }}%</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">🏷</span><span class="mc-label">CPC</span></div><div class="mc-value">{{ money(t.cpc) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">📺</span><span class="mc-label">CPM</span></div><div class="mc-value">{{ money(t.cpm) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">👥</span><span class="mc-label">Reach</span></div><div class="mc-value">{{ num(t.reach) }}</div></div>
+  <div class="metric-card"><div class="mc-top"><span class="mc-icon">🔁</span><span class="mc-label">Frequency</span></div><div class="mc-value">{{ t.frequency }}</div></div>
+</div>
+
+{# ---- Campaigns ---- #}
+<div class="tbl-card" data-table="campaigns">
+  <div class="tbl-head" onclick="this.closest('.tbl-card').classList.toggle('collapsed')">
+    <svg class="tbl-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    <h3>Campaigns</h3>
+    <span class="conn-desc">{{ data.campaigns|length }} campaigns</span>
+  </div>
+  <div class="tbl-body">
+    {% if data.campaigns %}
+    <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead><tr>
+        <th>Campaign</th><th>Status</th><th class="num">Budget/day</th>
+        <th class="num">Spend</th><th class="num">Impr.</th><th class="num">Clicks</th>
+        <th class="num">CTR</th><th class="num">CPC</th><th class="num">CPM</th>
+        <th class="num">Purch.</th><th class="num">Cost/order</th>
+        <th class="num">Revenue</th><th class="num">ROAS</th>
+      </tr></thead>
+      <tbody>
+        {% for c in data.campaigns %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td>{% if c.status %}<span class="pill {{ 'pill-ok' if 'Active' in c.status else '' }}">{{ c.status }}</span>{% else %}<span class="conn-desc">—</span>{% endif %}</td>
+          <td class="num">{% if c.daily_budget %}{{ money(c.daily_budget) }}{% else %}—{% endif %}</td>
+          <td class="num">{{ money(c.spend) }}</td>
+          <td class="num">{{ num(c.impressions) }}</td>
+          <td class="num">{{ num(c.clicks) }}</td>
+          <td class="num">{{ c.ctr }}%</td>
+          <td class="num">{{ money(c.cpc) }}</td>
+          <td class="num">{{ money(c.cpm) }}</td>
+          <td class="num">{{ num(c.purchases|int) }}</td>
+          <td class="num">{{ money(c.cost_per_purchase) }}</td>
+          <td class="num">{{ money(c.revenue) }}</td>
+          <td class="num">{{ roas_pill(c.roas) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+      <div class="conn-desc" style="padding:14px;">No campaign spend in this date range.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- Ads ---- #}
+<div class="tbl-card collapsed" data-table="ads">
+  <div class="tbl-head" onclick="this.closest('.tbl-card').classList.toggle('collapsed')">
+    <svg class="tbl-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    <h3>Ads</h3>
+    <span class="conn-desc">{{ data.ads|length }} ads</span>
+  </div>
+  <div class="tbl-body">
+    {% if data.ads %}
+    <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead><tr>
+        <th>Ad</th><th>Campaign</th>
+        <th class="num">Spend</th><th class="num">Impr.</th><th class="num">Clicks</th>
+        <th class="num">CTR</th><th class="num">CPC</th>
+        <th class="num">Purch.</th><th class="num">Cost/order</th>
+        <th class="num">Revenue</th><th class="num">ROAS</th>
+      </tr></thead>
+      <tbody>
+        {% for a in data.ads %}
+        <tr>
+          <td>{{ a.name }}</td>
+          <td class="conn-desc">{{ a.campaign or '—' }}</td>
+          <td class="num">{{ money(a.spend) }}</td>
+          <td class="num">{{ num(a.impressions) }}</td>
+          <td class="num">{{ num(a.clicks) }}</td>
+          <td class="num">{{ a.ctr }}%</td>
+          <td class="num">{{ money(a.cpc) }}</td>
+          <td class="num">{{ num(a.purchases|int) }}</td>
+          <td class="num">{{ money(a.cost_per_purchase) }}</td>
+          <td class="num">{{ money(a.revenue) }}</td>
+          <td class="num">{{ roas_pill(a.roas) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+      <div class="conn-desc" style="padding:14px;">No ad-level data in this date range.</div>
+    {% endif %}
+  </div>
+</div>
+
+<p class="conn-desc" style="margin-top:14px;">
+  Live from the Meta Marketing API · read-only. Money figures are in {{ cur }}.
+  Need a change? Ask Helena in chat — campaigns stay paused and every spend goes through approval.
+</p>
+{% endif %}
+{% endblock %}

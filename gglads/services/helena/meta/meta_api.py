@@ -178,6 +178,56 @@ class MetaApiProvider(MetaExecutionProvider):
         return ProviderResult(success=True, metrics=metrics,
                               message=f"Pulled {len(metrics)} ad metrics.")
 
+    def fetch_ad_performance(self, since, until) -> ProviderResult:
+        """Live per-ad insights from the SELECTED ad account for an explicit
+        date range (e.g. yesterday). Returns per-ad rows in .steps and account
+        totals in .metrics."""
+        if not self._token or not self._ad_account_id:
+            return self._not_connected("ads")
+        tr = f'{{"since":"{since}","until":"{until}"}}'
+        body, err = self._get(f"act_{self._ad_account_id}/insights", {
+            "level": "ad",
+            "fields": "ad_id,ad_name,campaign_name,spend,impressions,clicks,"
+                      "actions,action_values,purchase_roas",
+            "time_range": tr, "limit": 200,
+        })
+        if err:
+            return ProviderResult(success=False,
+                                  message=f"Ad performance failed for act_{self._ad_account_id}: {err}")
+        ads: list[dict] = []
+        tot_spend = tot_impr = tot_clicks = tot_purch = tot_rev = 0.0
+        for row in (body.get("data") or []):
+            spend = float(row.get("spend") or 0)
+            impr = float(row.get("impressions") or 0)
+            clicks = float(row.get("clicks") or 0)
+            purch = _sum_actions(row.get("actions"), "purchase")
+            rev = _sum_actions(row.get("action_values"), "purchase")
+            roas = (rev / spend) if spend else 0.0
+            ads.append({
+                "ad_id": row.get("ad_id"), "ad_name": row.get("ad_name"),
+                "campaign": row.get("campaign_name"),
+                "spend": round(spend, 2), "impressions": int(impr), "clicks": int(clicks),
+                "purchases": round(purch, 2), "revenue": round(rev, 2), "roas": round(roas, 2),
+            })
+            tot_spend += spend; tot_impr += impr; tot_clicks += clicks
+            tot_purch += purch; tot_rev += rev
+        ads.sort(key=lambda a: a["spend"], reverse=True)
+        end = datetime.fromisoformat(f"{until}T00:00:00+00:00")
+        metrics = [
+            {"platform": "meta_ads", "entity_type": "account", "entity_id": None,
+             "metric": m, "value": v, "captured_for": end.isoformat()}
+            for m, v in (("spend", tot_spend), ("impressions", tot_impr),
+                         ("clicks", tot_clicks), ("conversions", tot_purch),
+                         ("revenue", tot_rev))
+        ]
+        roas = round(tot_rev / tot_spend, 2) if tot_spend else 0.0
+        return ProviderResult(
+            success=True, steps=ads, metrics=metrics,
+            message=(f"act_{self._ad_account_id} {since}→{until}: "
+                     f"${tot_spend:,.2f} spend · {int(tot_purch)} purchases · "
+                     f"${tot_rev:,.2f} revenue · {roas}x ROAS across {len(ads)} ad(s)."),
+        )
+
     def fetch_instagram_insights(self, date_range: DateRange) -> ProviderResult:
         if not self._token or not self._ig_user_id:
             return self._not_connected("Instagram")
@@ -254,9 +304,9 @@ def _metric(platform: str, metric: str, value, when: datetime) -> dict:
         value = float(value)
     except (TypeError, ValueError):
         value = 0.0
-    # Meta money fields are in minor units (cents) — normalize to currency units.
-    if metric in ("spend", "revenue"):
-        value = value / 100.0
+    # NOTE: Graph *insights* money fields (spend, action_values) are already in
+    # the account currency as decimals — do NOT divide by 100. (Only Marketing
+    # API *budgets* are in minor units, handled separately at campaign create.)
     return {"platform": platform, "entity_type": "account", "entity_id": None,
             "metric": metric, "value": value, "captured_for": when.isoformat()}
 

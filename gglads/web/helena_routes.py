@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from gglads import __version__
 from gglads.db.session import get_db
-from gglads.models.email_campaign import EmailCampaign
+from gglads.models.email_campaign import EmailCampaign, EmailTemplate
 from gglads.models.integration import Integration, IntegrationAccount
 from gglads.models.user import User
 from gglads.services.helena import agent as agent_svc
@@ -125,8 +125,10 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ctx(request, user, "helena_chat",
                 sessions=sessions, active_session=active_session,
                 messages=messages, prefill=request.query_params.get("prefill", ""),
+                draft=request.query_params.get("draft", ""),
                 remix=request.query_params.get("remix", ""),
                 email_remix=request.query_params.get("email_remix", ""),
+                email_build=request.query_params.get("email_build", ""),
                 library_products=[
                     {"id": p.id, "flavor": p.flavor, "variant": p.variant,
                      "label": p.label, "url": p.url}
@@ -244,6 +246,21 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "style. Do NOT keep the old product — swap in the new flavor's real bottle. "
                 "If instead they only want small tweaks to this exact image, use "
                 "`adjust_image`.")
+            mention_context = (mention_context + "\n\n" + block) if mention_context else block
+
+        # Email-from-image: the user wants an emailed screenshot recreated as a
+        # real HTML email. Show the model the screenshot and tell it to build.
+        email_build = str(form.get("email_build", "")).strip()
+        if email_build:
+            if not image_url:
+                image_url = email_build
+            block = (
+                "The attached/above image is a SCREENSHOT of an email the user wants "
+                "recreated as a real, responsive, inline-CSS HTML email. Recreate its "
+                "layout, sections, and copy structure faithfully (plan_email_campaign → "
+                "render_email_html, or write the HTML and apply it with edit_email_html on "
+                "the new campaign). Then they'll tweak flavor/text. Keep brand styling and "
+                "never invent prices. Tell them the preview URL when done.")
             mention_context = (mention_context + "\n\n" + block) if mention_context else block
 
         # Email remix/refine: the user is editing a specific email campaign's HTML.
@@ -560,6 +577,48 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 since=since.isoformat(), until=until.isoformat()),
         )
 
+    @router.get("/helena/meta-ads/ad/{ad_id}", response_class=HTMLResponse)
+    def meta_ads_ad(ad_id: str, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import daterange
+        from gglads.services.helena.meta import oauth as meta_oauth
+        from gglads.services.helena.meta.factory import get_meta_provider
+        cfg = meta_oauth.get_meta_config(db)
+        connected = bool(cfg.get("access_token") and cfg.get("ad_account_id"))
+        preset = request.query_params.get("range", "last_30d")
+        since, until = daterange.resolve_range(
+            preset, request.query_params.get("since"), request.query_params.get("until"))
+        data = {"ok": False, "error": "Connect Meta and select an ad account to see live data."}
+        if connected:
+            data = get_meta_provider(db).fetch_ad_detail(ad_id, since.isoformat(), until.isoformat())
+        return templates.TemplateResponse(
+            request, "helena/meta_ads_ad.html",
+            ctx(request, user, "helena_meta_ads",
+                connected=connected, data=data, preset=preset, ad_id=ad_id,
+                campaign_id=request.query_params.get("campaign", ""),
+                since=since.isoformat(), until=until.isoformat()),
+        )
+
+    @router.post("/helena/meta-ads/chat")
+    async def meta_ads_chat(request: Request, db: DbDep) -> Response:
+        """Open a chat seeded with a reference to a specific campaign or ad."""
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        form = await request.form()
+        kind = str(form.get("kind", "campaign"))
+        name = str(form.get("name", "")).strip()
+        entity_id = str(form.get("entity_id", "")).strip()
+        from urllib.parse import quote
+        s = agent_svc.create_session(db, title=f"{kind.title()} — {name or entity_id}",
+                                     user_id=user.id)
+        draft = (f"About the Meta {kind} “{name}” (id {entity_id}): ")
+        return RedirectResponse(
+            f"/helena/chat?session={s.id}&draft={quote(draft, safe='')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
     @router.post("/helena/meta-ads/action")
     async def meta_ads_action(request: Request, db: DbDep) -> Response:
         user, deny = require_user(request, db)
@@ -742,11 +801,44 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             return deny
         from gglads.services.helena import email_campaigns as ec_svc
         form = await request.form()
-        row = ec_svc.add_starter(db, name=str(form.get("name", "")),
-                                 html=str(form.get("html", "")))
-        flash(request, "Saved email starter." if row else "Need both a name and HTML.",
-              "info" if row else "warn")
+        name = str(form.get("name", ""))
+        # Image of an email (screenshot) takes priority — save it as a design.
+        upload = form.get("image")
+        if upload is not None and hasattr(upload, "read"):
+            data = await upload.read()
+            if data:
+                from gglads.services.helena import storage
+                ct = getattr(upload, "content_type", "") or "image/png"
+                ext = {"image/jpeg": "jpg", "image/webp": "webp",
+                       "image/gif": "gif"}.get(ct, "png")
+                url, err = storage.put_bytes(data, content_type=ct,
+                                             key_prefix="helena/email", ext=ext)
+                row = ec_svc.add_image_starter(db, name=name, image_url=url) if url else None
+                flash(request, "Saved email design from image." if row
+                      else f"Couldn't save the image: {err or 'unknown error'}",
+                      "info" if row else "warn")
+                return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+        row = ec_svc.add_starter(db, name=name, html=str(form.get("html", "")))
+        flash(request, "Saved email starter." if row
+              else "Add a name plus either HTML or an image.", "info" if row else "warn")
         return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/email/starters/{starter_id}/build")
+    def email_starter_build(starter_id: int, request: Request, db: DbDep) -> Response:
+        """Recreate an email from a saved screenshot: open a chat with the image
+        so Viktoriia rebuilds it as a real HTML email to refine."""
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from urllib.parse import quote
+        starter = db.get(EmailTemplate, starter_id)
+        if starter is None:
+            return RedirectResponse("/helena/email", status_code=status.HTTP_303_SEE_OTHER)
+        s = agent_svc.create_session(db, title=f"Email from image — {starter.name}",
+                                     user_id=user.id)
+        return RedirectResponse(
+            f"/helena/chat?session={s.id}&email_build={quote(starter.html_fragment, safe='')}",
+            status_code=status.HTTP_303_SEE_OTHER)
 
     @router.post("/helena/email/starters/{starter_id}/delete")
     def email_starter_delete(starter_id: int, request: Request, db: DbDep) -> Response:

@@ -11,6 +11,7 @@ queue). Instagram posts are published only when the publish task is approved.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
@@ -320,6 +321,23 @@ class MetaApiProvider(MetaExecutionProvider):
             out[a.get("id")] = raw.replace("_", " ").title() or None
         return out
 
+    def _ad_meta_map(self, campaign_id) -> dict[str, dict]:
+        """ad_id → {status, image} for a campaign's ads. One call gives both the
+        delivery status (not available on /insights) and the creative thumbnail."""
+        body, err = self._get(f"{campaign_id}/ads", {
+            "fields": "id,effective_status,creative{thumbnail_url,image_url}", "limit": 500})
+        out: dict[str, dict] = {}
+        if err or not body:
+            return out
+        for a in (body.get("data") or []):
+            cr = a.get("creative") or {}
+            raw = a.get("effective_status") or ""
+            out[a.get("id")] = {
+                "status": raw.replace("_", " ").title() or None,
+                "image": cr.get("image_url") or cr.get("thumbnail_url"),
+            }
+        return out
+
     def _account_currency(self) -> str:
         body, err = self._get(f"act_{self._ad_account_id}", {"fields": "currency"})
         if err or not body:
@@ -347,13 +365,14 @@ class MetaApiProvider(MetaExecutionProvider):
         })
         if err:
             return {"ok": False, "error": f"Ad insights failed: {err}"}
-        status_map = self._ad_status_map(campaign_id)
+        ad_meta = self._ad_meta_map(campaign_id)
         ads = []
         for r in (ad_body.get("data") or []):
             row = _ad_row(r)
+            m = ad_meta.get(r.get("ad_id")) or {}
             row.update({"id": r.get("ad_id"), "name": r.get("ad_name") or "(unnamed ad)",
                         "adset_id": r.get("adset_id"), "adset_name": r.get("adset_name"),
-                        "status": status_map.get(r.get("ad_id"))})
+                        "status": m.get("status"), "image": m.get("image")})
             ads.append(row)
         ads.sort(key=lambda x: x["spend"], reverse=True)
 
@@ -390,6 +409,74 @@ class MetaApiProvider(MetaExecutionProvider):
                              "daily_budget": meta.get("daily_budget")},
                 "ads": ads, "totals": _totals(ads), "series": series,
                 "currency": self._account_currency(), "range": f"{since} → {until}"}
+
+    def fetch_ad_detail(self, ad_id, since, until) -> dict:
+        """Everything Meta exposes for ONE ad: the ad object + creative, its ad
+        set (budget/bid/optimization/targeting), and its insights — so the ad
+        can be reviewed and managed here without opening Ads Manager."""
+        if not self._token or not self._ad_account_id:
+            return {"ok": False, "error": "Meta isn't connected for ads."}
+        ad, err = self._get(str(ad_id), {"fields": (
+            "id,name,status,effective_status,created_time,updated_time,adset_id,campaign_id,"
+            "creative{id,name,title,body,thumbnail_url,image_url,call_to_action_type,link_url}")})
+        if err or not ad:
+            return {"ok": False, "error": f"Ad lookup failed: {err}"}
+        creative = ad.get("creative") or {}
+        adset = {}
+        if ad.get("adset_id"):
+            ab, _ = self._get(str(ad["adset_id"]), {"fields": (
+                "id,name,status,effective_status,daily_budget,lifetime_budget,bid_amount,"
+                "bid_strategy,billing_event,optimization_goal,start_time,end_time,"
+                "destination_type,targeting")})
+            adset = ab or {}
+
+        def _money(v):
+            try:
+                return round(float(v) / 100, 2) if v else None
+            except (TypeError, ValueError):
+                return None
+
+        tr = f'{{"since":"{since}","until":"{until}"}}'
+        ib, _ = self._get(f"act_{self._ad_account_id}/insights", {
+            "level": "ad",
+            "fields": ("spend,impressions,clicks,reach,frequency,"
+                       "actions,action_values,purchase_roas"),
+            "time_range": tr,
+            "filtering": f'[{{"field":"ad.id","operator":"IN","value":["{ad_id}"]}}]',
+            "limit": 1,
+        })
+        rows = (ib or {}).get("data") or []
+        metrics = _ad_row(rows[0]) if rows else {}
+        targeting = adset.get("targeting")
+        return {
+            "ok": True,
+            "ad": {
+                "id": ad.get("id"), "name": ad.get("name"),
+                "status": _titlecase(ad.get("effective_status") or ad.get("status")),
+                "created": ad.get("created_time"), "updated": ad.get("updated_time"),
+                "campaign_id": ad.get("campaign_id"), "adset_id": ad.get("adset_id"),
+            },
+            "creative": {
+                "title": creative.get("title"), "body": creative.get("body"),
+                "cta": _titlecase(creative.get("call_to_action_type")),
+                "link": creative.get("link_url"),
+            },
+            "image": creative.get("image_url") or creative.get("thumbnail_url"),
+            "adset": {
+                "id": adset.get("id"), "name": adset.get("name"),
+                "status": _titlecase(adset.get("effective_status") or adset.get("status")),
+                "daily_budget": _money(adset.get("daily_budget")),
+                "lifetime_budget": _money(adset.get("lifetime_budget")),
+                "bid_amount": _money(adset.get("bid_amount")),
+                "bid_strategy": _titlecase(adset.get("bid_strategy")),
+                "billing_event": _titlecase(adset.get("billing_event")),
+                "optimization_goal": _titlecase(adset.get("optimization_goal")),
+                "start_time": adset.get("start_time"), "end_time": adset.get("end_time"),
+            },
+            "targeting_json": json.dumps(targeting, indent=2) if targeting else None,
+            "metrics": metrics, "currency": self._account_currency(),
+            "range": f"{since} → {until}",
+        }
 
     # ---- generic writes (campaign / ad-set / ad) ----------------------
     def set_status(self, entity_id: str, status: str) -> ProviderResult:
@@ -510,6 +597,11 @@ def _sum_actions(actions, contains: str) -> float:
 
 def _div(num: float, den: float, scale: float = 1.0) -> float:
     return round(num / den * scale, 2) if den else 0.0
+
+
+def _titlecase(v) -> str | None:
+    """'OUTCOME_SALES' -> 'Outcome Sales'; empty -> None."""
+    return str(v or "").replace("_", " ").title() or None
 
 
 def _ad_row(row: dict) -> dict:

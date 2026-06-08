@@ -19,7 +19,9 @@ from gglads.models.email_campaign import EmailCampaign, EmailTemplate
 from gglads.services import claude as claude_svc
 from gglads.services.helena import brand as brand_svc
 
-STARTER_KIND = "starter"
+STARTER_KIND = "starter"            # full HTML the user can remix
+IMAGE_STARTER_KIND = "starter_image"  # a screenshot of an email to recreate
+STARTER_KINDS = (STARTER_KIND, IMAGE_STARTER_KIND)
 
 
 def list_campaigns(db: Session, limit: int = 200) -> list[EmailCampaign]:
@@ -34,7 +36,7 @@ def list_starters(db: Session) -> list[EmailTemplate]:
     return list(
         db.scalars(
             select(EmailTemplate)
-            .where(EmailTemplate.kind == STARTER_KIND)
+            .where(EmailTemplate.kind.in_(STARTER_KINDS))
             .order_by(EmailTemplate.created_at.desc())
         ).all()
     )
@@ -53,9 +55,24 @@ def add_starter(db: Session, *, name: str, html: str) -> EmailTemplate | None:
     return row
 
 
+def add_image_starter(db: Session, *, name: str, image_url: str) -> EmailTemplate | None:
+    """Save a screenshot of an email as a reusable design. The image URL lives in
+    html_fragment; recreate it as HTML by 'building in chat'."""
+    name = (name or "").strip() or "Email screenshot"
+    image_url = (image_url or "").strip()
+    if not image_url:
+        return None
+    row = EmailTemplate(kind=IMAGE_STARTER_KIND, name=name[:120],
+                        html_fragment=image_url, is_builtin=False)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def delete_starter(db: Session, starter_id: int) -> None:
     row = db.get(EmailTemplate, starter_id)
-    if row is not None and row.kind == STARTER_KIND:
+    if row is not None and row.kind in STARTER_KINDS:
         db.delete(row)
         db.commit()
 

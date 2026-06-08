@@ -76,14 +76,15 @@
   </div>
   <div class="tbl-body">
     {% if data.campaigns %}
+    <input class="tbl-filter" type="search" placeholder="Filter campaigns…" data-table="campaigns-table"/>
     <div style="overflow-x:auto;">
-    <table class="data-table">
+    <table class="data-table sortable" id="campaigns-table">
       <thead><tr>
         <th>Campaign</th><th>Status</th><th class="num">Budget/day</th>
         <th class="num">Spend</th><th class="num">Impr.</th><th class="num">Clicks</th>
         <th class="num">CTR</th><th class="num">CPC</th><th class="num">CPM</th>
         <th class="num">Purch.</th><th class="num">Cost/order</th>
-        <th class="num">Revenue</th><th class="num">ROAS</th><th>Controls</th>
+        <th class="num">Revenue</th><th class="num">ROAS</th><th data-nosort>Controls</th>
       </tr></thead>
       <tbody>
         {% set back = '/helena/meta-ads?since=' ~ since ~ '&until=' ~ until %}
@@ -120,7 +121,12 @@
                 <input class="ctrl-input mini" type="number" step="0.01" min="0" name="value" placeholder="Budget"/>
                 <button class="mini-btn" title="Set daily budget">Set</button>
               </form>
-              <a class="mini-btn" href="/helena/meta-ads/campaign/{{ c.id }}?since={{ since }}&until={{ until }}" title="Drill in to edit bids per ad">Bids ›</a>
+              <a class="mini-btn" href="/helena/meta-ads/campaign/{{ c.id }}?since={{ since }}&until={{ until }}" title="Drill in to ads + edit bids">Open ›</a>
+              <form method="post" action="/helena/meta-ads/chat" class="ctrl-form">
+                <input type="hidden" name="kind" value="campaign"/><input type="hidden" name="entity_id" value="{{ c.id }}"/>
+                <input type="hidden" name="name" value="{{ c.name }}"/>
+                <button class="mini-btn" title="Ask Viktoriia about this campaign">💬</button>
+              </form>
             </div>
           </td>
         </tr>
@@ -178,8 +184,9 @@
 </div>
 
 <p class="conn-desc" style="margin-top:14px;">
-  Live from the Meta Marketing API · read-only. Money figures are in {{ cur }}.
-  Need a change? Ask Viktoriia in chat — campaigns stay paused and every spend goes through approval.
+  Live from the Meta Marketing API. Click a column header to sort. Changes are queued through
+  Approvals — money figures are in {{ cur }}.
 </p>
+<script src="/static/sorttable.js"></script>
 {% endif %}
 {% endblock %}

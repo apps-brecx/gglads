@@ -517,6 +517,27 @@
 .seg-toggle button { transition: background .12s ease, color .12s ease; }
 .seg-toggle button:hover { background: var(--bg-hover); }
 
+/* Meta Ads: ad thumbnails, detail page, sortable tables */
+.ad-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
+.ad-creative { max-width: 100%; max-height: 320px; border-radius: 10px; border: 1px solid var(--border); display: block; margin-bottom: 12px; }
+.ad-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .ad-detail-grid { grid-template-columns: 1fr; } }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; color: var(--text); word-break: break-word; }
+.raw-json {
+  margin: 0; padding: 12px; background: var(--bg-input); border-radius: 8px;
+  font-size: 12px; font-family: ui-monospace, monospace; max-height: 360px; overflow: auto; white-space: pre;
+}
+.tbl-filter {
+  width: min(320px, 100%); margin: 0 0 10px; background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; font-size: 13px;
+}
+th.th-sortable { cursor: pointer; user-select: none; }
+th.th-sortable:hover { color: var(--text-strong); }
+th.sorted-asc::after { content: " ▲"; font-size: 9px; }
+th.sorted-desc::after { content: " ▼"; font-size: 9px; }
+
 /* Meta Ads: drill-down controls, date range, table links */
 .tbl-link { color: var(--accent); text-decoration: none; font-weight: 600; }
 .tbl-link:hover { text-decoration: underline; }

@@ -65,6 +65,11 @@
     <input class="ctrl-input" type="number" step="0.01" min="0" name="value" placeholder="Daily {{ sym.get(cur, cur) }}"/>
     <button class="btn-secondary">Set budget</button>
   </form>
+  <form method="post" action="/helena/meta-ads/chat" class="ctrl-form">
+    <input type="hidden" name="kind" value="campaign"/><input type="hidden" name="entity_id" value="{{ data.campaign.id }}"/>
+    <input type="hidden" name="name" value="{{ data.campaign.name }}"/>
+    <button class="btn-secondary">💬 Chat about this</button>
+  </form>
 </div>
 
 {# ---- Top-line cards ---- #}
@@ -97,19 +102,21 @@
   <div class="tbl-head"><h3>Ads in this campaign</h3><span class="conn-desc">{{ data.ads|length }} ads</span></div>
   <div class="tbl-body">
     {% if data.ads %}
+    <input class="tbl-filter" type="search" placeholder="Filter ads…" data-table="ads-table"/>
     <div style="overflow-x:auto;">
-    <table class="data-table">
+    <table class="data-table sortable" id="ads-table">
       <thead><tr>
-        <th>Ad</th><th>Status</th>
+        <th data-nosort>Img</th><th>Ad</th><th>Status</th>
         <th class="num">Spend</th><th class="num">Impr.</th><th class="num">Clicks</th>
         <th class="num">CTR</th><th class="num">CPC</th><th class="num">CPM</th>
         <th class="num">Purch.</th><th class="num">Cost/order</th>
-        <th class="num">Revenue</th><th class="num">ROAS</th><th>Controls</th>
+        <th class="num">Revenue</th><th class="num">ROAS</th><th data-nosort>Controls</th>
       </tr></thead>
       <tbody>
         {% for a in data.ads %}
         <tr>
-          <td>{{ a.name }}{% if a.adset_name %}<div class="conn-desc">{{ a.adset_name }}</div>{% endif %}</td>
+          <td>{% if a.image %}<a href="/helena/meta-ads/ad/{{ a.id }}?campaign={{ campaign_id }}&since={{ since }}&until={{ until }}"><img class="ad-thumb" src="{{ a.image }}" alt="ad"/></a>{% else %}<span class="conn-desc">—</span>{% endif %}</td>
+          <td><a class="tbl-link" href="/helena/meta-ads/ad/{{ a.id }}?campaign={{ campaign_id }}&since={{ since }}&until={{ until }}">{{ a.name }}</a>{% if a.adset_name %}<div class="conn-desc">{{ a.adset_name }}</div>{% endif %}</td>
           <td>{% if a.status %}<span class="pill {{ 'pill-ok' if 'Active' in a.status else '' }}">{{ a.status }}</span>{% else %}—{% endif %}</td>
           <td class="num">{{ money(a.spend) }}</td>
           <td class="num">{{ num(a.impressions) }}</td>
@@ -141,6 +148,12 @@
                 <button class="mini-btn" title="Set cost-per-result cap on this ad's ad set">Set</button>
               </form>
               {% endif %}
+              <a class="mini-btn" href="/helena/meta-ads/ad/{{ a.id }}?campaign={{ campaign_id }}&since={{ since }}&until={{ until }}" title="All settings for this ad">Details ›</a>
+              <form method="post" action="/helena/meta-ads/chat" class="ctrl-form">
+                <input type="hidden" name="kind" value="ad"/><input type="hidden" name="entity_id" value="{{ a.id }}"/>
+                <input type="hidden" name="name" value="{{ a.name }}"/>
+                <button class="mini-btn" title="Ask Viktoriia about this ad">💬</button>
+              </form>
             </div>
           </td>
         </tr>
@@ -196,5 +209,6 @@
   line('roas', '#fbbf24', yRoas);
 })();
 </script>
+<script src="/static/sorttable.js"></script>
 {% endif %}
 {% endblock %}

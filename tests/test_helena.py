@@ -566,6 +566,62 @@ def test_email_skills_return_preview_url(db):
     assert r["status"] == "needs_review"
 
 
+def test_fetch_ad_detail(db, monkeypatch):
+    """Ad drill-down returns the creative image, ad-set settings (budget/bid in
+    dollars), targeting JSON, and insights."""
+    import gglads.config as cfg
+    import httpx as _httpx
+    from gglads.services.helena.meta import meta_api, oauth
+    monkeypatch.setenv("META_EXECUTION_MODE", "api")
+    cfg.get_settings.cache_clear()
+    oauth.save_meta_config(db, {"access_token": "T", "ad_account_id": "5",
+                                "ad_accounts": [], "pages": []})
+
+    class _R:
+        status_code = 200
+        def __init__(self, d): self._d = d
+        def json(self): return self._d
+
+    def fake_get(url, params=None, **k):
+        params = params or {}
+        if params.get("fields") == "currency":
+            return _R({"currency": "USD"})
+        if url.endswith("/ad1"):
+            return _R({"id": "ad1", "name": "Promo", "effective_status": "ACTIVE",
+                       "adset_id": "s1", "campaign_id": "c1",
+                       "creative": {"title": "Hi", "body": "Buy", "image_url": "https://img/x.png",
+                                    "call_to_action_type": "SHOP_NOW"}})
+        if url.endswith("/s1"):
+            return _R({"id": "s1", "name": "Broad", "effective_status": "ACTIVE",
+                       "daily_budget": "2500", "bid_amount": "500", "bid_strategy": "COST_CAP",
+                       "optimization_goal": "OFFSITE_CONVERSIONS",
+                       "targeting": {"geo_locations": {"countries": ["US"]}}})
+        if params.get("level") == "ad":
+            return _R({"data": [{"spend": "100", "impressions": "2000", "clicks": "50",
+                                 "actions": [{"action_type": "purchase", "value": "4"}],
+                                 "action_values": [{"action_type": "purchase", "value": "400"}]}]})
+        return _R({"data": []})
+    monkeypatch.setattr(_httpx, "get", fake_get)
+    try:
+        d = meta_api.MetaApiProvider(db).fetch_ad_detail("ad1", "2026-06-01", "2026-06-08")
+        assert d["ok"]
+        assert d["image"] == "https://img/x.png" and d["creative"]["cta"] == "Shop Now"
+        assert d["adset"]["daily_budget"] == 25.0 and d["adset"]["bid_amount"] == 5.0
+        assert d["adset"]["bid_strategy"] == "Cost Cap"
+        assert "countries" in d["targeting_json"]
+        assert d["metrics"]["roas"] == 4.0
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_email_image_starter(db):
+    from gglads.services.helena import email_campaigns as ec
+    s = ec.add_image_starter(db, name="Screenshot", image_url="https://pub/email.png")
+    assert s is not None and s.kind == "starter_image" and s.html_fragment == "https://pub/email.png"
+    assert ec.add_image_starter(db, name="x", image_url="") is None
+    assert s.id in [r.id for r in ec.list_starters(db)]
+
+
 def test_email_starter_remix_creates_campaign(db):
     from gglads.services.helena import email_campaigns as ec
     s = ec.add_starter(db, name="Hero", html="<html><body>Pink Splash</body></html>")

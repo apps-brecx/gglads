@@ -633,6 +633,47 @@ def test_fetch_ad_detail(db, monkeypatch):
         cfg.get_settings.cache_clear()
 
 
+def test_banner_nearest_aspect():
+    from gglads.services.helena.banners import _nearest_aspect
+    assert _nearest_aspect(1200, 628) == "16:9"   # wide
+    assert _nearest_aspect(1080, 1920) == "9:16"   # tall
+    assert _nearest_aspect(600, 600) == "1:1"      # square
+    assert _nearest_aspect(300, 250) == "1:1"      # near-square
+
+
+def test_banner_generate_crops_to_exact_size(db, monkeypatch):
+    import io
+
+    import httpx as _httpx
+    from PIL import Image
+    from gglads.models.helena import Banner
+    from gglads.services.helena import banners as bn
+    from gglads.services.helena import skills as skills_svc
+    from gglads.services.helena import storage
+    # generate_image returns a 1024x1024 source; we must crop to 1200x628.
+    monkeypatch.setattr(skills_svc, "run_skill",
+                        lambda *a, **k: {"ok": True, "images": [{"url": "https://pub/src.png"}]})
+    src = Image.new("RGB", (1024, 1024), (10, 20, 30)); buf = io.BytesIO(); src.save(buf, "PNG")
+
+    class _R:
+        status_code = 200
+        content = buf.getvalue()
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: _R())
+    captured = {}
+    def fake_put(data, **k):
+        captured["bytes"] = data
+        return ("https://pub/banner.png", None)
+    monkeypatch.setattr(storage, "put_bytes", fake_put)
+
+    b = Banner(name="Hero", width=1200, height=628, status="draft")
+    db.add(b); db.commit()
+    res = bn.generate(db, b, user_id=None)
+    assert res["ok"] and res["exact"] is True
+    assert db.get(Banner, b.id).image_url == "https://pub/banner.png"
+    out = Image.open(io.BytesIO(captured["bytes"]))
+    assert out.size == (1200, 628)  # cropped to exact pixels
+
+
 def test_giveaway_parse_tags():
     from gglads.services.helena.giveaways import parse_tags
     tags = parse_tags("love this! @amy @ben and @amy again", exclude={"@brand"})

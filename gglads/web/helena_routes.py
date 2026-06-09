@@ -1057,6 +1057,152 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         flash(request, "Sample removed.")
         return RedirectResponse("/helena/giveaways", status_code=status.HTTP_303_SEE_OTHER)
 
+    # ===================================================================
+    # Website banners
+    # ===================================================================
+    @router.get("/helena/banners", response_class=HTMLResponse)
+    def banners_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        return templates.TemplateResponse(
+            request, "helena/banners.html",
+            ctx(request, user, "helena_banners",
+                banners=bn.list_banners(db), sizes=bn.list_sizes(db),
+                samples=bn.list_samples(db)),
+        )
+
+    @router.post("/helena/banners/create")
+    async def banner_create(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        form = await request.form()
+        # Size may come from a saved size (id) or explicit width/height.
+        width = int(_to_float(form.get("width")) or 0)
+        height = int(_to_float(form.get("height")) or 0)
+        size_id = form.get("size_id")
+        if size_id:
+            from gglads.models.helena import BannerSize
+            sz = db.get(BannerSize, int(size_id))
+            if sz:
+                width, height = sz.width, sz.height
+        if not width or not height:
+            flash(request, "Pick a size or enter width and height.", "warn")
+            return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+        b = bn.create_banner(db, name=str(form.get("name", "")) or "Banner",
+                             width=width, height=height,
+                             flavor=str(form.get("flavor", "")) or None,
+                             variant=str(form.get("variant", "")) or None,
+                             concept=str(form.get("concept", "")) or None, user_id=user.id)
+        res = bn.generate(db, b, user_id=user.id)
+        flash(request, f"Created banner {b.width}×{b.height}." if res.get("ok")
+              else f"Banner created, but generation failed: {res.get('error')}",
+              "info" if res.get("ok") else "warn")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/{bid}/generate")
+    def banner_generate(bid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        b = bn.get(db, bid)
+        if b is None:
+            return PlainTextResponse("Not found", status_code=404)
+        res = bn.generate(db, b, user_id=user.id)
+        flash(request, "Regenerated banner." if res.get("ok")
+              else f"Couldn't generate: {res.get('error')}", "info" if res.get("ok") else "warn")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/{bid}/delete")
+    def banner_delete(bid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        bn.delete_banner(db, bid)
+        flash(request, "Banner deleted.")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/sizes/add")
+    async def banner_size_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        form = await request.form()
+        row = bn.add_size(db, name=str(form.get("name", "")),
+                          width=int(_to_float(form.get("width")) or 0),
+                          height=int(_to_float(form.get("height")) or 0),
+                          notes=str(form.get("notes", "")) or None)
+        flash(request, "Saved banner size." if row else "Enter a name, width and height.",
+              "info" if row else "warn")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/sizes/{size_id}/delete")
+    def banner_size_delete(size_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        bn.delete_size(db, size_id)
+        flash(request, "Size removed.")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/samples/add")
+    async def banner_sample_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        form = await request.form()
+        name = str(form.get("name", ""))
+        upload = form.get("image")
+        if upload is not None and hasattr(upload, "read"):
+            data = await upload.read()
+            if data:
+                from gglads.services.helena import storage
+                ct = getattr(upload, "content_type", "") or "image/png"
+                ext = {"image/jpeg": "jpg", "image/webp": "webp",
+                       "image/gif": "gif"}.get(ct, "png")
+                url, err = storage.put_bytes(data, content_type=ct,
+                                             key_prefix="helena/banner", ext=ext)
+                row = bn.add_sample(db, name=name, image_url=url,
+                                    notes=str(form.get("notes", "")) or None) if url else None
+                flash(request, "Saved banner sample." if row
+                      else f"Couldn't save: {err or 'unknown error'}",
+                      "info" if row else "warn")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/samples/{sample_id}/delete")
+    def banner_sample_delete(sample_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import banners as bn
+        bn.delete_sample(db, sample_id)
+        flash(request, "Sample removed.")
+        return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/banners/samples/{sample_id}/remix")
+    def banner_sample_remix(sample_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from urllib.parse import quote
+
+        from gglads.models.helena import BannerSample
+        s = db.get(BannerSample, sample_id)
+        if s is None:
+            return RedirectResponse("/helena/banners", status_code=status.HTTP_303_SEE_OTHER)
+        sess = agent_svc.create_session(db, title=f"Banner remix — {s.name}", user_id=user.id)
+        return RedirectResponse(
+            f"/helena/chat?session={sess.id}&remix={quote(s.image_url, safe='')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
     @router.post("/helena/email/{campaign_id}/refine")
     def email_refine_in_chat(campaign_id: int, request: Request, db: DbDep) -> Response:
         user, deny = require_user(request, db)

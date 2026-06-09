@@ -1,0 +1,123 @@
+{% extends "layout.html" %}
+{% block title %}Banners — Viktoriia{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="page-head">
+  <h1 class="page-title">Website banners</h1>
+  <p class="page-subtitle">
+    Generate on-brand banners at your exact pixel sizes (real bottle, via Nano Banana,
+    cover-cropped to size). Configure your sizes and sample designs below.
+  </p>
+</div>
+
+{# ---- Create ---- #}
+<div class="tbl-card">
+  <div class="tbl-head"><h3>Create a banner</h3></div>
+  <div class="tbl-body">
+    <form method="post" action="/helena/banners/create"
+          style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:720px;">
+      <input class="ctrl-input" style="width:auto;grid-column:1/3;" type="text" name="name" placeholder="Banner name (e.g. Homepage hero — Pink Splash)" required/>
+      <select class="ctrl-input" style="width:auto;" name="size_id">
+        <option value="">Pick a saved size…</option>
+        {% for s in sizes %}<option value="{{ s.id }}">{{ s.name }} — {{ s.width }}×{{ s.height }}</option>{% endfor %}
+      </select>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input class="ctrl-input" style="width:90px;" type="number" name="width" placeholder="W"/>
+        <span class="conn-desc">×</span>
+        <input class="ctrl-input" style="width:90px;" type="number" name="height" placeholder="H"/>
+        <span class="conn-desc">or custom px</span>
+      </div>
+      <input class="ctrl-input" style="width:auto;" type="text" name="flavor" placeholder="Flavor (real bottle)"/>
+      <select class="ctrl-input" style="width:auto;" name="variant">
+        <option value="">Variant (optional)</option>
+        <option value="regular">Regular</option>
+        <option value="sugar_free">Sugar-Free</option>
+      </select>
+      <textarea name="concept" rows="2" style="grid-column:1/3;background:var(--bg-input);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-size:13px;" placeholder="What the banner should show (scene/headline space)…"></textarea>
+      <div style="grid-column:1/3;"><button class="btn-primary" type="submit">Generate banner</button></div>
+    </form>
+  </div>
+</div>
+
+{# ---- Banners ---- #}
+<div class="tbl-card" style="margin-top:18px;">
+  <div class="tbl-head"><h3>Your banners</h3><span class="conn-desc">{{ banners|length }}</span></div>
+  <div class="tbl-body">
+    {% if banners %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+      {% for b in banners %}
+      <div class="file-card">
+        {% if b.image_url %}<a href="{{ b.image_url }}" target="_blank"><img src="{{ b.image_url }}" alt="{{ b.name }}" class="file-thumb"/></a>{% else %}<div class="conn-desc" style="padding:20px;text-align:center;">Not generated</div>{% endif %}
+        <div class="file-meta">
+          <div class="file-title" title="{{ b.name }}">{{ b.name }}</div>
+          <div class="conn-desc">{{ b.width }}×{{ b.height }}{% if b.flavor %} · {{ b.flavor }}{% endif %}</div>
+        </div>
+        <div class="row-ctrls">
+          {% if b.image_url %}<a class="mini-btn" href="{{ b.image_url }}" download target="_blank">Download</a>{% endif %}
+          <form method="post" action="/helena/banners/{{ b.id }}/generate" class="ctrl-form"><button class="mini-btn">Regenerate</button></form>
+          <form method="post" action="/helena/banners/{{ b.id }}/delete" class="ctrl-form" onsubmit="return confirm('Delete?');"><button class="mini-btn" style="color:var(--fail);">✕</button></form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="conn-desc" style="padding:10px 0;">No banners yet — create one above.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- Settings: sizes + samples ---- #}
+<div class="ad-detail-grid" style="margin-top:18px;">
+  <div class="tbl-card">
+    <div class="tbl-head"><h3>Banner sizes</h3><span class="conn-desc">your standard dimensions</span></div>
+    <div class="tbl-body">
+      {% if sizes %}
+      <table class="data-table">
+        <thead><tr><th>Name</th><th class="num">Size</th><th></th></tr></thead>
+        <tbody>
+          {% for s in sizes %}
+          <tr>
+            <td>{{ s.name }}{% if s.notes %}<div class="conn-desc">{{ s.notes }}</div>{% endif %}</td>
+            <td class="num">{{ s.width }}×{{ s.height }}</td>
+            <td><form method="post" action="/helena/banners/sizes/{{ s.id }}/delete" class="ctrl-form"><button class="mini-btn" style="color:var(--fail);">✕</button></form></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<div class="conn-desc">No sizes yet. Add the ones your site uses.</div>{% endif %}
+      <form method="post" action="/helena/banners/sizes/add" style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <input class="ctrl-input" style="width:160px;" type="text" name="name" placeholder="Name (e.g. Hero)" required/>
+        <input class="ctrl-input" style="width:84px;" type="number" name="width" placeholder="W" required/>
+        <input class="ctrl-input" style="width:84px;" type="number" name="height" placeholder="H" required/>
+        <button class="btn-secondary" type="submit">Add size</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="tbl-card">
+    <div class="tbl-head"><h3>Sample designs</h3><span class="conn-desc">remix the style</span></div>
+    <div class="tbl-body">
+      {% if samples %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;">
+        {% for s in samples %}
+        <div class="file-card">
+          <a href="{{ s.image_url }}" target="_blank"><img src="{{ s.image_url }}" alt="{{ s.name }}" class="file-thumb"/></a>
+          <div class="file-meta"><div class="file-title" title="{{ s.name }}">{{ s.name }}</div></div>
+          <div class="row-ctrls">
+            <form method="post" action="/helena/banners/samples/{{ s.id }}/remix" class="ctrl-form"><button class="mini-btn">🎨 Remix</button></form>
+            <form method="post" action="/helena/banners/samples/{{ s.id }}/delete" class="ctrl-form" onsubmit="return confirm('Delete?');"><button class="mini-btn" style="color:var(--fail);">✕</button></form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}<div class="conn-desc">No samples yet. Upload past banners to reuse their style.</div>{% endif %}
+      <form method="post" action="/helena/banners/samples/add" enctype="multipart/form-data" style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <input class="ctrl-input" style="width:150px;" type="text" name="name" placeholder="Sample name" required/>
+        <input type="file" name="image" accept="image/*" required/>
+        <button class="btn-secondary" type="submit">Add sample</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

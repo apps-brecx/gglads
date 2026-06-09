@@ -62,6 +62,10 @@ class MetaExecutionProvider(ABC):
             message="Reading Instagram post insights isn't supported by this backend.",
         )
 
+    def fetch_media_comments(self, media_id: str, limit: int = 500) -> dict:
+        return {"ok": False,
+                "error": "Reading comments isn't supported by this backend.", "comments": []}
+
     # ---- Live per-ad performance for an explicit date range -----------
     def fetch_ad_performance(self, since, until) -> ProviderResult:
         return ProviderResult(

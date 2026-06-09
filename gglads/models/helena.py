@@ -360,3 +360,80 @@ class AdStockGuardState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ---------------------------------------------------------------------------
+# Instagram giveaways
+# ---------------------------------------------------------------------------
+
+class Giveaway(Base):
+    """A weekly Instagram giveaway for a product. The post uses the real bottle.
+    Entries are collected from comments (each tag-a-friend = an entry); a random
+    draw picks one winner. Follower/share rules are stated but can't be verified
+    by the IG API, so they're enforced by manual review."""
+
+    __tablename__ = "helena_giveaways"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    flavor: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    variant: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    product_handle: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rules_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 'draft' | 'scheduled' | 'live' | 'drawing' | 'closed'
+    status: Mapped[str] = mapped_column(String(20), nullable=False,
+                                        server_default="draft", index=True)
+    # The published IG media (set once the post goes live) — entries read from it.
+    post_id: Mapped[int | None] = mapped_column(
+        ForeignKey("helena_posts.id", ondelete="SET NULL"), nullable=True)
+    media_external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 'weekly' to auto-spin up next week's giveaway; None for one-off.
+    recurrence: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    entries_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    winner_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    drawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class GiveawayEntry(Base):
+    """One entry in a giveaway. A comment that tags friends creates one entry per
+    tagged friend (more tags = more chances). `username` is the entrant (the
+    commenter); `tagged` is the friend they tagged."""
+
+    __tablename__ = "helena_giveaway_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(
+        ForeignKey("helena_giveaways.id", ondelete="CASCADE"), nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(120), nullable=False)
+    tagged: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # 'comment' | 'tag'
+    source: Mapped[str] = mapped_column(String(10), nullable=False, server_default="tag")
+    comment_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Admin can disqualify an entry (e.g. not a follower / didn't share).
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class GiveawaySample(Base):
+    """A past giveaway post (image) kept as a reference design so new giveaway
+    posts can be generated in the same style."""
+
+    __tablename__ = "helena_giveaway_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -633,6 +633,53 @@ def test_fetch_ad_detail(db, monkeypatch):
         cfg.get_settings.cache_clear()
 
 
+def test_giveaway_parse_tags():
+    from gglads.services.helena.giveaways import parse_tags
+    tags = parse_tags("love this! @amy @ben and @amy again", exclude={"@brand"})
+    assert tags == ["amy", "ben"]  # de-duped, lowercased, order kept
+    assert parse_tags("no tags here") == []
+    assert parse_tags("@me picks @you", exclude={"me"}) == ["you"]  # exclude commenter
+
+
+def test_giveaway_collect_and_draw(db, monkeypatch):
+    from gglads.models.helena import Giveaway, GiveawayEntry
+    from gglads.services.helena import giveaways as gv
+    from gglads.services.helena.meta import factory as meta_factory, oauth as meta_oauth
+    monkeypatch.setattr(meta_oauth, "get_meta_config", lambda db: {"ig_username": "brand"})
+
+    class FakeProvider:
+        def fetch_media_comments(self, media_id, limit=500):
+            return {"ok": True, "comments": [
+                {"id": "c1", "username": "amy", "text": "@ben @cara"},   # 2 tags
+                {"id": "c2", "username": "amy", "text": "@dan"},          # +1 tag (amy: 3)
+                {"id": "c3", "username": "ben", "text": "@brand cool"},   # brand excluded → 0
+                {"id": "c4", "username": "cara", "text": "no tags"},      # 0
+            ]}
+    monkeypatch.setattr(meta_factory, "get_meta_provider", lambda db: FakeProvider())
+
+    g = Giveaway(name="Wk", status="live", media_external_id="m1")
+    db.add(g); db.commit()
+    r = gv.collect_entries(db, g)
+    assert r["ok"] and r["added"] == 3 and r["total"] == 3
+    # Idempotent: re-running adds nothing.
+    assert gv.collect_entries(db, g)["added"] == 0
+    # Leaderboard: amy has 3 chances, ben? ben only commented with brand tag → 0 entries.
+    board = {b["username"]: b["entries"] for b in gv.leaderboard(db, g.id)}
+    assert board == {"amy": 3}
+    # Draw: winner must be amy (only eligible entrant).
+    res = gv.draw_winner(db, g)
+    assert res["ok"] and res["winner"] == "amy" and res["tickets"] == 3
+    assert db.get(Giveaway, g.id).status == "closed"
+
+
+def test_giveaway_draw_needs_entries(db):
+    from gglads.models.helena import Giveaway
+    from gglads.services.helena import giveaways as gv
+    g = Giveaway(name="Empty", status="live")
+    db.add(g); db.commit()
+    assert gv.draw_winner(db, g)["ok"] is False
+
+
 def test_stock_guard_handle_from_url():
     from gglads.services.helena.ad_stock_guard import handle_from_url
     assert handle_from_url("https://shop.com/products/mango-splash?ref=x") == "mango-splash"

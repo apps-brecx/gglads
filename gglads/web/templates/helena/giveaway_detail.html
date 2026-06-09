@@ -1,0 +1,147 @@
+{% extends "layout.html" %}
+{% block title %}{{ g.name }} — Giveaway{% endblock %}
+{% block content %}
+{% if flashes %}{% for f in flashes %}<div class="pill pill-{{ f.level }}" style="margin-bottom:8px;">{{ f.message }}</div>{% endfor %}{% endif %}
+
+<div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+  <div>
+    <a href="/helena/giveaways" class="conn-desc" style="text-decoration:none;">← All giveaways</a>
+    <h1 class="page-title" style="margin-top:4px;">{{ g.name }}
+      {% if g.status == 'live' %}<span class="pill active">Live</span>
+      {% elif g.status == 'scheduled' %}<span class="pill needs_review">Awaiting publish</span>
+      {% elif g.status == 'closed' %}<span class="pill succeeded">Closed</span>
+      {% else %}<span class="pill">Draft</span>{% endif %}
+    </h1>
+    <p class="page-subtitle">
+      {{ g.flavor or 'No flavor set' }}{% if g.variant %} ({{ g.variant.replace('_','-') }}){% endif %}
+      {% if g.recurrence == 'weekly' %} · repeats weekly{% endif %}
+      {% if g.ends_at %} · ends {{ g.ends_at.strftime('%b %d, %H:%M') }}{% endif %}
+      {% if g.permalink %} · <a href="{{ g.permalink }}" target="_blank">View on Instagram ↗</a>{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/helena/giveaways/{{ g.id }}/delete" onsubmit="return confirm('Delete this giveaway?');">
+    <button class="btn-secondary" style="color:var(--fail);">Delete</button>
+  </form>
+</div>
+
+<div class="ad-detail-grid">
+  {# Post + actions #}
+  <div class="tbl-card">
+    <div class="tbl-head"><h3>Post</h3></div>
+    <div class="tbl-body" style="padding:14px;">
+      {% if g.image_url %}<img class="ad-creative" src="{{ g.image_url }}" alt="giveaway"/>{% else %}<div class="conn-desc" style="margin-bottom:10px;">No image yet — generate one (uses your real bottle).</div>{% endif %}
+      {% if g.caption %}<div class="helena-bubble md" style="white-space:pre-wrap;">{{ g.caption }}</div>{% endif %}
+      <div class="ctrl-bar" style="margin-top:12px;">
+        <form method="post" action="/helena/giveaways/{{ g.id }}/generate" class="ctrl-form">
+          <button class="btn-secondary">{{ 'Regenerate image' if g.image_url else '✨ Generate image' }}</button>
+        </form>
+        {% if g.image_url and g.status in ('draft',) %}
+        <form method="post" action="/helena/giveaways/{{ g.id }}/approve" class="ctrl-form">
+          <button class="btn-primary">→ Send to approval</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# Entries + draw #}
+  <div class="tbl-card">
+    <div class="tbl-head"><h3>Entries</h3><span class="conn-desc">{{ total }} eligible</span></div>
+    <div class="tbl-body" style="padding:14px;">
+      <div class="ctrl-bar" style="margin:0 0 12px;">
+        <form method="post" action="/helena/giveaways/{{ g.id }}/collect" class="ctrl-form">
+          <button class="btn-secondary">⤓ Collect entries now</button>
+        </form>
+        {% if g.entries_synced_at %}<span class="conn-desc">synced {{ g.entries_synced_at.strftime('%b %d %H:%M') }}</span>{% endif %}
+      </div>
+
+      {# Spin / winner #}
+      <div class="spin-stage">
+        <div id="reel" class="spin-reel">{% if g.winner_username %}🏆 @{{ g.winner_username }}{% else %}Ready to spin{% endif %}</div>
+        {% if g.winner_username %}
+          <div class="conn-desc">Drawn {{ g.drawn_at.strftime('%b %d, %H:%M') if g.drawn_at else '' }}</div>
+        {% else %}
+          <button id="spin" class="btn-primary" data-url="/helena/giveaways/{{ g.id }}/draw" {% if total == 0 %}disabled{% endif %}>🎡 Spin to draw a winner</button>
+        {% endif %}
+      </div>
+
+      {% if board %}
+      <h4 style="margin:16px 0 6px;font-size:13px;">Chances (entries per person)</h4>
+      <table class="data-table">
+        <thead><tr><th>Entrant</th><th class="num">Entries</th></tr></thead>
+        <tbody>
+          {% for row in board %}
+          <tr><td>@{{ row.username }}</td><td class="num">{{ row.entries }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <div class="conn-desc">No entries yet. Once the post is live and people tag friends, collect entries here.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if entries %}
+<div class="tbl-card collapsed" style="margin-top:16px;">
+  <div class="tbl-head" onclick="this.closest('.tbl-card').classList.toggle('collapsed')">
+    <svg class="tbl-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    <h3>All entries</h3><span class="conn-desc">{{ entries|length }} · remove ineligible (non-follower / didn’t share)</span>
+  </div>
+  <div class="tbl-body">
+    <table class="data-table">
+      <thead><tr><th>Entrant</th><th>Tagged</th><th>Eligible</th></tr></thead>
+      <tbody>
+        {% for e in entries %}
+        <tr {% if not e.eligible %}style="opacity:.5;"{% endif %}>
+          <td>@{{ e.username }}</td><td class="conn-desc">@{{ e.tagged or '—' }}</td>
+          <td>
+            <form method="post" action="/helena/giveaways/{{ g.id }}/entry/{{ e.id }}/toggle" class="ctrl-form">
+              <input type="hidden" name="eligible" value="{{ '0' if e.eligible else '1' }}"/>
+              <button class="mini-btn">{{ 'Disqualify' if e.eligible else 'Restore' }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<style>
+.spin-stage { text-align:center; padding:14px; border:1px dashed var(--border-strong); border-radius:12px; }
+.spin-reel { font-size:26px; font-weight:800; padding:14px 8px; color:var(--text-strong); letter-spacing:.5px; }
+.spin-reel.winner { color:var(--accent); transform:scale(1.08); transition:transform .3s ease; }
+</style>
+<script>
+(function () {
+  var btn = document.getElementById('spin');
+  if (!btn) return;
+  var reel = document.getElementById('reel');
+  btn.addEventListener('click', async function () {
+    btn.disabled = true;
+    var res, data;
+    try {
+      res = await fetch(btn.dataset.url, { method: 'POST', headers: { 'Accept': 'application/json' } });
+      data = await res.json();
+    } catch (e) { reel.textContent = '⚠ ' + e; btn.disabled = false; return; }
+    if (!data.ok) { reel.textContent = data.error || 'Couldn’t draw.'; btn.disabled = false; return; }
+    var pool = (data.pool && data.pool.length) ? data.pool : [data.winner];
+    btn.style.display = 'none';
+    var i = 0, t = 60, elapsed = 0, max = 2600;
+    function tick() {
+      reel.textContent = '@' + pool[i % pool.length];
+      i++; elapsed += t;
+      if (elapsed < max) { t = Math.min(t * 1.09, 340); setTimeout(tick, t); }
+      else {
+        reel.textContent = '🏆 @' + data.winner;
+        reel.classList.add('winner');
+        setTimeout(function () { location.reload(); }, 1600);
+      }
+    }
+    tick();
+  });
+})();
+</script>
+{% endblock %}

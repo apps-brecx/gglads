@@ -890,6 +890,173 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         return RedirectResponse(f"/helena/chat?session={s.id}&email_remix={camp.id}",
                                 status_code=status.HTTP_303_SEE_OTHER)
 
+    # ===================================================================
+    # Instagram giveaways
+    # ===================================================================
+    @router.get("/helena/giveaways", response_class=HTMLResponse)
+    def giveaways_page(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        return templates.TemplateResponse(
+            request, "helena/giveaways.html",
+            ctx(request, user, "helena_giveaways",
+                giveaways=gv.list_giveaways(db), samples=gv.list_samples(db)),
+        )
+
+    @router.get("/helena/giveaways/{gid}", response_class=HTMLResponse)
+    def giveaway_detail(gid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        g = gv.get(db, gid)
+        if g is None:
+            return PlainTextResponse("Not found", status_code=404)
+        gv.sync_published_media(db, g)
+        return templates.TemplateResponse(
+            request, "helena/giveaway_detail.html",
+            ctx(request, user, "helena_giveaways", g=g,
+                board=gv.leaderboard(db, gid),
+                entries=gv.list_entries(db, gid),
+                total=gv.entry_count(db, gid)),
+        )
+
+    @router.post("/helena/giveaways/create")
+    async def giveaway_create(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        form = await request.form()
+        g = gv.create_giveaway(
+            db, name=str(form.get("name", "")), flavor=str(form.get("flavor", "")) or None,
+            variant=str(form.get("variant", "")) or None,
+            rules_text=str(form.get("rules", "")) or None,
+            days=int(_to_float(form.get("days")) or 7),
+            weekly=str(form.get("weekly", "")) in ("1", "on", "true", "yes"),
+            user_id=user.id)
+        flash(request, "Giveaway created. Generate the post, then send it to approval.")
+        return RedirectResponse(f"/helena/giveaways/{g.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/{gid}/generate")
+    def giveaway_generate(gid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        g = gv.get(db, gid)
+        if g is None:
+            return PlainTextResponse("Not found", status_code=404)
+        res = gv.generate_post(db, g, user_id=user.id)
+        flash(request, "Generated the giveaway image (real bottle)." if res.get("ok")
+              else f"Couldn't generate: {res.get('error')}", "info" if res.get("ok") else "warn")
+        return RedirectResponse(f"/helena/giveaways/{gid}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/{gid}/approve")
+    def giveaway_approve(gid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        g = gv.get(db, gid)
+        if g is None:
+            return PlainTextResponse("Not found", status_code=404)
+        res = gv.send_to_approval(db, g, user_id=user.id)
+        flash(request, "Queued the giveaway post for approval — it publishes once you approve."
+              if res.get("ok") else f"Couldn't queue: {res.get('error')}",
+              "info" if res.get("ok") else "warn")
+        return RedirectResponse(f"/helena/giveaways/{gid}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/{gid}/collect")
+    def giveaway_collect(gid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        g = gv.get(db, gid)
+        if g is None:
+            return PlainTextResponse("Not found", status_code=404)
+        res = gv.collect_entries(db, g)
+        flash(request, f"Collected entries — {res.get('added', 0)} new, {res.get('total', 0)} total."
+              if res.get("ok") else f"Couldn't collect: {res.get('error')}",
+              "info" if res.get("ok") else "warn")
+        return RedirectResponse(f"/helena/giveaways/{gid}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/{gid}/draw")
+    async def giveaway_draw(gid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        g = gv.get(db, gid)
+        if g is None:
+            return PlainTextResponse("Not found", status_code=404)
+        res = gv.draw_winner(db, g)
+        if request.headers.get("accept", "").startswith("application/json"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(res)
+        flash(request, f"Winner: @{res['winner']}!" if res.get("ok")
+              else res.get("error", "Couldn't draw."), "info" if res.get("ok") else "warn")
+        return RedirectResponse(f"/helena/giveaways/{gid}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/{gid}/entry/{entry_id}/toggle")
+    async def giveaway_entry_toggle(gid: int, entry_id: int, request: Request,
+                                    db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        form = await request.form()
+        gv.set_eligibility(db, entry_id, str(form.get("eligible", "")) in ("1", "on", "true"))
+        return RedirectResponse(f"/helena/giveaways/{gid}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/{gid}/delete")
+    def giveaway_delete(gid: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        gv.delete_giveaway(db, gid)
+        flash(request, "Giveaway deleted.")
+        return RedirectResponse("/helena/giveaways", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/samples/add")
+    async def giveaway_sample_add(request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        form = await request.form()
+        name = str(form.get("name", ""))
+        upload = form.get("image")
+        if upload is not None and hasattr(upload, "read"):
+            data = await upload.read()
+            if data:
+                from gglads.services.helena import storage
+                ct = getattr(upload, "content_type", "") or "image/png"
+                ext = {"image/jpeg": "jpg", "image/webp": "webp",
+                       "image/gif": "gif"}.get(ct, "png")
+                url, err = storage.put_bytes(data, content_type=ct,
+                                             key_prefix="helena/giveaway", ext=ext)
+                row = gv.add_sample(db, name=name, image_url=url,
+                                    notes=str(form.get("notes", "")) or None) if url else None
+                flash(request, "Saved giveaway sample." if row
+                      else f"Couldn't save: {err or 'unknown error'}",
+                      "info" if row else "warn")
+        return RedirectResponse("/helena/giveaways", status_code=status.HTTP_303_SEE_OTHER)
+
+    @router.post("/helena/giveaways/samples/{sample_id}/delete")
+    def giveaway_sample_delete(sample_id: int, request: Request, db: DbDep) -> Response:
+        user, deny = require_user(request, db)
+        if deny:
+            return deny
+        from gglads.services.helena import giveaways as gv
+        gv.delete_sample(db, sample_id)
+        flash(request, "Sample removed.")
+        return RedirectResponse("/helena/giveaways", status_code=status.HTTP_303_SEE_OTHER)
+
     @router.post("/helena/email/{campaign_id}/refine")
     def email_refine_in_chat(campaign_id: int, request: Request, db: DbDep) -> Response:
         user, deny = require_user(request, db)

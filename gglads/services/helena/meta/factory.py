@@ -98,6 +98,12 @@ class AccessModeGuard(MetaExecutionProvider):
         ok, why = self._can_read("instagram")
         return self._inner.fetch_instagram_media(limit) if ok else _denied("Instagram", why)
 
+    def fetch_media_comments(self, media_id: str, limit: int = 500) -> dict:
+        ok, why = self._can_read("instagram")
+        if not ok:
+            return {"ok": False, "error": f"Instagram is {why}.", "comments": []}
+        return self._inner.fetch_media_comments(media_id, limit)
+
     def fetch_ad_performance(self, since, until) -> ProviderResult:
         ok, why = self._can_read("meta_ads")
         return self._inner.fetch_ad_performance(since, until) if ok else _denied("Meta Ads", why)

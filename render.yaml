@@ -185,6 +185,28 @@ services:
       - key: META_EXECUTION_MODE
         sync: false
 
+  # Hourly — giveaway maintenance: refresh entries (comments/tag-a-friend) for
+  # live giveaways, draw + close ended ones, and queue next week's draft.
+  - type: cron
+    name: gglads-giveaway-sync
+    runtime: python
+    schedule: "15 * * * *"
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: python -m gglads.cron.giveaway_sync
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_ENV
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: META_EXECUTION_MODE
+        sync: false
+      - key: GOOGLE_FLOW_API_KEY
+        sync: false
+
   # Mondays 06:00 UTC — AI-generate new collection suggestions from
   # site-wide organic queries. Lands as pending rows on /collections.
   - type: cron

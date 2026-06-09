@@ -633,6 +633,94 @@ def test_fetch_ad_detail(db, monkeypatch):
         cfg.get_settings.cache_clear()
 
 
+def test_banner_nearest_aspect():
+    from gglads.services.helena.banners import _nearest_aspect
+    assert _nearest_aspect(1200, 628) == "16:9"   # wide
+    assert _nearest_aspect(1080, 1920) == "9:16"   # tall
+    assert _nearest_aspect(600, 600) == "1:1"      # square
+    assert _nearest_aspect(300, 250) == "1:1"      # near-square
+
+
+def test_banner_generate_crops_to_exact_size(db, monkeypatch):
+    import io
+
+    import httpx as _httpx
+    from PIL import Image
+    from gglads.models.helena import Banner
+    from gglads.services.helena import banners as bn
+    from gglads.services.helena import skills as skills_svc
+    from gglads.services.helena import storage
+    # generate_image returns a 1024x1024 source; we must crop to 1200x628.
+    monkeypatch.setattr(skills_svc, "run_skill",
+                        lambda *a, **k: {"ok": True, "images": [{"url": "https://pub/src.png"}]})
+    src = Image.new("RGB", (1024, 1024), (10, 20, 30)); buf = io.BytesIO(); src.save(buf, "PNG")
+
+    class _R:
+        status_code = 200
+        content = buf.getvalue()
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: _R())
+    captured = {}
+    def fake_put(data, **k):
+        captured["bytes"] = data
+        return ("https://pub/banner.png", None)
+    monkeypatch.setattr(storage, "put_bytes", fake_put)
+
+    b = Banner(name="Hero", width=1200, height=628, status="draft")
+    db.add(b); db.commit()
+    res = bn.generate(db, b, user_id=None)
+    assert res["ok"] and res["exact"] is True
+    assert db.get(Banner, b.id).image_url == "https://pub/banner.png"
+    out = Image.open(io.BytesIO(captured["bytes"]))
+    assert out.size == (1200, 628)  # cropped to exact pixels
+
+
+def test_giveaway_parse_tags():
+    from gglads.services.helena.giveaways import parse_tags
+    tags = parse_tags("love this! @amy @ben and @amy again", exclude={"@brand"})
+    assert tags == ["amy", "ben"]  # de-duped, lowercased, order kept
+    assert parse_tags("no tags here") == []
+    assert parse_tags("@me picks @you", exclude={"me"}) == ["you"]  # exclude commenter
+
+
+def test_giveaway_collect_and_draw(db, monkeypatch):
+    from gglads.models.helena import Giveaway, GiveawayEntry
+    from gglads.services.helena import giveaways as gv
+    from gglads.services.helena.meta import factory as meta_factory, oauth as meta_oauth
+    monkeypatch.setattr(meta_oauth, "get_meta_config", lambda db: {"ig_username": "brand"})
+
+    class FakeProvider:
+        def fetch_media_comments(self, media_id, limit=500):
+            return {"ok": True, "comments": [
+                {"id": "c1", "username": "amy", "text": "@ben @cara"},   # 2 tags
+                {"id": "c2", "username": "amy", "text": "@dan"},          # +1 tag (amy: 3)
+                {"id": "c3", "username": "ben", "text": "@brand cool"},   # brand excluded → 0
+                {"id": "c4", "username": "cara", "text": "no tags"},      # 0
+            ]}
+    monkeypatch.setattr(meta_factory, "get_meta_provider", lambda db: FakeProvider())
+
+    g = Giveaway(name="Wk", status="live", media_external_id="m1")
+    db.add(g); db.commit()
+    r = gv.collect_entries(db, g)
+    assert r["ok"] and r["added"] == 3 and r["total"] == 3
+    # Idempotent: re-running adds nothing.
+    assert gv.collect_entries(db, g)["added"] == 0
+    # Leaderboard: amy has 3 chances, ben? ben only commented with brand tag → 0 entries.
+    board = {b["username"]: b["entries"] for b in gv.leaderboard(db, g.id)}
+    assert board == {"amy": 3}
+    # Draw: winner must be amy (only eligible entrant).
+    res = gv.draw_winner(db, g)
+    assert res["ok"] and res["winner"] == "amy" and res["tickets"] == 3
+    assert db.get(Giveaway, g.id).status == "closed"
+
+
+def test_giveaway_draw_needs_entries(db):
+    from gglads.models.helena import Giveaway
+    from gglads.services.helena import giveaways as gv
+    g = Giveaway(name="Empty", status="live")
+    db.add(g); db.commit()
+    assert gv.draw_winner(db, g)["ok"] is False
+
+
 def test_stock_guard_handle_from_url():
     from gglads.services.helena.ad_stock_guard import handle_from_url
     assert handle_from_url("https://shop.com/products/mango-splash?ref=x") == "mango-splash"

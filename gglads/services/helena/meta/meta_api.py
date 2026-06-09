@@ -595,6 +595,32 @@ class MetaApiProvider(MetaExecutionProvider):
             message=f"Read insights for {len(posts)} recent Instagram post(s).",
         )
 
+    def fetch_media_comments(self, media_id: str, limit: int = 500) -> dict:
+        """All comments on one of our IG media (with pagination), for giveaway
+        entry collection. Returns {ok, comments:[{id, username, text, timestamp}]}."""
+        if not self._token:
+            return {"ok": False, "error": "Instagram isn't connected.", "comments": []}
+        out: list[dict] = []
+        path = f"{media_id}/comments"
+        params = {"fields": "id,username,text,timestamp", "limit": 100}
+        pages = 0
+        while path and len(out) < limit and pages < 20:
+            body, err = self._get(path, params)
+            if err or not body:
+                if not out:
+                    return {"ok": False, "error": err or "No response.", "comments": []}
+                break
+            for c in (body.get("data") or []):
+                out.append({"id": c.get("id"), "username": c.get("username"),
+                            "text": c.get("text") or "", "timestamp": c.get("timestamp")})
+            nxt = (((body.get("paging") or {}).get("cursors") or {}).get("after"))
+            if nxt and (body.get("paging") or {}).get("next"):
+                params = {**params, "after": nxt}
+                pages += 1
+            else:
+                break
+        return {"ok": True, "comments": out}
+
 
 def _metric(platform: str, metric: str, value, when: datetime) -> dict:
     try:
